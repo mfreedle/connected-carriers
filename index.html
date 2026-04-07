@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connected Carriers — The Carrier Network Built on Trust</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate:   #1C2B3A;
+    --slate2:  #243447;
+    --slate3:  #2E4058;
+    --amber:   #C8892A;
+    --amber2:  #E09B35;
+    --amber3:  #F5B84A;
+    --cream:   #F7F5F0;
+    --cream2:  #EDE9E1;
+    --cream3:  #E0DAD0;
+    --ink:     #141414;
+    --muted:   #6B7A8A;
+    --white:   #FFFFFF;
+    --serif:   'Playfair Display', Georgia, serif;
+    --sans:    'DM Sans', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--cream);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── NAV ──────────────────────────────────────────────── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: var(--slate);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+    border-bottom: 1px solid var(--slate3);
+  }
+
+  .nav-logo {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--cream);
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .nav-logo span {
+    color: var(--amber);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(247,245,240,0.6);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--cream); }
+
+  .nav-cta {
+    background: var(--amber);
+    color: var(--slate) !important;
+    padding: 9px 22px;
+    border-radius: 2px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    transition: background 0.2s !important;
+  }
+
+  .nav-cta:hover { background: var(--amber2) !important; }
+
+  /* ── HERO ─────────────────────────────────────────────── */
+  .hero {
+    min-height: 100vh;
+    background: var(--slate);
+    display: flex;
+    align-items: center;
+    padding: 120px 48px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 60%;
+    height: 130%;
+    background: var(--slate2);
+    transform: skewX(-8deg);
+    z-index: 0;
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--amber), transparent);
+  }
+
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 680px;
+  }
+
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 28px;
+    font-weight: 500;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: block;
+    width: 28px;
+    height: 1px;
+    background: var(--amber);
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(42px, 5.5vw, 72px);
+    font-weight: 400;
+    line-height: 1.12;
+    color: var(--cream);
+    margin-bottom: 24px;
+    letter-spacing: -0.01em;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--amber);
+  }
+
+  .hero-sub {
+    font-size: 17px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.65);
+    max-width: 520px;
+    margin-bottom: 44px;
+    line-height: 1.7;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--amber);
+    color: var(--slate);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 14px 32px;
+    border-radius: 2px;
+    text-decoration: none;
+    transition: background 0.2s, transform 0.15s;
+  }
+
+  .btn-primary:hover {
+    background: var(--amber2);
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: var(--cream);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    padding: 14px 32px;
+    border-radius: 2px;
+    border: 1px solid rgba(247,245,240,0.25);
+    text-decoration: none;
+    transition: border-color 0.2s, background 0.2s;
+  }
+
+  .btn-ghost:hover {
+    border-color: rgba(247,245,240,0.5);
+    background: rgba(247,245,240,0.06);
+  }
+
+  /* ── TRUST BAR ────────────────────────────────────────── */
+  .trust-bar {
+    background: var(--cream2);
+    border-bottom: 1px solid var(--cream3);
+    padding: 20px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 56px;
+    flex-wrap: wrap;
+  }
+
+  .trust-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .trust-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--amber);
+    flex-shrink: 0;
+  }
+
+  .trust-text {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--slate);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── SECTIONS SHARED ──────────────────────────────────── */
+  section {
+    padding: 96px 48px;
+  }
+
+  .section-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-eyebrow::before {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 1px;
+    background: var(--amber);
+  }
+
+  .section-h2 {
+    font-family: var(--serif);
+    font-size: clamp(32px, 3.5vw, 48px);
+    font-weight: 400;
+    line-height: 1.15;
+    margin-bottom: 16px;
+    letter-spacing: -0.01em;
+  }
+
+  .section-sub {
+    font-size: 16px;
+    font-weight: 300;
+    color: var(--muted);
+    max-width: 560px;
+    line-height: 1.7;
+    margin-bottom: 64px;
+  }
+
+  /* ── VALUE CARDS ──────────────────────────────────────── */
+  .value-section { background: var(--cream); }
+
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    background: var(--cream3);
+    border: 1px solid var(--cream3);
+  }
+
+  .card {
+    background: var(--white);
+    padding: 44px 36px;
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .card:hover { background: var(--cream); }
+
+  .card-num {
+    font-family: var(--serif);
+    font-size: 48px;
+    font-weight: 400;
+    color: var(--cream3);
+    line-height: 1;
+    margin-bottom: 24px;
+    letter-spacing: -0.02em;
+  }
+
+  .card-title {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--slate);
+    margin-bottom: 12px;
+    line-height: 1.25;
+  }
+
+  .card-text {
+    font-size: 14px;
+    font-weight: 300;
+    color: var(--muted);
+    line-height: 1.75;
+  }
+
+  .card-accent {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--amber);
+    transition: width 0.3s ease;
+  }
+
+  .card:hover .card-accent { width: 100%; }
+
+  /* ── HOW IT WORKS ─────────────────────────────────────── */
+  .how-section {
+    background: var(--slate);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .how-section .section-h2 { color: var(--cream); }
+  .how-section .section-sub { color: rgba(247,245,240,0.5); }
+
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    position: relative;
+  }
+
+  .steps-grid::before {
+    content: '';
+    position: absolute;
+    top: 28px;
+    left: calc(100% / 6);
+    right: calc(100% / 6);
+    height: 1px;
+    background: var(--amber);
+    opacity: 0.3;
+  }
+
+  .step {
+    padding: 0 32px 0 0;
+    position: relative;
+  }
+
+  .step:last-child { padding-right: 0; }
+
+  .step-num {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 1px solid var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 22px;
+    color: var(--amber);
+    margin-bottom: 28px;
+    background: var(--slate);
+    position: relative;
+    z-index: 1;
+  }
+
+  .step-title {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--cream);
+    margin-bottom: 12px;
+  }
+
+  .step-text {
+    font-size: 14px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.5);
+    line-height: 1.75;
+  }
+
+  /* ── SPLIT PANEL ──────────────────────────────────────── */
+  .split-section {
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .split-panel {
+    padding: 96px 72px;
+  }
+
+  .split-dark {
+    background: var(--slate2);
+  }
+
+  .split-light {
+    background: var(--cream2);
+  }
+
+  .split-panel .section-eyebrow { margin-bottom: 20px; }
+
+  .split-panel .section-h2 { margin-bottom: 16px; font-size: clamp(28px, 2.8vw, 38px); }
+
+  .split-dark .section-h2 { color: var(--cream); }
+  .split-light .section-h2 { color: var(--slate); }
+
+  .split-dark .section-sub { color: rgba(247,245,240,0.5); margin-bottom: 36px; }
+  .split-light .section-sub { color: var(--muted); margin-bottom: 36px; }
+
+  .feature-list {
+    list-style: none;
+    margin-bottom: 40px;
+  }
+
+  .feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14px;
+    font-weight: 300;
+    line-height: 1.65;
+    margin-bottom: 14px;
+  }
+
+  .split-dark .feature-list li { color: rgba(247,245,240,0.7); }
+  .split-light .feature-list li { color: var(--slate); }
+
+  .check {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    color: var(--amber);
+  }
+
+  .btn-slate {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--slate);
+    color: var(--cream);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 13px 28px;
+    border-radius: 2px;
+    text-decoration: none;
+    transition: background 0.2s;
+  }
+
+  .btn-slate:hover { background: var(--slate3); }
+
+  .btn-amber-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: var(--slate);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 13px 28px;
+    border-radius: 2px;
+    border: 1px solid var(--slate);
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .btn-amber-outline:hover {
+    background: var(--slate);
+    color: var(--cream);
+  }
+
+  /* ── CTA BAND ─────────────────────────────────────────── */
+  .cta-section {
+    background: var(--amber);
+    padding: 80px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cta-section::before {
+    content: 'CC';
+    position: absolute;
+    font-family: var(--serif);
+    font-size: 320px;
+    font-weight: 600;
+    color: rgba(28,43,58,0.07);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    letter-spacing: -0.05em;
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  .cta-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  .cta-section .section-eyebrow {
+    color: var(--slate);
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .cta-section .section-eyebrow::before {
+    background: var(--slate);
+  }
+
+  .cta-section h2 {
+    font-family: var(--serif);
+    font-size: clamp(32px, 4vw, 52px);
+    font-weight: 400;
+    color: var(--slate);
+    margin-bottom: 16px;
+    line-height: 1.15;
+  }
+
+  .cta-section p {
+    font-size: 16px;
+    font-weight: 300;
+    color: rgba(28,43,58,0.65);
+    margin-bottom: 40px;
+    line-height: 1.7;
+  }
+
+  .btn-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--slate);
+    color: var(--cream);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 16px 40px;
+    border-radius: 2px;
+    text-decoration: none;
+    transition: background 0.2s, transform 0.15s;
+  }
+
+  .btn-cta:hover {
+    background: var(--slate2);
+    transform: translateY(-2px);
+  }
+
+  /* ── FOOTER ───────────────────────────────────────────── */
+  footer {
+    background: #0E1820;
+    padding: 64px 48px 32px;
+  }
+
+  .footer-grid {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 48px;
+    padding-bottom: 48px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 32px;
+  }
+
+  .footer-brand .logo {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--cream);
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  .footer-brand .logo span { color: var(--amber); }
+
+  .footer-brand p {
+    font-size: 13px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.35);
+    line-height: 1.7;
+    max-width: 260px;
+  }
+
+  .footer-col h4 {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(247,245,240,0.4);
+    margin-bottom: 20px;
+  }
+
+  .footer-col ul {
+    list-style: none;
+  }
+
+  .footer-col ul li {
+    margin-bottom: 10px;
+  }
+
+  .footer-col ul li a {
+    font-size: 13px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.5);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .footer-col ul li a:hover { color: var(--cream); }
+
+  .footer-bottom {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-bottom p {
+    font-size: 12px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.25);
+  }
+
+  .footer-bottom a {
+    color: rgba(200,137,42,0.6);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .footer-bottom a:hover { color: var(--amber); }
+
+  /* ── ANIMATIONS ───────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-inner > * {
+    animation: fadeUp 0.7s ease both;
+  }
+
+  .hero-inner > *:nth-child(1) { animation-delay: 0.1s; }
+  .hero-inner > *:nth-child(2) { animation-delay: 0.2s; }
+  .hero-inner > *:nth-child(3) { animation-delay: 0.3s; }
+  .hero-inner > *:nth-child(4) { animation-delay: 0.4s; }
+
+  /* ── SVG ICONS ────────────────────────────────────────── */
+  .icon { display: inline-block; vertical-align: middle; }
+
+  @media (max-width: 900px) {
+    nav { padding: 0 24px; }
+    .nav-links { display: none; }
+    .hero { padding: 100px 24px 60px; }
+    section { padding: 64px 24px; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .steps-grid { grid-template-columns: 1fr; gap: 40px; }
+    .steps-grid::before { display: none; }
+    .split-section { grid-template-columns: 1fr; }
+    .split-panel { padding: 64px 24px; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+    .trust-bar { padding: 16px 24px; gap: 24px; }
+    .cta-section { padding: 64px 24px; }
+    footer { padding: 48px 24px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">Connected<span>Carriers</span></a>
+  <ul class="nav-links">
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#brokers">For brokers</a></li>
+    <li><a href="#carriers">For carriers</a></li>
+    <li><a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform" class="nav-cta">Apply now</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Carrier Qualification Network</div>
+    <h1>The carrier network<br>built on <em>trust.</em></h1>
+    <p class="hero-sub">Apply once. Get verified. Work with vetted brokers who know you're the real deal — and skip the paperwork every time.</p>
+    <div class="hero-actions">
+      <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform" class="btn-primary">
+        Apply as a Carrier
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="#brokers" class="btn-ghost">I'm a Broker</a>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST BAR -->
+<div class="trust-bar">
+  <div class="trust-item">
+    <svg class="trust-icon" viewBox="0 0 18 18" fill="none"><path d="M9 1l2.5 5 5.5.8-4 3.9.9 5.5L9 13.5l-4.9 2.7.9-5.5L1 6.8 6.5 6z" fill="currentColor"/></svg>
+    <span class="trust-text">FMCSA verified in real time</span>
+  </div>
+  <div class="trust-item">
+    <svg class="trust-icon" viewBox="0 0 18 18" fill="none"><path d="M9 1.5L2 5v5c0 3.5 3 6.7 7 8 4-1.3 7-4.5 7-8V5L9 1.5z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+    <span class="trust-text">Insurance monitored continuously</span>
+  </div>
+  <div class="trust-item">
+    <svg class="trust-icon" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5v4l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <span class="trust-text">10-minute onboarding</span>
+  </div>
+  <div class="trust-item">
+    <svg class="trust-icon" viewBox="0 0 18 18" fill="none"><path d="M3 9c0-3.3 2.7-6 6-6s6 2.7 6 6-2.7 6-6 6S3 12.3 3 9zm6-2.5v2.5l2 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <span class="trust-text">Active broker network</span>
+  </div>
+  <div class="trust-item">
+    <svg class="trust-icon" viewBox="0 0 18 18" fill="none"><path d="M2 9l5 5 9-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="trust-text">Free for carriers to join</span>
+  </div>
+</div>
+
+<!-- VALUE PROPS -->
+<section class="value-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">Why Connected Carriers</div>
+    <h2 class="section-h2">One profile.<br>Every broker.</h2>
+    <p class="section-sub">Stop filling out a new carrier packet for every broker you want to work with. Connected Carriers is your verified identity in the freight network.</p>
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-num">01</div>
+        <div class="card-title">Verified once, trusted everywhere</div>
+        <p class="card-text">Submit your MC number, insurance, and compliance documents one time. The network does the verification — brokers see your status instantly.</p>
+        <div class="card-accent"></div>
+      </div>
+      <div class="card">
+        <div class="card-num">02</div>
+        <div class="card-title">Real-time compliance monitoring</div>
+        <p class="card-text">Your profile stays current automatically. Insurance lapses, authority changes, and safety updates are tracked in real time so you're never caught off guard.</p>
+        <div class="card-accent"></div>
+      </div>
+      <div class="card">
+        <div class="card-num">03</div>
+        <div class="card-title">Access the loads you've earned</div>
+        <p class="card-text">Brokers in the network prioritize Connected Carriers members. Your track record works for you — good history means faster dispatch, better relationships, more loads.</p>
+        <div class="card-accent"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-section" id="how">
+  <div class="section-inner">
+    <div class="section-eyebrow">The process</div>
+    <h2 class="section-h2">Three steps to the network</h2>
+    <p class="section-sub">No phone calls. No faxes. No waiting a week to hear back.</p>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">Submit your profile</div>
+        <p class="step-text">Fill out your carrier qualification profile once — MC number, DOT, insurance certificates, equipment, and operating history. Takes about 10 minutes.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">Get verified</div>
+        <p class="step-text">The system checks your credentials against FMCSA in real time. Insurance is verified. Authority is confirmed. Your tier is assigned automatically.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">Access the network</div>
+        <p class="step-text">You're in. Brokers in the Connected Carriers network can see your verified profile. No more starting from scratch every time a new broker calls.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SPLIT: BROKERS + CARRIERS -->
+<div class="split-section">
+  <div class="split-panel split-dark" id="brokers">
+    <div class="section-eyebrow">For freight brokers</div>
+    <h2 class="section-h2">Stop vetting the same carriers over and over.</h2>
+    <p class="section-sub">Connected Carriers gives your team a pre-screened carrier pool — so you can dispatch faster and sleep better.</p>
+    <ul class="feature-list">
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Automated MC, DOT, and safety rating verification at submission
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Tier system — Preferred, Approved, Conditional, and Rejected — assigned automatically
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Insurance monitoring with real-time lapse alerts
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        VIN verification at dispatch — confirm the truck showing up is the carrier you booked
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Integrates with Port TMS — carriers already in your system go straight to Tier 1
+      </li>
+    </ul>
+    <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform" class="btn-slate">Set up your portal</a>
+  </div>
+  <div class="split-panel split-light" id="carriers">
+    <div class="section-eyebrow">For carriers</div>
+    <h2 class="section-h2">Your reputation should work for you.</h2>
+    <p class="section-sub">You've built a track record. Connected Carriers makes sure brokers can see it — and trust it — before they even pick up the phone.</p>
+    <ul class="feature-list">
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Apply once — your verified profile works across every broker in the network
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Free to join — no subscription, no monthly fee, no hidden costs
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Preferred carriers get faster dispatch and first access to loads
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Your profile stays current — no more scrambling to send updated COIs
+      </li>
+      <li>
+        <svg class="check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Takes 10 minutes — most carriers are verified within the same business day
+      </li>
+    </ul>
+    <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform" class="btn-amber-outline">Apply now — it's free</a>
+  </div>
+</div>
+
+<!-- CTA BAND -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="section-eyebrow">Get started</div>
+    <h2>Ready to join the network?</h2>
+    <p>It takes 10 minutes. No credit card. No contract. Just your MC number and a few minutes of your time.</p>
+    <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform" class="btn-cta">
+      Apply Now — It's Free
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <span class="logo">Connected<span>Carriers</span></span>
+      <p>A carrier qualification network for freight brokers and the carriers they trust. Powered by HoneXAI — connectedcarriers.org</p>
+    </div>
+    <div class="footer-col">
+      <h4>Network</h4>
+      <ul>
+        <li><a href="#">For Carriers</a></li>
+        <li><a href="#">For Brokers</a></li>
+        <li><a href="#">How it Works</a></li>
+        <li><a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform">Apply Now</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Platform</h4>
+      <ul>
+        <li><a href="#">Carrier Tiers</a></li>
+        <li><a href="#">Verification</a></li>
+        <li><a href="#">Dispatch Tools</a></li>
+        <li><a href="#">Integrations</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="#">About</a></li>
+        <li><a href="#">Privacy Policy</a></li>
+        <li><a href="#">Terms of Service</a></li>
+        <li><a href="#">Contact</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>&copy; 2026 Connected Carriers — connectedcarriers.org. A <a href="https://honexai.com">HoneXAI</a> product.</p>
+    <p>Built for the freight community.</p>
+  </div>
+</footer>
+
+</body>
+</html>
