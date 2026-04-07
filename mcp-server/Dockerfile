@@ -2,15 +2,17 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package file and install ALL dependencies (including dev for TypeScript build)
-COPY package.json ./
+# Build context is repo root — reference mcp-server/ paths explicitly
+COPY mcp-server/package.json ./
 RUN npm install
 
-# Copy source and build TypeScript
-COPY . .
+# Copy mcp-server source files
+COPY mcp-server/ ./
+
+# Build TypeScript
 RUN npm run build
 
-# Remove dev dependencies after build
+# Remove dev dependencies
 RUN npm prune --production
 
 EXPOSE 3000
