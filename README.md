@@ -45,7 +45,7 @@ Layer 4:        Load marketplace for pre-screened carriers
 
 ## Stack
 
-- **Landing page:** Static HTML (Netlify)
+- **Landing page:** Static HTML (Railway — auto-deploy from main branch)
 - **Carrier intake:** Google Form → Google Sheet
 - **Verification:** FMCSA SAFER API, CargoNet, Highway
 - **Agent platform:** Built on [mfreedle/agent-platform](https://github.com/mfreedle/agent-platform) patterns
