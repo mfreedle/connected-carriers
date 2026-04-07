@@ -1,0 +1,7 @@
+[build]
+dockerfilePath = "mcp-server/Dockerfile"
+watchPatterns = ["mcp-server/**"]
+
+[deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/health"
