@@ -2,9 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files and install ALL dependencies (including dev for build)
-COPY package*.json ./
-RUN npm ci
+# Copy package file and install ALL dependencies (including dev for TypeScript build)
+COPY package.json ./
+RUN npm install
 
 # Copy source and build TypeScript
 COPY . .
