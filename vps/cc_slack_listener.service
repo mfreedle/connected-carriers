@@ -1,0 +1,17 @@
+[Unit]
+Description=Connected Carriers Slack Socket Mode Listener
+After=network.target
+
+[Service]
+Type=simple
+User=claude-agent
+WorkingDirectory=/home/connected-carriers
+EnvironmentFile=/home/connected-carriers/.env
+ExecStart=/home/claude-agent/.local/bin/python3 /home/connected-carriers/scripts/slack_listener.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/home/connected-carriers/logs/slack_listener.log
+StandardError=append:/home/connected-carriers/logs/slack_listener.log
+
+[Install]
+WantedBy=multi-user.target
