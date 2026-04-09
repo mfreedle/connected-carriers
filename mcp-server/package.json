@@ -1,11 +1,8 @@
 {
   "name": "cc-mcp-server",
-  "version": "1.0.0",
-  "description": "Connected Carriers MCP server — FMCSA verification, carrier tiers, pickup codes",
+  "version": "1.1.0",
+  "description": "Connected Carriers MCP server — FMCSA verification, carrier tiers, dispatch verification with geofencing and SMS",
   "type": "module",
-  "bin": {
-    "cc-mcp-server": "./dist/index.js"
-  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
