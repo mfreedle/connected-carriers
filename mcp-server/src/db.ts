@@ -1,7 +1,6 @@
 import pg from "pg";
 const { Pool } = pg;
 
-// PostgreSQL connection — Railway provides DATABASE_URL automatically
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
@@ -54,6 +53,34 @@ export async function initDb() {
       status VARCHAR(20) DEFAULT 'active',
       expires_at TIMESTAMPTZ,
       used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS dispatch_verifications (
+      id SERIAL PRIMARY KEY,
+      load_id VARCHAR(30) UNIQUE NOT NULL,
+      token VARCHAR(64) UNIQUE NOT NULL,
+      driver_phone VARCHAR(20) NOT NULL,
+      broker_phone VARCHAR(20) NOT NULL,
+      mc_number VARCHAR(20),
+      pickup_address TEXT NOT NULL,
+      pickup_window_start VARCHAR(20),
+      pickup_window_end VARCHAR(20),
+      geo_center_lat DOUBLE PRECISION,
+      geo_center_lng DOUBLE PRECISION,
+      geo_radius_miles DOUBLE PRECISION DEFAULT 0.5,
+      status VARCHAR(30) DEFAULT 'pending',
+      fmcsa_authority VARCHAR(20),
+      fmcsa_company TEXT,
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      confirmed_at TIMESTAMPTZ,
+      confirmed_lat DOUBLE PRECISION,
+      confirmed_lng DOUBLE PRECISION,
+      distance_miles DOUBLE PRECISION,
+      geofence_result VARCHAR(20),
+      broker_notified_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
