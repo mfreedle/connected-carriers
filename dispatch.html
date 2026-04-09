@@ -304,32 +304,40 @@
       <div class="form-row">
         <div class="field">
           <label>Driver phone</label>
-          <input type="tel" placeholder="509-555-1212" />
+          <input type="tel" id="driver_phone" placeholder="509-555-1212" />
         </div>
         <div class="field">
-          <label>Carrier MC <span class="opt">(optional)</span></label>
-          <input type="text" placeholder="MC-123456" />
+          <label>Notify me at</label>
+          <input type="tel" id="broker_phone" placeholder="Your cell number" />
         </div>
       </div>
       <div class="form-row-full field">
         <label>Pickup address</label>
-        <input type="text" placeholder="420 Industrial Rd, Tacoma, WA" />
+        <input type="text" id="pickup_address" placeholder="420 Industrial Rd, Tacoma, WA" />
       </div>
       <div class="form-row">
         <div class="field">
           <label>Window opens</label>
-          <input type="text" placeholder="1:00 PM" />
+          <input type="text" id="window_start" placeholder="1:00 PM" />
         </div>
         <div class="field">
           <label>Window closes</label>
-          <input type="text" placeholder="3:00 PM" />
+          <input type="text" id="window_end" placeholder="3:00 PM" />
         </div>
       </div>
-      <button class="send-btn">
+      <div class="form-row-full field">
+        <label>Carrier MC <span class="opt">(optional — triggers FMCSA check)</span></label>
+        <input type="text" id="mc_number" placeholder="MC-123456" />
+      </div>
+      <button class="send-btn" id="send-btn" onclick="submitDispatch()">
         Send verification text
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <p class="microcopy">Takes 10 seconds. No signup required.</p>
+      <p class="microcopy" id="form-status">Takes 10 seconds. No signup required.</p>
+      <div id="success-block" style="display:none; background:#eaf3de; border-radius:4px; padding:14px; margin-top:12px; text-align:center;">
+        <div style="font-size:13px; font-weight:500; color:#3b6d11; margin-bottom:4px;" id="success-load-id"></div>
+        <div style="font-size:12px; color:#639922;">Text sent to driver. You'll get an SMS when they confirm.</div>
+      </div>
     </div>
   </div>
 </section>
@@ -546,5 +554,54 @@
   </div>
 </footer>
 
+
+<script>
+const API = 'https://cc-mcp-server-production.up.railway.app';
+async function submitDispatch() {
+  const driver_phone  = document.getElementById('driver_phone').value.trim();
+  const broker_phone  = document.getElementById('broker_phone').value.trim();
+  const pickup_address = document.getElementById('pickup_address').value.trim();
+  const window_start  = document.getElementById('window_start').value.trim();
+  const window_end    = document.getElementById('window_end').value.trim();
+  const mc_number     = document.getElementById('mc_number').value.trim();
+
+  if (!driver_phone || !broker_phone || !pickup_address) {
+    document.getElementById('form-status').textContent = 'Driver phone, your number, and pickup address are required.';
+    document.getElementById('form-status').style.color = '#a32d2d';
+    return;
+  }
+
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  document.getElementById('form-status').textContent = 'Geocoding address and sending SMS...';
+  document.getElementById('form-status').style.color = '#6b7a8a';
+
+  try {
+    const res = await fetch(API + '/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driver_phone, broker_phone, pickup_address, pickup_window_start: window_start, pickup_window_end: window_end, mc_number: mc_number || undefined })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('success-load-id').textContent = 'Load ' + data.load_id + ' created';
+      document.getElementById('success-block').style.display = 'block';
+      document.getElementById('form-status').textContent = data.sms_sent ? 'SMS sent to driver.' : 'Record created (SMS delivery pending).';
+      document.getElementById('form-status').style.color = '#639922';
+      btn.textContent = 'Send another';
+      btn.disabled = false;
+      btn.onclick = () => { document.getElementById('success-block').style.display='none'; document.getElementById('driver_phone').value=''; document.getElementById('pickup_address').value=''; document.getElementById('mc_number').value=''; document.getElementById('form-status').textContent='Takes 10 seconds. No signup required.'; document.getElementById('form-status').style.color=''; btn.onclick = submitDispatch; };
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch(e) {
+    document.getElementById('form-status').textContent = 'Error: ' + e.message + '. Try again.';
+    document.getElementById('form-status').style.color = '#a32d2d';
+    btn.disabled = false;
+    btn.innerHTML = 'Send verification text <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+}
+</script>
 </body>
 </html>
