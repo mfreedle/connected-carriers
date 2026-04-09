@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dispatch Verification — Connected Carriers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate:   #1C2B3A;
+    --slate2:  #243447;
+    --slate3:  #2E4058;
+    --amber:   #C8892A;
+    --amber2:  #E09B35;
+    --cream:   #F7F5F0;
+    --cream2:  #EDE9E1;
+    --cream3:  #E0DAD0;
+    --ink:     #141414;
+    --muted:   #6B7A8A;
+    --white:   #FFFFFF;
+    --green:   #639922;
+    --green-bg:#EAF3DE;
+    --yellow:  #BA7517;
+    --yellow-bg:#FAEEDA;
+    --red:     #A32D2D;
+    --red-bg:  #FCEBEB;
+    --serif:   'Playfair Display', Georgia, serif;
+    --sans:    'DM Sans', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: var(--sans); background: var(--cream); color: var(--ink); font-size: 16px; line-height: 1.6; overflow-x: hidden; }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: var(--slate); height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 48px; border-bottom: 1px solid var(--slate3);
+  }
+  .nav-logo { font-family: var(--serif); font-size: 20px; font-weight: 400; color: var(--cream); text-decoration: none; }
+  .nav-logo span { color: var(--amber); }
+  .nav-tag { font-size: 12px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(247,245,240,0.4); }
+  .nav-back { font-size: 13px; color: rgba(247,245,240,0.5); text-decoration: none; display: flex; align-items: center; gap: 6px; transition: color 0.2s; }
+  .nav-back:hover { color: var(--cream); }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh; background: var(--slate2);
+    display: flex; align-items: center;
+    padding: 120px 48px 80px; position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; top: -20%; right: -10%;
+    width: 55%; height: 130%; background: var(--slate3);
+    transform: skewX(-8deg); z-index: 0;
+  }
+  .hero::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+    height: 1px; background: linear-gradient(to right, transparent, var(--amber), transparent);
+  }
+  .hero-inner { position: relative; z-index: 1; max-width: 560px; }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--amber); margin-bottom: 28px; font-weight: 500;
+  }
+  .hero-eyebrow::before { content: ''; display: block; width: 28px; height: 1px; background: var(--amber); }
+  .hero h1 {
+    font-family: var(--serif); font-size: clamp(36px, 4.5vw, 58px);
+    font-weight: 400; line-height: 1.15; color: var(--cream);
+    margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+  .hero h1 em { font-style: italic; color: var(--amber); }
+  .hero-sub {
+    font-size: 16px; font-weight: 300; color: rgba(247,245,240,0.6);
+    max-width: 440px; margin-bottom: 36px; line-height: 1.7;
+  }
+
+  /* FORM CARD */
+  .form-card {
+    background: var(--cream); border-radius: 4px;
+    padding: 28px 28px 20px; max-width: 480px;
+  }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .form-row-full { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .field label .opt { color: #b0bac4; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .field input, .field select {
+    width: 100%; padding: 10px 13px;
+    border: 1px solid var(--cream3); border-radius: 2px;
+    font-family: var(--sans); font-size: 14px;
+    background: var(--white); color: var(--slate);
+    transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--amber); }
+  .field input::placeholder { color: #b0bac4; }
+  .send-btn {
+    width: 100%; padding: 13px;
+    background: var(--amber); border: none; border-radius: 2px;
+    color: var(--slate); font-family: var(--sans);
+    font-size: 14px; font-weight: 500; letter-spacing: 0.04em;
+    cursor: pointer; margin-top: 4px;
+    transition: background 0.2s, transform 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .send-btn:hover { background: var(--amber2); transform: translateY(-1px); }
+  .microcopy { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+  /* SECTIONS */
+  section { padding: 80px 48px; }
+  .section-inner { max-width: 1060px; margin: 0 auto; }
+  .section-eyebrow {
+    font-size: 11px; font-weight: 500; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--amber);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .section-eyebrow::before { content: ''; display: block; width: 20px; height: 1px; background: var(--amber); }
+  .section-h2 {
+    font-family: var(--serif); font-size: clamp(28px, 3vw, 42px);
+    font-weight: 400; line-height: 1.18; margin-bottom: 12px;
+  }
+  .section-sub { font-size: 15px; font-weight: 300; color: var(--muted); max-width: 520px; line-height: 1.7; margin-bottom: 52px; }
+
+  /* HOW IT WORKS */
+  .how-section { background: var(--slate); }
+  .how-section .section-h2 { color: var(--cream); }
+  .how-section .section-sub { color: rgba(247,245,240,0.5); }
+  .steps-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 0; position: relative;
+  }
+  .steps-grid::before {
+    content: ''; position: absolute; top: 27px;
+    left: calc(100% / 6); right: calc(100% / 6);
+    height: 1px; background: var(--amber); opacity: 0.3;
+  }
+  .step { padding: 0 32px 0 0; }
+  .step:last-child { padding-right: 0; }
+  .step-num {
+    width: 54px; height: 54px; border-radius: 50%;
+    border: 1px solid var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--serif); font-size: 20px; color: var(--amber);
+    margin-bottom: 24px; background: var(--slate); position: relative; z-index: 1;
+  }
+  .step-title { font-family: var(--serif); font-size: 19px; font-weight: 400; color: var(--cream); margin-bottom: 10px; }
+  .step-text { font-size: 14px; font-weight: 300; color: rgba(247,245,240,0.5); line-height: 1.75; }
+
+  /* RESULTS */
+  .results-section { background: var(--cream2); }
+  .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--cream3); border: 1px solid var(--cream3); }
+  .result-card { background: var(--white); padding: 32px 28px; position: relative; }
+  .result-badge {
+    display: inline-block; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 2px; margin-bottom: 16px;
+  }
+  .result-card.green .result-badge { background: var(--green-bg); color: var(--green); }
+  .result-card.yellow .result-badge { background: var(--yellow-bg); color: var(--yellow); }
+  .result-card.red .result-badge { background: var(--red-bg); color: var(--red); }
+  .result-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .result-card.green .result-bar { background: var(--green); }
+  .result-card.yellow .result-bar { background: var(--amber); }
+  .result-card.red .result-bar { background: var(--red); }
+  .result-card h3 { font-family: var(--serif); font-size: 20px; font-weight: 400; color: var(--slate); margin-bottom: 10px; }
+  .result-card p { font-size: 14px; font-weight: 300; color: var(--muted); line-height: 1.7; }
+  .result-detail { font-size: 12px; color: var(--muted); margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--cream3); }
+  .result-detail span { font-weight: 500; color: var(--slate); }
+
+  /* DRIVER SECTION */
+  .driver-section { background: var(--cream); }
+  .driver-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+  .phone-wrap { display: flex; justify-content: center; }
+  .phone-frame {
+    background: var(--slate); border-radius: 32px; padding: 20px 16px;
+    width: 240px; box-shadow: 0 24px 60px rgba(28,43,58,0.25);
+  }
+  .phone-notch {
+    width: 60px; height: 6px; background: var(--slate2);
+    border-radius: 3px; margin: 0 auto 14px;
+  }
+  .phone-screen { background: var(--white); border-radius: 18px; padding: 20px 16px; }
+  .sms-bubble {
+    background: #E8E8EA; border-radius: 14px 14px 14px 2px;
+    padding: 10px 13px; font-size: 13px; color: #1a1a1a;
+    line-height: 1.5; margin-bottom: 16px;
+  }
+  .sms-link { color: #007AFF; text-decoration: underline; }
+  .sms-time { font-size: 11px; color: #8e8e93; text-align: center; margin-bottom: 16px; }
+  .phone-divider { height: 1px; background: var(--cream3); margin: 12px 0; }
+  .verify-screen-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .verify-load-id { font-family: var(--serif); font-size: 16px; color: var(--slate); margin-bottom: 12px; }
+  .verify-address { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .verify-address strong { color: var(--slate); display: block; font-weight: 400; }
+  .verify-window { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
+  .confirm-btn {
+    width: 100%; padding: 11px;
+    background: var(--amber); border: none; border-radius: 2px;
+    color: var(--slate); font-family: var(--sans);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  .geo-note { font-size: 10px; color: var(--muted); text-align: center; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .geo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+  .driver-copy { }
+  .driver-copy h3 { font-family: var(--serif); font-size: 28px; font-weight: 400; color: var(--slate); margin-bottom: 16px; line-height: 1.25; }
+  .driver-copy p { font-size: 15px; font-weight: 300; color: var(--muted); line-height: 1.75; margin-bottom: 16px; }
+  .driver-copy .invisible { font-size: 13px; font-style: italic; color: var(--amber); }
+
+  /* RECORD SECTION */
+  .record-section { background: var(--slate); }
+  .record-section .section-h2 { color: var(--cream); }
+  .record-section .section-sub { color: rgba(247,245,240,0.5); }
+  .record-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06); }
+  .record-item { background: var(--slate2); padding: 18px 22px; }
+  .record-label { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(247,245,240,0.35); margin-bottom: 5px; }
+  .record-value { font-size: 14px; color: var(--cream); font-weight: 300; }
+  .record-value.green { color: #97c459; }
+  .record-value.amber { color: var(--amber); }
+
+  /* PAIN SECTION */
+  .pain-section { background: var(--cream2); }
+  .pain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+  .pain-copy h2 { font-family: var(--serif); font-size: clamp(28px, 2.8vw, 38px); font-weight: 400; color: var(--slate); margin-bottom: 16px; }
+  .pain-copy p { font-size: 15px; font-weight: 300; color: var(--muted); line-height: 1.75; margin-bottom: 20px; }
+  .pain-stat { background: var(--white); border-left: 3px solid var(--amber); padding: 18px 22px; margin-bottom: 12px; border-radius: 0 2px 2px 0; }
+  .pain-stat .num { font-family: var(--serif); font-size: 32px; color: var(--slate); line-height: 1; margin-bottom: 4px; }
+  .pain-stat .label { font-size: 13px; font-weight: 300; color: var(--muted); }
+
+  /* CTA */
+  .cta-section { background: var(--amber); padding: 72px 48px; text-align: center; position: relative; overflow: hidden; }
+  .cta-section::before {
+    content: 'VFY'; position: absolute; font-family: var(--serif);
+    font-size: 280px; font-weight: 600; color: rgba(28,43,58,0.06);
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    letter-spacing: -0.05em; pointer-events: none; line-height: 1;
+  }
+  .cta-inner { position: relative; z-index: 1; max-width: 560px; margin: 0 auto; }
+  .cta-eyebrow { font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate); margin-bottom: 16px; opacity: 0.6; }
+  .cta-section h2 { font-family: var(--serif); font-size: clamp(28px, 3.5vw, 46px); font-weight: 400; color: var(--slate); margin-bottom: 14px; }
+  .cta-section p { font-size: 15px; font-weight: 300; color: rgba(28,43,58,0.6); margin-bottom: 32px; }
+  .btn-cta {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--slate); color: var(--cream);
+    font-family: var(--sans); font-size: 14px; font-weight: 500;
+    letter-spacing: 0.04em; padding: 14px 36px; border-radius: 2px;
+    text-decoration: none; transition: background 0.2s, transform 0.15s;
+  }
+  .btn-cta:hover { background: var(--slate2); transform: translateY(-2px); }
+
+  /* FOOTER */
+  footer { background: #0E1820; padding: 40px 48px 28px; }
+  .footer-inner { max-width: 1060px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+  .footer-logo { font-family: var(--serif); font-size: 16px; color: var(--cream); text-decoration: none; }
+  .footer-logo span { color: var(--amber); }
+  .footer-links { display: flex; gap: 28px; }
+  .footer-links a { font-size: 13px; font-weight: 300; color: rgba(247,245,240,0.4); text-decoration: none; transition: color 0.2s; }
+  .footer-links a:hover { color: var(--cream); }
+  .footer-copy { font-size: 12px; font-weight: 300; color: rgba(247,245,240,0.2); width: 100%; text-align: center; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 8px; }
+  .footer-copy a { color: rgba(200,137,42,0.5); text-decoration: none; }
+  .footer-copy a:hover { color: var(--amber); }
+
+  @media (max-width: 900px) {
+    nav { padding: 0 20px; }
+    .hero { padding: 100px 20px 60px; }
+    section { padding: 56px 20px; }
+    .form-row { grid-template-columns: 1fr; }
+    .steps-grid { grid-template-columns: 1fr; gap: 36px; }
+    .steps-grid::before { display: none; }
+    .results-grid { grid-template-columns: 1fr; }
+    .driver-inner { grid-template-columns: 1fr; }
+    .pain-grid { grid-template-columns: 1fr; }
+    .record-grid { grid-template-columns: 1fr; }
+    .footer-inner { flex-direction: column; align-items: flex-start; gap: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="index.html" class="nav-logo">Connected<span>Carriers</span></a>
+  <span class="nav-tag">Dispatch Verification</span>
+  <a href="index.html" class="nav-back">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7H2M6 3L2 7l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Back to home
+  </a>
+</nav>
+
+<!-- HERO + FORM -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Dispatch Verification</div>
+    <h1>Make sure the truck that shows up is the one you <em>booked.</em></h1>
+    <p class="hero-sub">Send a verification text to the driver. Get a timestamp and GPS location when they arrive — and a flag if anything doesn't match.</p>
+    <div class="form-card">
+      <div class="form-row">
+        <div class="field">
+          <label>Driver phone</label>
+          <input type="tel" placeholder="509-555-1212" />
+        </div>
+        <div class="field">
+          <label>Carrier MC <span class="opt">(optional)</span></label>
+          <input type="text" placeholder="MC-123456" />
+        </div>
+      </div>
+      <div class="form-row-full field">
+        <label>Pickup address</label>
+        <input type="text" placeholder="420 Industrial Rd, Tacoma, WA" />
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Window opens</label>
+          <input type="text" placeholder="1:00 PM" />
+        </div>
+        <div class="field">
+          <label>Window closes</label>
+          <input type="text" placeholder="3:00 PM" />
+        </div>
+      </div>
+      <button class="send-btn">
+        Send verification text
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <p class="microcopy">Takes 10 seconds. No signup required.</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">The process</div>
+    <h2 class="section-h2">Three steps. Ten seconds.</h2>
+    <p class="section-sub">No app download. No driver signup. No friction.</p>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">Broker submits</div>
+        <p class="step-text">Enter the driver's phone number, pickup address, and pickup window. The system geocodes the address and generates a unique verification token. Takes under 10 seconds.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">Driver gets a text</div>
+        <p class="step-text">One SMS with a link and the load ID. Driver taps it when they arrive. The browser requests location permission. One tap to confirm. No account, no app, no extra steps.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">You see the result</div>
+        <p class="step-text">Timestamp, GPS distance from pickup point, and geofence status — green, yellow, or red. If an MC number was provided, FMCSA authority is checked automatically.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RESULT STATES -->
+<section class="results-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">Verification results</div>
+    <h2 class="section-h2">Green, yellow, or red.</h2>
+    <p class="section-sub">Three zones. One default radius. No manual setup required — the geofence is calculated automatically from the pickup address you enter.</p>
+    <div class="results-grid">
+      <div class="result-card green">
+        <div class="result-bar"></div>
+        <div class="result-badge">Inside geofence</div>
+        <h3>Confirmed on site</h3>
+        <p>Driver's GPS location is within 0.5 miles of the pickup address. Timestamp falls within the pickup window.</p>
+        <div class="result-detail">Distance from pickup: <span>0.12 mi</span> &nbsp;|&nbsp; Confirmed at: <span>1:04 PM</span></div>
+      </div>
+      <div class="result-card yellow">
+        <div class="result-bar"></div>
+        <div class="result-badge">Near geofence</div>
+        <h3>Review recommended</h3>
+        <p>Driver is between 0.5 and 2 miles from the pickup point. May be in a staging area, truck lot, or traffic queue nearby.</p>
+        <div class="result-detail">Distance from pickup: <span>0.8 mi</span> &nbsp;|&nbsp; Suggested action: <span>Call to confirm</span></div>
+      </div>
+      <div class="result-card red">
+        <div class="result-bar"></div>
+        <div class="result-badge">Outside geofence</div>
+        <h3>Flag for follow-up</h3>
+        <p>Driver's confirmed location is more than 2 miles from the pickup address. Do not release freight until you've spoken with the carrier directly.</p>
+        <div class="result-detail">Distance from pickup: <span>4.2 mi</span> &nbsp;|&nbsp; Suggested action: <span>Call before freight moves</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DRIVER VIEW -->
+<section class="driver-section">
+  <div class="section-inner">
+    <div class="driver-inner">
+      <div class="phone-wrap">
+        <div class="phone-frame">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <div class="sms-bubble">
+              Load CC-A7F — pickup at 420 Industrial Rd, Tacoma. Tap to confirm arrival: <span class="sms-link">cc.link/A7F</span>
+            </div>
+            <div class="sms-time">Delivered 12:47 PM</div>
+            <div class="phone-divider"></div>
+            <div class="verify-screen-label">Load ID</div>
+            <div class="verify-load-id">CC-20240408-A7F</div>
+            <div class="verify-address">
+              Pickup location
+              <strong>420 Industrial Rd, Tacoma, WA</strong>
+            </div>
+            <div class="verify-window">Window: 1:00 PM – 3:00 PM</div>
+            <button class="confirm-btn">Confirm arrival</button>
+            <div class="geo-note">
+              <div class="geo-dot"></div>
+              Location shared on confirm
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="driver-copy">
+        <div class="section-eyebrow">What the driver sees</div>
+        <h3>One tap. That's it.</h3>
+        <p>The driver receives a single SMS with a link. They tap it when they arrive. One button confirms their location. The whole interaction takes under 10 seconds on their end.</p>
+        <p>No app download. No login. No account. Just a link that works on any phone.</p>
+        <p class="invisible">The geofence is invisible to the driver. The distance check happens behind the scenes — they never see the radius or the result.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT GETS STORED -->
+<section class="record-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">The record</div>
+    <h2 class="section-h2">Everything stored. Nothing left to memory.</h2>
+    <p class="section-sub">Every verification creates a timestamped record you can reference for any load, any dispute, any audit.</p>
+    <div class="record-grid">
+      <div class="record-item">
+        <div class="record-label">Load ID</div>
+        <div class="record-value">CC-20240408-A7F</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Status</div>
+        <div class="record-value green">Confirmed — inside geofence</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Pickup address</div>
+        <div class="record-value">420 Industrial Rd, Tacoma, WA</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Geofence center</div>
+        <div class="record-value">47.2529° N, 122.4443° W</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Pickup window</div>
+        <div class="record-value">1:00 PM – 3:00 PM</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Geofence radius</div>
+        <div class="record-value">0.5 mi green / 2.0 mi yellow</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Verification sent</div>
+        <div class="record-value">Apr 8, 2026 — 12:47 PM</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Driver confirmed at</div>
+        <div class="record-value">Apr 8, 2026 — 1:04 PM</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Confirmed GPS</div>
+        <div class="record-value">47.2511° N, 122.4438° W</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Distance from pickup</div>
+        <div class="record-value green">0.12 mi — inside zone</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">FMCSA authority</div>
+        <div class="record-value green">Active — MC-123456</div>
+      </div>
+      <div class="record-item">
+        <div class="record-label">Driver phone</div>
+        <div class="record-value">509-555-1212</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHY IT MATTERS -->
+<section class="pain-section">
+  <div class="section-inner">
+    <div class="pain-grid">
+      <div class="pain-copy">
+        <div class="section-eyebrow">Why it matters</div>
+        <h2>Cargo theft up 1,500% since 2021.</h2>
+        <p>The most common attack vector isn't a hijacking — it's a carrier who looks legitimate but isn't. A cloned MC number. A driver showing up to a load they were never dispatched for. Freight that disappears before anyone realizes something was wrong.</p>
+        <p>Dispatch verification doesn't stop sophisticated fraud on its own. But it creates a timestamped, GPS-confirmed record that a specific driver, at a specific phone number, was physically at your pickup location before freight moved. That's a paper trail that didn't exist before.</p>
+      </div>
+      <div>
+        <div class="pain-stat">
+          <div class="num">$274K</div>
+          <div class="label">Average cargo theft value per incident in 2025</div>
+        </div>
+        <div class="pain-stat">
+          <div class="num">1,500%</div>
+          <div class="label">Increase in strategic cargo theft since 2021</div>
+        </div>
+        <div class="pain-stat">
+          <div class="num">$725M</div>
+          <div class="label">Estimated total cargo theft losses in 2025</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="cta-eyebrow">Send your first verification</div>
+    <h2>Takes 10 seconds.<br>No signup required.</h2>
+    <p>Scroll up and enter a driver's phone number. That's the whole onboarding process.</p>
+    <a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;" class="btn-cta">
+      Send a verification now
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2l5 5-5 5M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="footer-logo">Connected<span>Carriers</span></a>
+    <div class="footer-links">
+      <a href="index.html">Home</a>
+      <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform">Apply as a Carrier</a>
+      <a href="https://honexai.com">HoneXAI</a>
+    </div>
+  </div>
+  <div class="footer-inner">
+    <p class="footer-copy">&copy; 2026 Connected Carriers — connectedcarriers.org. A <a href="https://honexai.com">HoneXAI</a> product.</p>
+  </div>
+</footer>
+
+</body>
+</html>
