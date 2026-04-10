@@ -139,3 +139,43 @@ Read skill files before starting work in their domain:
 - Frontend/UI work: frontend-design/SKILL.md
 - Document creation: docx, pdf skills
 - Agent harness design: n-agentic-harnesses/SKILL.md
+
+---
+
+## Directive Rules (MANDATORY when running agents)
+
+Before drafting any directive for an agent, reference `mfreedle/claude-skills` →
+`n-agentic-harnesses/directive-template.md` for the correct template.
+
+Mandatory fields in every directive:
+- RISK level (Low / Elevated / Critical)
+- READ FIRST (exact file paths — agents must read before writing code)
+- TASK (specific numbered steps, no scope expansion)
+- OUT OF SCOPE (at least one explicit exclusion)
+- VERIFICATION TARGET (what done looks like, not just "confirm it works")
+
+One concern per directive. Never split work across Part 1 / Part 2.
+Show the directive to the human before sending. No exceptions.
+
+---
+
+## Agent Infrastructure Reliability (MANDATORY when building runners)
+
+When the Slack listener and headless runners are built for this project, implement
+runner-level lifecycle posting from day one. Do not learn this the hard way.
+
+**Required pattern for every headless runner:**
+
+1. **START post** — fires immediately after mission claim, before agent boots
+2. **COMPLETION post** — fires after agent process exits with code 0
+3. **ERROR post** — fires after agent process exits with non-zero code
+
+All three posts use `curl` directly in the shell script. All three use `|| true`
+so post failure never blocks the runner.
+
+**Why this matters:**
+Agent-level MCP Slack posts are not reliable. If the MCP call fails silently,
+the mission runs with zero channel evidence. Runner-level posts are the safety net
+that makes mission lifecycle mechanically observable regardless of what the agent does.
+
+Reference: `mfreedle/agent-platform` → `RELIABILITY.md` — full implementation pattern.
