@@ -15,7 +15,7 @@ const BASE_URL            = process.env.BASE_URL || "https://cc-mcp-server-produ
 // ── MCP SERVER ──────────────────────────────────────────────────
 const server = new McpServer({
   name: "cc-mcp-server",
-  version: "1.1.0"
+  version: "1.2.0"
 });
 
 // ── TOOL: cc_lookup_carrier ─────────────────────────────────────
@@ -91,43 +91,116 @@ server.registerTool(
 );
 
 // ── FMCSA SAFER API ─────────────────────────────────────────────
+// Parses the FMCSA SAFER HTML table structure.
+// Key row patterns observed:
+//   ['Legal Name:', 'ACME TRUCKING LLC']
+//   ['USDOT Status:', 'ACTIVE', 'Out of Service Date:', 'None']
+//   ['Rating Date:', 'None', 'Review Date:', 'None']
+//   ['Rating:', 'None', 'Type:', 'None']
+//   ['Operating Authority Status:', 'AUTHORIZED FOR Property...']
+//   Inspections/crashes in table rows with numeric data
 async function lookupFMCSA(mc_number: string): Promise<Record<string, unknown>> {
   const clean = mc_number.replace(/\D/g, "");
   const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${clean}&action=get_data`;
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`FMCSA API returned ${response.status}`);
 
   const html = await response.text();
 
-  // Parse key fields from FMCSA HTML snapshot
-  const extract = (label: string): string => {
-    const regex = new RegExp(`${label}[^<]*<[^>]+>([^<]+)<`, "i");
-    const match = html.match(regex);
-    return match ? match[1].trim() : "";
-  };
+  // Check for "no records found"
+  if (html.includes("No records found") || html.includes("no records found")) {
+    return {
+      mc_number: clean,
+      found: false,
+      active: false,
+      source: "FMCSA SAFER",
+      checked_at: new Date().toISOString()
+    };
+  }
 
-  const entityName    = extract("Entity Type:") || extract("Legal Name:");
-  const usdotStatus   = extract("USDOT Status:");
-  const mcStatus      = extract("MC/MX/FF Number\\(s\\):");
-  const safetyRating  = extract("Safety Rating:");
-  const bipdInsurance = extract("BIPD Insurance Required:");
-  const cargoInsurance = extract("Cargo Insurance Required:");
-  const outOfService  = extract("Out of Service Date:");
-  const operatingStatus = html.includes("AUTHORIZED FOR Property") ? "ACTIVE" :
-                          html.includes("NOT AUTHORIZED") ? "NOT AUTHORIZED" : "UNKNOWN";
+  // Parse all table rows into [label, value] pairs
+  const rowData: Record<string, string> = {};
+  const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch: RegExpExecArray | null;
+
+  while ((trMatch = trPattern.exec(html)) !== null) {
+    const rowHtml = trMatch[1];
+    // Extract all td/th cell text
+    const cells: string[] = [];
+    const tdPattern = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    let tdMatch: RegExpExecArray | null;
+    while ((tdMatch = tdPattern.exec(rowHtml)) !== null) {
+      // Strip tags, decode entities, normalize whitespace
+      const text = tdMatch[1]
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&#160;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text) cells.push(text);
+    }
+
+    // Map label: value pairs (cells come in pairs from FMCSA layout)
+    for (let i = 0; i < cells.length - 1; i += 2) {
+      const label = cells[i].replace(/:?\s*$/, "").trim();
+      const value = cells[i + 1].trim();
+      if (label && value) {
+        rowData[label] = value;
+      }
+    }
+    // Also capture single-cell rows that are values following a label row
+    if (cells.length === 1 && cells[0].length > 3) {
+      rowData[`_row_${Object.keys(rowData).length}`] = cells[0];
+    }
+  }
+
+  // Extract specific fields
+  const legalName     = rowData["Legal Name"] || rowData["Legal Name:"] || "";
+  const dbaName       = rowData["DBA Name"] || rowData["DBA Name:"] || "";
+  const usdotStatus   = rowData["USDOT Status"] || rowData["USDOT Status:"] || "";
+  const usdotNumber   = rowData["USDOT Number"] || rowData["USDOT Number:"] || "";
+  const outOfService  = rowData["Out of Service Date"] || rowData["Out of Service Date:"] || "None";
+  const phone         = rowData["Phone"] || rowData["Phone:"] || "";
+  const physAddress   = rowData["Physical Address"] || rowData["Physical Address:"] || "";
+  const powerUnits    = rowData["Power Units"] || rowData["Power Units:"] || "";
+  const mcs150Date    = rowData["MCS-150 Form Date"] || rowData["MCS-150 Form Date:"] || "";
+
+  // Safety rating - in Review Information section
+  const safetyRating  = rowData["Rating"] || rowData["Rating:"] || "None";
+
+  // Operating authority - look for the status row
+  const opAuthStatus  = rowData["Operating Authority Status"] || rowData["Operating Authority Status:"] || "";
+  const isAuthorized  = opAuthStatus.includes("AUTHORIZED FOR") && !opAuthStatus.includes("NOT AUTHORIZED");
+  const isActive      = usdotStatus.toUpperCase().includes("ACTIVE") && isAuthorized;
+
+  // Years in operation from MCS-150 date
+  let yearsInOperation: number | null = null;
+  if (mcs150Date && mcs150Date !== "None") {
+    const parts = mcs150Date.split("/");
+    if (parts.length === 3) {
+      const year = parseInt(parts[2]);
+      if (!isNaN(year)) yearsInOperation = new Date().getFullYear() - year;
+    }
+  }
 
   return {
     mc_number: clean,
-    entity_name: entityName,
-    operating_status: operatingStatus,
+    found: true,
+    entity_name: legalName.replace(/\s+/g, " ").trim(),
+    dba_name: dbaName || null,
+    operating_status: isAuthorized ? "AUTHORIZED" : "NOT AUTHORIZED",
     usdot_status: usdotStatus,
-    mc_status: mcStatus,
-    safety_rating: safetyRating || "Not Rated",
-    bipd_insurance: bipdInsurance,
-    cargo_insurance: cargoInsurance,
-    out_of_service_date: outOfService,
-    active: operatingStatus === "ACTIVE",
+    usdot_number: usdotNumber,
+    safety_rating: safetyRating === "None" ? "Not Rated" : safetyRating,
+    out_of_service_date: outOfService === "None" ? null : outOfService,
+    phone: phone || null,
+    physical_address: physAddress || null,
+    power_units: powerUnits || null,
+    years_in_operation: yearsInOperation,
+    active: isActive,
+    authorized_for_hire: isAuthorized,
     source: "FMCSA SAFER",
     checked_at: new Date().toISOString()
   };
@@ -136,20 +209,28 @@ async function lookupFMCSA(mc_number: string): Promise<Record<string, unknown>> 
 function runVerificationChecks(
   fmcsa: Record<string, unknown>,
   requirements: { min_insurance?: number; min_years?: number }
-): Record<string, boolean> {
-  return {
+): Record<string, boolean | string> {
+  const checks: Record<string, boolean | string> = {
+    found_in_fmcsa: fmcsa.found === true,
     active_authority: fmcsa.active === true,
+    authorized_for_hire: fmcsa.authorized_for_hire === true,
     no_unsatisfactory_rating: fmcsa.safety_rating !== "Unsatisfactory",
     not_out_of_service: !fmcsa.out_of_service_date,
-    insurance_on_file: Boolean(fmcsa.bipd_insurance),
-    requirements_noted: Boolean(requirements)
   };
+
+  if (requirements.min_years !== undefined && fmcsa.years_in_operation !== null) {
+    checks.meets_min_years = (fmcsa.years_in_operation as number) >= requirements.min_years;
+  }
+
+  const allPassed = Object.values(checks).every(v => v === true);
+  checks.overall_pass = allPassed;
+
+  return checks;
 }
 
 // ── GEOCODING ───────────────────────────────────────────────────
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   if (!GOOGLE_GEOCODE_KEY) {
-    // Fallback: basic US geocoding via nominatim (free, no key)
     const encoded = encodeURIComponent(address);
     const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=us`;
     const res = await fetch(url, {
@@ -162,7 +243,6 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
     return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
   }
 
-  // Google Geocoding API (preferred)
   const encoded = encodeURIComponent(address);
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${GOOGLE_GEOCODE_KEY}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
@@ -177,7 +257,7 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lng: numb
 
 // ── DISTANCE (Haversine) ─────────────────────────────────────────
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 3958.8; // miles
+  const R = 3958.8;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
   const a = Math.sin(dLat/2) ** 2 +
@@ -214,28 +294,37 @@ async function sendSms(to: string, body: string): Promise<boolean> {
   return true;
 }
 
-// ── HTTP ROUTES ──────────────────────────────────────────────────
+// ── HTTP SERVER ──────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "3000");
+
+// MCP transport — one persistent instance, stateless sessions
+const mcpTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 const httpServer = http.createServer(async (req, res) => {
   const url = req.url || "";
 
-  // ── MCP endpoint
-  if (req.method === "POST" && url === "/mcp") {
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, await readBody(req));
+  // ── MCP endpoint — delegate to persistent transport
+  if (url === "/mcp") {
+    try {
+      await mcpTransport.handleRequest(req, res, await readBody(req));
+    } catch (err) {
+      console.error("[MCP handler error]", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "MCP handler error" }));
+      }
+    }
     return;
   }
 
   // ── Health check
   if (url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", service: "cc-mcp-server", version: "1.1.0" }));
+    res.end(JSON.stringify({ status: "ok", service: "cc-mcp-server", version: "1.2.0" }));
     return;
   }
 
-  // ── POST /dispatch — broker submits verification request
+  // ── POST /dispatch
   if (req.method === "POST" && url === "/dispatch") {
     setCors(res);
     try {
@@ -248,14 +337,11 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
 
-      // Generate IDs
       const load_id = `CC-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
       const token   = crypto.randomBytes(32).toString("hex");
 
-      // Geocode the pickup address
       const coords = await geocodeAddress(pickup_address);
 
-      // FMCSA check if MC provided
       let fmcsa_authority: string | null = null;
       let fmcsa_company: string | null = null;
       if (mc_number) {
@@ -266,7 +352,6 @@ const httpServer = http.createServer(async (req, res) => {
         } catch { /* non-blocking */ }
       }
 
-      // Store record
       await query(
         `INSERT INTO dispatch_verifications
          (load_id, token, driver_phone, broker_phone, mc_number,
@@ -283,7 +368,6 @@ const httpServer = http.createServer(async (req, res) => {
         ]
       );
 
-      // Send SMS to driver
       const verifyUrl  = `${BASE_URL}/verify/${token}`;
       const driverSms  = `Load ${load_id} — pickup at ${pickup_address.split(",")[0]}.\nTap to confirm arrival: ${verifyUrl}`;
       const smsSent    = await sendSms(normalizePhone(driver_phone), driverSms);
@@ -307,14 +391,11 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── GET /verify/:token — driver confirmation page
+  // ── GET /verify/:token
   if (req.method === "GET" && url.startsWith("/verify/")) {
     const token = url.replace("/verify/", "").split("?")[0];
     try {
-      const result = await query(
-        "SELECT * FROM dispatch_verifications WHERE token = $1",
-        [token]
-      );
+      const result = await query("SELECT * FROM dispatch_verifications WHERE token = $1", [token]);
       if (!result.rows.length) {
         res.writeHead(404, { "Content-Type": "text/html" });
         res.end(verifyNotFoundPage());
@@ -335,7 +416,7 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /verify/:token — driver confirms with location
+  // ── POST /verify/:token
   if (req.method === "POST" && url.startsWith("/verify/")) {
     setCors(res);
     const token = url.replace("/verify/", "").split("?")[0];
@@ -343,10 +424,7 @@ const httpServer = http.createServer(async (req, res) => {
       const body = JSON.parse((await readBody(req)).toString());
       const { lat, lng } = body;
 
-      const result = await query(
-        "SELECT * FROM dispatch_verifications WHERE token = $1",
-        [token]
-      );
+      const result = await query("SELECT * FROM dispatch_verifications WHERE token = $1", [token]);
       if (!result.rows.length) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not found" }));
@@ -360,7 +438,6 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
 
-      // Calculate distance if we have both coordinates
       let distance_miles: number | null = null;
       let fence_result = "unknown";
       if (lat && lng && v.geo_center_lat && v.geo_center_lng) {
@@ -370,7 +447,6 @@ const httpServer = http.createServer(async (req, res) => {
 
       const confirmed_at = new Date();
 
-      // Update record
       await query(
         `UPDATE dispatch_verifications
          SET status = 'confirmed', confirmed_at = $1,
@@ -380,15 +456,11 @@ const httpServer = http.createServer(async (req, res) => {
         [confirmed_at, lat || null, lng || null, distance_miles, fence_result, token]
       );
 
-      // Notify broker via SMS
       const brokerSms = buildBrokerSms(v.load_id, distance_miles, fence_result, confirmed_at);
       const notified  = await sendSms(v.broker_phone, brokerSms);
 
       if (notified) {
-        await query(
-          "UPDATE dispatch_verifications SET broker_notified_at = NOW() WHERE token = $1",
-          [token]
-        );
+        await query("UPDATE dispatch_verifications SET broker_notified_at = NOW() WHERE token = $1", [token]);
       }
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -408,7 +480,7 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── GET /status/:load_id — broker checks a verification
+  // ── GET /status/:load_id
   if (req.method === "GET" && url.startsWith("/status/")) {
     const load_id = url.replace("/status/", "").split("?")[0];
     try {
@@ -466,15 +538,9 @@ function buildBrokerSms(
   const time = confirmed_at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
   const dist = distance !== null ? `${Math.round(distance * 100) / 100} mi` : "location unavailable";
 
-  if (fence === "green") {
-    return `CC ${load_id} confirmed ✓\n${dist} from pickup — ${time}\nStatus: ON SITE`;
-  }
-  if (fence === "yellow") {
-    return `CC ${load_id} — nearby\n${dist} from pickup — ${time}\nStatus: NEAR — confirm before loading`;
-  }
-  if (fence === "red") {
-    return `CC ${load_id} ⚠ MISMATCH\n${dist} from pickup — ${time}\nCall before freight moves`;
-  }
+  if (fence === "green") return `CC ${load_id} confirmed ✓\n${dist} from pickup — ${time}\nStatus: ON SITE`;
+  if (fence === "yellow") return `CC ${load_id} — nearby\n${dist} from pickup — ${time}\nStatus: NEAR — confirm before loading`;
+  if (fence === "red") return `CC ${load_id} ⚠ MISMATCH\n${dist} from pickup — ${time}\nCall before freight moves`;
   return `CC ${load_id} confirmed — ${time}\nLocation check unavailable`;
 }
 
@@ -545,10 +611,7 @@ function confirmArrival() {
   const btn = document.getElementById('confirm-btn');
   btn.textContent = 'Getting location...';
   btn.disabled = true;
-  if (!navigator.geolocation) {
-    postConfirm(null, null);
-    return;
-  }
+  if (!navigator.geolocation) { postConfirm(null, null); return; }
   navigator.geolocation.getCurrentPosition(
     pos => postConfirm(pos.coords.latitude, pos.coords.longitude),
     ()  => postConfirm(null, null),
@@ -566,9 +629,7 @@ async function postConfirm(lat, lng) {
     if (data.confirmed || data.already_confirmed) {
       document.getElementById('confirm-view').style.display = 'none';
       document.getElementById('success-view').style.display = 'block';
-    } else {
-      showErr('Something went wrong. Please try again.');
-    }
+    } else { showErr('Something went wrong. Please try again.'); }
   } catch(e) {
     showErr('Network error. Please try again.');
     document.getElementById('confirm-btn').disabled = false;
@@ -602,11 +663,15 @@ function verifyAlreadyConfirmedPage(v: Record<string, unknown>): string {
 }
 
 // ── STARTUP ───────────────────────────────────────────────────────
-initDb().then(() => {
+initDb().then(async () => {
+  // Connect MCP server to transport once at startup
+  await server.connect(mcpTransport);
   httpServer.listen(PORT, () => {
-    console.error(`cc-mcp-server v1.1.0 running on port ${PORT}`);
-    console.error(`Routes: POST /dispatch | GET+POST /verify/:token | GET /status/:load_id`);
+    console.error(`cc-mcp-server v1.2.0 running on port ${PORT}`);
     console.error(`MCP tools: cc_lookup_carrier, cc_verify_carrier, cc_assign_tier`);
+    console.error(`Routes: POST /dispatch | GET+POST /verify/:token | GET /status/:load_id`);
+    console.error(`Twilio: ${TWILIO_ACCOUNT_SID ? "configured" : "NOT configured — SMS disabled"}`);
+    console.error(`Geocoding: ${GOOGLE_GEOCODE_KEY ? "Google Maps" : "Nominatim (fallback)"}`);
   });
 }).catch(err => {
   console.error("DB init failed:", err);
