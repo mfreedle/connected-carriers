@@ -12,83 +12,90 @@ const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || "";
 const GOOGLE_GEOCODE_KEY  = process.env.GOOGLE_GEOCODE_KEY  || "";
 const BASE_URL            = process.env.BASE_URL || "https://cc-mcp-server-production.up.railway.app";
 
-// ── MCP SERVER ──────────────────────────────────────────────────
-const server = new McpServer({
-  name: "cc-mcp-server",
-  version: "1.2.0"
-});
+// ── MCP SERVER FACTORY ───────────────────────────────────────────
+// Returns a fresh McpServer with all tools registered.
+// Called per-request so each request gets its own isolated instance
+// (required by SDK 1.29.0 — a shared transport crashes on second request).
+function buildMcpServer(): McpServer {
+  const mcpServer = new McpServer({
+    name: "cc-mcp-server",
+    version: "1.2.0"
+  });
 
-// ── TOOL: cc_lookup_carrier ─────────────────────────────────────
-server.registerTool(
-  "cc_lookup_carrier",
-  {
-    description: "Look up a carrier by MC number against FMCSA SAFER API. Returns authority status, safety rating, insurance on file, and years in operation.",
-    inputSchema: {
-      mc_number: z.string().describe("The carrier MC number (without 'MC' prefix, just digits)")
+  // ── TOOL: cc_lookup_carrier
+  mcpServer.registerTool(
+    "cc_lookup_carrier",
+    {
+      description: "Look up a carrier by MC number against FMCSA SAFER API. Returns authority status, safety rating, insurance on file, and years in operation.",
+      inputSchema: {
+        mc_number: z.string().describe("The carrier MC number (without 'MC' prefix, just digits)")
+      }
+    },
+    async ({ mc_number }) => {
+      try {
+        const result = await lookupFMCSA(mc_number);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Error looking up MC${mc_number}: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
     }
-  },
-  async ({ mc_number }) => {
-    try {
-      const result = await lookupFMCSA(mc_number);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    } catch (error) {
-      return { content: [{ type: "text", text: `Error looking up MC${mc_number}: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
-    }
-  }
-);
+  );
 
-// ── TOOL: cc_verify_carrier ─────────────────────────────────────
-server.registerTool(
-  "cc_verify_carrier",
-  {
-    description: "Run full verification on a carrier submission. Checks FMCSA authority, safety rating, insurance minimums, and years in operation against broker requirements.",
-    inputSchema: {
-      mc_number: z.string().describe("Carrier MC number"),
-      dot_number: z.string().optional().describe("Carrier DOT number"),
-      min_insurance: z.number().optional().describe("Minimum auto liability insurance required in dollars"),
-      min_years: z.number().optional().describe("Minimum years in business required")
+  // ── TOOL: cc_verify_carrier
+  mcpServer.registerTool(
+    "cc_verify_carrier",
+    {
+      description: "Run full verification on a carrier submission. Checks FMCSA authority, safety rating, insurance minimums, and years in operation against broker requirements.",
+      inputSchema: {
+        mc_number: z.string().describe("Carrier MC number"),
+        dot_number: z.string().optional().describe("Carrier DOT number"),
+        min_insurance: z.number().optional().describe("Minimum auto liability insurance required in dollars"),
+        min_years: z.number().optional().describe("Minimum years in business required")
+      }
+    },
+    async ({ mc_number, min_insurance, min_years }) => {
+      try {
+        const fmcsa = await lookupFMCSA(mc_number);
+        const checks = runVerificationChecks(fmcsa, { min_insurance, min_years });
+        return { content: [{ type: "text", text: JSON.stringify({ mc_number, fmcsa, checks }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Verification error for MC${mc_number}: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
     }
-  },
-  async ({ mc_number, min_insurance, min_years }) => {
-    try {
-      const fmcsa = await lookupFMCSA(mc_number);
-      const checks = runVerificationChecks(fmcsa, { min_insurance, min_years });
-      return { content: [{ type: "text", text: JSON.stringify({ mc_number, fmcsa, checks }, null, 2) }] };
-    } catch (error) {
-      return { content: [{ type: "text", text: `Verification error for MC${mc_number}: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
-    }
-  }
-);
+  );
 
-// ── TOOL: cc_assign_tier ────────────────────────────────────────
-server.registerTool(
-  "cc_assign_tier",
-  {
-    description: "Assign a carrier tier (1-Preferred, 2-Approved, 3-Conditional, Rejected) based on verification results and broker history.",
-    inputSchema: {
-      mc_number: z.string(),
-      in_port_tms: z.boolean(),
-      completed_loads: z.number(),
-      verification_passed: z.boolean(),
-      has_safety_flag: z.boolean(),
-      failed_hard_stop: z.boolean()
+  // ── TOOL: cc_assign_tier
+  mcpServer.registerTool(
+    "cc_assign_tier",
+    {
+      description: "Assign a carrier tier (1-Preferred, 2-Approved, 3-Conditional, Rejected) based on verification results and broker history.",
+      inputSchema: {
+        mc_number: z.string(),
+        in_port_tms: z.boolean(),
+        completed_loads: z.number(),
+        verification_passed: z.boolean(),
+        has_safety_flag: z.boolean(),
+        failed_hard_stop: z.boolean()
+      }
+    },
+    async ({ mc_number, in_port_tms, completed_loads, verification_passed, has_safety_flag, failed_hard_stop }) => {
+      let tier: string;
+      let reason: string;
+      if (failed_hard_stop) {
+        tier = "Rejected"; reason = "Failed one or more automatic disqualifiers";
+      } else if (in_port_tms && completed_loads >= 3 && verification_passed && !has_safety_flag) {
+        tier = "Tier 1 — Preferred"; reason = "In Port TMS with 3+ loads and clean history";
+      } else if (verification_passed && !has_safety_flag) {
+        tier = "Tier 2 — Approved"; reason = "New carrier, passes all hard stops";
+      } else {
+        tier = "Tier 3 — Conditional"; reason = "Passes minimums, manual review required";
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ mc_number, tier, reason }, null, 2) }] };
     }
-  },
-  async ({ mc_number, in_port_tms, completed_loads, verification_passed, has_safety_flag, failed_hard_stop }) => {
-    let tier: string;
-    let reason: string;
-    if (failed_hard_stop) {
-      tier = "Rejected"; reason = "Failed one or more automatic disqualifiers";
-    } else if (in_port_tms && completed_loads >= 3 && verification_passed && !has_safety_flag) {
-      tier = "Tier 1 — Preferred"; reason = "In Port TMS with 3+ loads and clean history";
-    } else if (verification_passed && !has_safety_flag) {
-      tier = "Tier 2 — Approved"; reason = "New carrier, passes all hard stops";
-    } else {
-      tier = "Tier 3 — Conditional"; reason = "Passes minimums, manual review required";
-    }
-    return { content: [{ type: "text", text: JSON.stringify({ mc_number, tier, reason }, null, 2) }] };
-  }
-);
+  );
+
+  return mcpServer;
+}
 
 // ── FMCSA SAFER API ─────────────────────────────────────────────
 // Parses the FMCSA SAFER HTML table structure.
@@ -297,21 +304,22 @@ async function sendSms(to: string, body: string): Promise<boolean> {
 // ── HTTP SERVER ──────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "3000");
 
-// MCP transport — one persistent instance, stateless sessions
-const mcpTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-
 const httpServer = http.createServer(async (req, res) => {
   const url = req.url || "";
 
-  // ── MCP endpoint — delegate to persistent transport
-  if (url === "/mcp") {
+  // ── MCP endpoint — fresh McpServer + transport per request (SDK 1.29.0 requirement)
+  if (req.method === "POST" && url === "/mcp") {
+    const mcpServer = buildMcpServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     try {
-      await mcpTransport.handleRequest(req, res, await readBody(req));
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res, await readBody(req));
+      res.on("close", () => { transport.close(); mcpServer.close(); });
     } catch (err) {
       console.error("[MCP handler error]", err);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "MCP handler error" }));
+        res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: "Internal server error" }, id: null }));
       }
     }
     return;
@@ -664,8 +672,6 @@ function verifyAlreadyConfirmedPage(v: Record<string, unknown>): string {
 
 // ── STARTUP ───────────────────────────────────────────────────────
 initDb().then(async () => {
-  // Connect MCP server to transport once at startup
-  await server.connect(mcpTransport);
   httpServer.listen(PORT, () => {
     console.error(`cc-mcp-server v1.2.0 running on port ${PORT}`);
     console.error(`MCP tools: cc_lookup_carrier, cc_verify_carrier, cc_assign_tier`);
