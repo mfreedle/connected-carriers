@@ -313,7 +313,9 @@ const httpServer = http.createServer(async (req, res) => {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     try {
       await mcpServer.connect(transport);
-      await transport.handleRequest(req, res, await readBody(req));
+      const bodyBuf = await readBody(req);
+      const bodyJson = bodyBuf.length ? JSON.parse(bodyBuf.toString()) : undefined;
+      await transport.handleRequest(req, res, bodyJson);
       res.on("close", () => { transport.close(); mcpServer.close(); });
     } catch (err) {
       console.error("[MCP handler error]", err);
