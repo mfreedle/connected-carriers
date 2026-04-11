@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHANNEL_ID  = "C0ARDH1B86S"   # #cc-agent-logs
+CHANNEL_ID  = "C0ARKBC5VRA"   # #cc-agent-logs
 REPO_DIR    = "/home/connected-carriers"
 LOCK_FILE   = "/tmp/cc_agent.lock"
 MCP_URL     = "https://cc-mcp-server-production.up.railway.app/mcp"

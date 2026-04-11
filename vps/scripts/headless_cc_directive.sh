@@ -14,7 +14,7 @@ source /home/connected-carriers/.env 2>/dev/null
 set +a; set -e
 eval "$(~/.local/bin/mise activate bash)" 2>/dev/null || true
 
-CHANNEL_ID="C0ARDH1B86S"
+CHANNEL_ID="C0ARKBC5VRA"
 LOG_DIR="/home/connected-carriers/logs"
 mkdir -p "$LOG_DIR"
 
