@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Contact — Connected Carriers</title>
+<title>Contact Connected Carriers</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -18,13 +18,14 @@
   .page { max-width: 600px; margin: 0 auto; padding: 64px 24px 96px; }
   .eyebrow { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 12px; }
   h1 { font-family: var(--serif); font-size: 36px; font-weight: 400; line-height: 1.2; margin-bottom: 24px; }
-  p { font-size: 15px; color: #3a4a5a; line-height: 1.8; margin-bottom: 16px; }
-  .contact-block { background: white; border: 1px solid var(--cream3); border-radius: 3px; padding: 28px 32px; margin-bottom: 16px; }
-  .contact-label { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-  .contact-value { font-size: 16px; color: var(--slate); }
+  .intro { font-size: 15px; color: #3a4a5a; line-height: 1.8; margin-bottom: 36px; }
+  .contact-block { background: white; border: 1px solid var(--cream3); border-radius: 3px; padding: 24px 28px; margin-bottom: 12px; }
+  .contact-label { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .contact-value { font-size: 15px; color: var(--slate); margin-bottom: 4px; }
   .contact-value a { color: var(--amber); text-decoration: none; }
   .contact-value a:hover { text-decoration: underline; }
-  .contact-note { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .contact-note { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .tip { font-size: 13px; color: var(--muted); line-height: 1.7; margin-top: 24px; padding: 16px 20px; background: white; border: 1px solid var(--cream3); border-radius: 3px; }
   footer { text-align: center; padding: 32px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--cream3); }
   footer a { color: var(--amber); text-decoration: none; }
 </style>
@@ -36,32 +37,28 @@
 </nav>
 <div class="page">
   <div class="eyebrow">Get in touch</div>
-  <h1>Contact</h1>
-  <p>Connected Carriers is in early access. Here's how to reach us depending on what you need.</p>
-
-  <div class="contact-block">
-    <div class="contact-label">General &amp; support</div>
-    <div class="contact-value"><a href="mailto:admin@connectedcarriers.org">admin@connectedcarriers.org</a></div>
-    <div class="contact-note">For platform questions, account issues, and general inquiries.</div>
-  </div>
+  <h1>Contact Connected Carriers</h1>
+  <p class="intro">Questions about broker access, carrier invitations, or the Connected Carriers platform? Reach out and we'll point you in the right direction.</p>
 
   <div class="contact-block">
     <div class="contact-label">Broker access</div>
-    <div class="contact-value"><a href="/interest/broker">Submit a broker access request →</a></div>
-    <div class="contact-note">Tell us about your operation and we'll be in touch within one business day.</div>
+    <div class="contact-value"><a href="mailto:admin@connectedcarriers.org">admin@connectedcarriers.org</a></div>
+    <div class="contact-note">For questions about broker access or platform setup.</div>
   </div>
 
   <div class="contact-block">
-    <div class="contact-label">Carrier network</div>
-    <div class="contact-value"><a href="/interest/carrier">Submit carrier interest →</a></div>
-    <div class="contact-note">Carrier onboarding is invite-only. Express interest and we'll reach out when we have brokers looking for your lanes.</div>
+    <div class="contact-label">Carrier questions</div>
+    <div class="contact-value"><a href="mailto:admin@connectedcarriers.org">admin@connectedcarriers.org</a></div>
+    <div class="contact-note">For questions about carrier invitations or setup packets.</div>
   </div>
 
   <div class="contact-block">
-    <div class="contact-label">Company</div>
-    <div class="contact-value">HoneXAI · <a href="https://honexai.com">honexai.com</a></div>
-    <div class="contact-note">Connected Carriers is a HoneXAI product.</div>
+    <div class="contact-label">General inquiries</div>
+    <div class="contact-value"><a href="mailto:admin@connectedcarriers.org">admin@connectedcarriers.org</a></div>
+    <div class="contact-note">For all other questions.</div>
   </div>
+
+  <div class="tip">We're a working operations platform, so the fastest path is to include your company name, contact information, and the reason you're reaching out.</div>
 </div>
 <footer>
   <p>&copy; 2026 Connected Carriers. A <a href="https://honexai.com">HoneXAI</a> product. &nbsp;·&nbsp; <a href="/about">About</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/terms">Terms</a></p>
