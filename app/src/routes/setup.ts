@@ -417,7 +417,7 @@ function setupChecklistPage(
   for (const doc of docs) docMap[String(doc.document_type)] = doc;
 
   const hasAll = DOC_TYPES.every(t => docMap[t]);
-  const hasCompanyInfo = !!(packet.carrier_name && packet.carrier_email);
+  const hasCompanyInfo = !!(packet.carrier_name && packet.carrier_email && packet.carrier_phone);
 
   const savedMessages: Record<string, string> = {
     company: "Company info saved.",
@@ -760,13 +760,16 @@ ${qs.error ? `<div class="alert alert-error">Error: ${h(String(qs.error)).replac
   </div>
 
   ${!isComplete ? `
-  <div class="card">
-    <div class="card-title">Actions</div>
+  <div class="card" style="border-left:3px solid #f97316">
+    <div class="card-title" style="color:#c2410c">Manual Override</div>
+    <p style="font-size:12px;color:#9a3412;margin-bottom:12px;line-height:1.5">
+      ⚠ Use only if you have verified compliance outside this system.<br>
+      This bypasses document verification and immediately approves the carrier.
+    </p>
     <form method="POST" action="/carriers/${packet.carrier_id}/setup/${packet.id}/complete">
       <input type="hidden" name="_csrf" value="${h(csrf)}">
-      <button type="submit" class="btn-primary" style="width:100%">✓ Mark Setup Complete</button>
+      <button type="submit" style="width:100%;padding:10px;background:#f97316;color:white;border:none;border-radius:2px;font-family:var(--sans);font-size:13px;cursor:pointer">Override &amp; Approve Carrier</button>
     </form>
-    <p style="font-size:11px;color:var(--muted);margin-top:8px">This moves the carrier to Approved status. Use when all docs are verified.</p>
   </div>` : `
   <div class="card" style="border-left:3px solid #10b981">
     <div class="card-title" style="color:#15803d">✓ Setup Complete</div>

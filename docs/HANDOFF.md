@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
 **Last updated:** April 12, 2026
-**Status:** Functional MVP live. Directives 1-3 complete. Security hardening pass complete. Pickup code architecture decided.
+**Status:** Functional MVP live. Directives 1-3 complete. Security hardening complete. Carrier setup packet + R2 storage live.
 
 ---
 
@@ -36,6 +36,7 @@ The broker dashboard exists and the full qualification → dispatch workflow is 
 | MCP server | cc-mcp-server-production.up.railway.app | Online — v1.2.0 |
 | Broker dashboard | github-repo-production-2c39.up.railway.app | Online — MVP |
 | Broker dashboard (custom) | app.connectedcarriers.org | Online ✅ |
+| R2 storage | connected-carriers-docs (Cloudflare) | Configured ✅ |
 
 ### Broker Dashboard
 - Login: kateloads@logisticsxpress.com — production DB was seeded before hardening pass; password123 is still the active credential until manually rotated. seed.ts no longer emits password123 for new deploys.
@@ -244,7 +245,8 @@ all gates pass → Kate clicks "Clear to Roll"
 ## 11. NEXT STEPS (PRIORITY ORDER)
 
 ### Immediate (before real broker use)
-1. **Custom domain** — `app.connectedcarriers.org` (GoDaddy CNAME + Railway)
+1. ~~**Custom domain**~~ — configured ✅
+2. ~~**R2 storage**~~ — configured ✅
 2. **Run migrations on live DB** — `pickup_code_hash` column must be added to production (runs automatically on next deploy restart)
 
 ### Technical debt (resolved this session)
@@ -262,6 +264,11 @@ all gates pass → Kate clicks "Clear to Roll"
 ### Remaining technical debt
 3. **Deploy automation** — `CC AGENT — migrate` from Slack so no manual terminal needed
 4. **dispatch_verifications → dispatch_packets link** — add FK when geofence feature is built
+5. **Setup packet: rate limiting** — public `/setup/:token/doc/:type` not yet rate-limited (low risk due to tokenization but worth adding)
+6. **Setup packet: carrier-side activity logging** — doc uploads and company info updates not yet logged in activity_logs
+7. **Setup packet: phone required** — completion check now requires phone; existing seeded packets may show company info as incomplete until carrier resubmits
+8. **COI expiry reminders** — no automated email when COI is approaching expiry; broker must monitor manually for now
+9. **Landing page footer** — dead `#` links in Network/Platform/Company columns need cleanup
 
 ### Infrastructure
 5. **Add Twilio env vars to Railway** — then build SMS send in `dispatch.ts`
