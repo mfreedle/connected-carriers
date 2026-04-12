@@ -142,18 +142,48 @@
 
 ---
 
-## 9. NEXT STEPS (PRIORITY ORDER)
+## 9. DEPLOYMENT & CONFIG STATUS (AS OF APRIL 12, 2026)
 
-1. **Custom domain** — point `app.connectedcarriers.org` → broker dashboard (GoDaddy DNS + Railway)
-2. **Add Twilio env vars to Railway** — `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
-3. **Deploy automation** — `CC AGENT — migrate` directive via Slack listener (no more manual terminal)
-4. **Change Kate's password** — default password123 must be changed before real use
-5. **Google Workspace decision** — April 20 deadline
-6. **Security tightening review** — per checklist deferred from earlier session
+### What is deployed to Railway right now
+- Directives 1, 2, and 3 are **committed to `main` and auto-deployed** to Railway
+- Railway auto-deploys on every push to `main` — no manual deploy step needed
+- Migrations run automatically on app startup via `migrate()` chain in `index.ts`
+- The Railway service is: `github-repo-production-2c39.up.railway.app`
+
+### Custom domain
+- **Status: NOT configured**
+- `connectedcarriers.org` is owned and verified in GoDaddy
+- Target subdomain: `app.connectedcarriers.org`
+- Required steps: add CNAME in GoDaddy DNS pointing to Railway service domain, then add custom domain in Railway service Settings → Networking
+- Until done, only `github-repo-production-2c39.up.railway.app` works
+
+### Twilio / SMS
+- **Status: NOT wired — SMS does not send**
+- Twilio env vars `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` are **not set** in Railway
+- Pickup codes are generated in the database and displayed in the broker UI on clearance
+- Pickup code SMS to driver: **code exists in no file yet** — this is a future build item
+- Tracking link SMS to driver: **code exists in no file yet** — tracking status is manually updated by broker in the dispatch packet UI
+- To enable SMS: add Twilio env vars to Railway broker app service, then build send functions in dispatch.ts
+
+### Pickup code behavior (current actual state)
+- 6-digit code is generated and stored in `dispatch_packets.pickup_code` on clearance
+- Code is displayed in the broker UI (clearance banner + packet screen)
+- Code is **not sent via SMS** — broker must communicate it manually
+- `pickup_codes` table (original MCP server table) is separate and not yet integrated with dispatch packets
+
+## 10. NEXT STEPS (PRIORITY ORDER)
+
+1. **Change Kate's password** — `password123` must be changed before real carrier use
+2. **Custom domain** — GoDaddy CNAME `app.connectedcarriers.org` → Railway, then add domain in Railway Settings
+3. **Add Twilio env vars to Railway** — `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
+4. **Build SMS send functions** — pickup code to driver on clearance, tracking link to driver on dispatch
+5. **Deploy automation** — `CC AGENT — migrate` directive via Slack listener (no more manual terminal)
+6. **Google Workspace decision** — trial ends April 20, 2026
+7. **Security tightening review** — deferred until after FMCSA MCP build
 
 ---
 
-## 10. KEY LESSONS / GOTCHAS
+## 11. KEY LESSONS / GOTCHAS
 
 - Railway internal hostname unreachable from outside — use public URL for local migrations
 - `app.set("trust proxy", 1)` required for secure cookies to work behind Railway proxy
@@ -165,7 +195,7 @@
 
 ---
 
-## 11. PRODUCT ROADMAP
+## 12. PRODUCT ROADMAP
 
 ```
 Layer 1 (NOW):  Carrier qualification portal — Directives 1+2+3 complete
