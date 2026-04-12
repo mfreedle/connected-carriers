@@ -173,6 +173,11 @@ async function seed() {
   console.log("Login: kateloads@logisticsxpress.com / password123");
 }
 
-seed()
-  .then(() => process.exit(0))
-  .catch((err) => { console.error(err); process.exit(1); });
+export default seed;
+
+// Allow running directly: ts-node src/seed.ts
+if (require.main === module) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => { console.error(err); process.exit(1); });
+}

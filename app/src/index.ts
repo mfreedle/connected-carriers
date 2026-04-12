@@ -39,6 +39,25 @@ app.use("/", dashboardRoutes);
 app.use("/", carrierRoutes);
 app.use("/", settingsRoutes);
 
+// One-time setup route — runs seed if no broker accounts exist yet
+app.get("/setup", async (req, res) => {
+  try {
+    const { query } = await import("./db");
+    const check = await query("SELECT COUNT(*) as count FROM broker_accounts");
+    const count = parseInt(check.rows[0].count);
+    if (count > 0) {
+      return res.send(`Setup already complete — ${count} broker account(s) exist. <a href="/dashboard">Go to dashboard</a>`);
+    }
+    // Run seed
+    const { default: runSeed } = await import("./seed");
+    await runSeed();
+    res.send(`Setup complete. <a href="/login">Log in as kateloads@logisticsxpress.com / password123</a>`);
+  } catch (err) {
+    console.error("Setup error:", err);
+    res.status(500).send(`Setup failed: ${err}`);
+  }
+});
+
 // 404
 app.use((req, res) => {
   res.status(404).send("Page not found");
