@@ -1,95 +1,63 @@
 # CLAUDE.md — Connected Carriers
-**Version:** 1.1 — April 7, 2026
+**Version:** 2.0 — April 12, 2026
 **Project:** Connected Carriers (mfreedle/connected-carriers)
 **Parent brand:** HoneXAI (honexai.com)
 
 ---
 
-## Agent Identity
+## Standalone System Declaration
 
-You are the AI agent for Connected Carriers development. You build and maintain the carrier qualification and onboarding platform. You are NOT the HONEX site services agent — that is a separate project. Stay in your lane.
+Connected Carriers is a standalone system.
+There is no external code owner constraint (Ajith does not apply).
+Claude can make architectural decisions freely within this repo, prioritizing clarity and speed over compatibility with HONEX.
+
+Build for Kate being operationally faster and safer.
+Not for generalizability. Not for enterprise extensibility. Not for future multi-repo compatibility.
+
+Speed + clarity > extensibility, every time.
 
 ---
 
-## GitHub Access
+## Agent Identity
 
-Push files to this repo using the GitHub API directly:
-
-- **Token:** ${GITHUB_TOKEN}
-- **PUT to:** https://api.github.com/repos/mfreedle/connected-carriers/contents/{path}
-- Always get the current file SHA before updating existing files
-- Base64 encode content and strip newlines before sending
+You are the AI agent for Connected Carriers development. You build and maintain the carrier qualification and dispatch workflow platform. You are NOT the HONEX site services agent.
 
 ---
 
 ## Infrastructure
 
 - **Repo:** github.com/mfreedle/connected-carriers
-- **Landing page:** index.html (deploy root)
-- **Deploy target:** Railway (auto-deploy from main branch) — NEVER Netlify
+- **Token:** ${GITHUB_TOKEN}
+- **Broker dashboard:** github-repo-production-2c39.up.railway.app (Railway, auto-deploy from main)
+- **MCP server:** cc-mcp-server-production.up.railway.app
+- **Landing page:** connected-carriers-production.up.railway.app
 - **Domain:** connectedcarriers.org
-- **Google Form:** https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform
+- **VPS:** root@137.184.36.72 (SSH key auth)
+- **Slack channel:** C0ARKBC5VRA (#cc-agent-logs, Connected Carriers workspace)
 
 ---
 
 ## Product Context
 
-### What Connected Carriers Is
-A carrier qualification and onboarding network for freight brokers. Carriers apply once, get verified, and work with multiple brokers. Brokers get pre-screened carriers with automated FMCSA verification and tier assignment.
-
-### The Real Differentiator
-Not the verification — the network. Cross-broker carrier performance data that no single broker can see alone. Every load, every on-time delivery, every check call builds a carrier profile that benefits the entire network.
-
-HoneXAI = the technology company
-Connected Carriers = the consumer network it runs
-honex.ai = where the intelligence layer eventually lives
+A carrier qualification and dispatch clearance platform for freight brokers. Kate sends intake links to carriers after DAT responses, reviews them through the broker dashboard, and dispatches cleared loads through the dispatch packet workflow.
 
 ### Carrier Tiers
-- **Tier 1 Preferred:** In Port TMS + 3+ loads + clean history — bypasses screening, pre-approved
-- **Tier 2 Approved:** New carrier, passes all hard stops — standard onboarding
-- **Tier 3 Conditional:** Passes minimums, needs review — manual review queue
-- **Rejected:** Fails any auto-disqualifier — instant rejection
+- **Tier 1 Preferred:** In Port TMS + 3+ loads + clean history
+- **Tier 2 Approved:** New carrier, passes all hard stops
+- **Tier 3 Conditional:** Passes minimums, needs manual review
+- **Rejected:** Fails any auto-disqualifier
 
-### Fraud Prevention Context
-Strategic cargo theft up 1,500% since 2021. Three attack vectors: double brokering, carrier identity cloning, FMCSA system exploitation. Average theft value $273,990 in 2025.
-
-**Pickup Code System (planned feature):**
-Generate a unique 6-digit code at dispatch. Send via SMS to the carrier's verified phone number on file. Broker sends the same code to the shipper. Driver presents the code at pickup — codes must match before freight moves. Breaks carrier impersonation because the code goes to the verified contact, not the fraudster who cloned the MC number.
-
-### Product Roadmap
-- Layer 1 NOW: Carrier qualification portal — active build
-- Layer 2 NEXT: Performance memory per carrier per load
-- Layer 3: Network intelligence across multiple brokers
-- Layer 4: Load marketplace for pre-screened carriers
-
----
-
-## MCP Server Plan
-
-Building a custom MCP server (TypeScript, Streamable HTTP transport) that exposes:
-- `cc_lookup_carrier` — MC number to FMCSA authority, safety rating, insurance on file
-- `cc_verify_carrier` — full carrier submission to pass/fail per criterion
-- `cc_assign_tier` — verification results to tier assignment with reasoning
-
-Stack: @modelcontextprotocol/sdk + Zod validation + FMCSA SAFER API
-Deploy: Railway service, separate from landing page
-Connect: Add as custom connector in Claude project settings
-
----
-
-## Slack Listener Plan
-
-Connected Carriers will have its own Slack channel and its own agent listener — separate from the HONEX site services Slack control plane. Pattern is identical to agent-platform (mfreedle/agent-platform) but scoped to this project. Do NOT post Connected Carriers agent output to HONEX Slack channels.
+### Record Lifecycle
+intake link → carrier submits form → FMCSA verification → auto-reject or queue → Kate reviews → approved → dispatch packet → clearance → pickup code (if policy requires)
 
 ---
 
 ## Design System
 
 ```
---slate:   #1C2B3A   (primary dark)
---slate2:  #243447
---amber:   #C8892A   (accent — unique in freight tech space)
---cream:   #F7F5F0   (warm off-white background)
+--slate:   #1C2B3A
+--amber:   #C8892A
+--cream:   #F7F5F0
 --serif:   Playfair Display
 --sans:    DM Sans
 ```
@@ -101,81 +69,74 @@ Connected Carriers will have its own Slack channel and its own agent listener �
 - `assets/` — brand assets, only update intentionally
 - Google Form (live) — do not modify without explicit direction
 - Carrier tier definitions — business decisions, not code decisions
+- HONEX files — separate project, do not touch
 
 ---
 
 ## Standing Rules
 
-- Landing page CTAs must always point to the live Google Form URL
-- Footer must always attribute HoneXAI
-- Design system tokens (slate/amber/cream) must be preserved in all UI work
-- Any new page or component must match the existing design system
-- Deploy target is Railway — NEVER Netlify
+- Landing page CTAs must point to the live Google Form URL
+- Footer must attribute HoneXAI
+- Design system tokens must be preserved in all UI work
+- Deploy target is Railway — never Netlify
+- All user-supplied values rendered into HTML must use `h()` from `middleware/security.ts`
+- All broker POST forms must include a `_csrf` hidden field
+
+---
+
+## Directive Format
+
+Every directive to this project uses this header and nothing else:
+
+```
+RISK:
+VERIFICATION TARGET:
+OUT OF SCOPE:
+SYNC:
+READ FIRST:
+TASK:
+DELIVERABLE:
+```
+
+SYNC lists files Claude must read before writing any code.
+One concern per directive. No Part 1 / Part 2 splits.
+
+---
+
+## What to Keep from HONEX Patterns
+
+Keep:
+- Directive discipline
+- Audit-first, read before writing
+- Clean state machines
+- Explicit workflow modeling
+- No magic behavior
+
+Drop:
+- Multi-owner caution patterns
+- Merge anxiety
+- Over-defensive architecture
+- Premature modularization
+- "Future enterprise compatibility" thinking
 
 ---
 
 ## Key Links
 
-- Google Form edit: https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/edit
-- Response sheet: HONEX Connected Carriers — Responses in Google Drive
 - FMCSA SAFER API: https://safer.fmcsa.dot.gov/
-- Highway: https://highway.com
-- CargoNet: https://cargonet.com
+- Google Form: https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform
+- Response sheet: "HONEX Connected Carriers — Responses" in Google Drive
 
 ---
 
-## Agent Platform Reference
+## Agent Infrastructure
 
-- mfreedle/agent-platform — mission system, headless runners, Slack control plane patterns
-- mfreedle/claude-skills — n-agentic-harnesses, docx, pdf, frontend-design skills
+### Slack Listener (live on VPS)
+- Service: `cc_slack_listener` — RUNNING
+- Directive pattern: `CC AGENT — [directive]`
+- Fast-path: `CC AGENT — lookup MC<number>` → MCP → result in ~3s
+- Event subscriptions: `message.channels` AND `message.groups` (both required)
 
-Read agent-platform README before setting up any agent infrastructure for this project.
-
----
-
-## Skills Available
-
-Read skill files before starting work in their domain:
-- Frontend/UI work: frontend-design/SKILL.md
-- Document creation: docx, pdf skills
-- Agent harness design: n-agentic-harnesses/SKILL.md
-
----
-
-## Directive Rules (MANDATORY when running agents)
-
-Before drafting any directive for an agent, reference `mfreedle/claude-skills` →
-`n-agentic-harnesses/directive-template.md` for the correct template.
-
-Mandatory fields in every directive:
-- RISK level (Low / Elevated / Critical)
-- READ FIRST (exact file paths — agents must read before writing code)
-- TASK (specific numbered steps, no scope expansion)
-- OUT OF SCOPE (at least one explicit exclusion)
-- VERIFICATION TARGET (what done looks like, not just "confirm it works")
-
-One concern per directive. Never split work across Part 1 / Part 2.
-Show the directive to the human before sending. No exceptions.
-
----
-
-## Agent Infrastructure Reliability (MANDATORY when building runners)
-
-When the Slack listener and headless runners are built for this project, implement
-runner-level lifecycle posting from day one. Do not learn this the hard way.
-
-**Required pattern for every headless runner:**
-
-1. **START post** — fires immediately after mission claim, before agent boots
-2. **COMPLETION post** — fires after agent process exits with code 0
-3. **ERROR post** — fires after agent process exits with non-zero code
-
-All three posts use `curl` directly in the shell script. All three use `|| true`
-so post failure never blocks the runner.
-
-**Why this matters:**
-Agent-level MCP Slack posts are not reliable. If the MCP call fails silently,
-the mission runs with zero channel evidence. Runner-level posts are the safety net
-that makes mission lifecycle mechanically observable regardless of what the agent does.
-
-Reference: `mfreedle/agent-platform` → `RELIABILITY.md` — full implementation pattern.
+### Runner Lifecycle Posts (required for any headless runner)
+Every headless runner must post START, COMPLETION, and ERROR to #cc-agent-logs via curl.
+Use `|| true` so post failure never blocks the runner.
