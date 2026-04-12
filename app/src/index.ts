@@ -1,0 +1,52 @@
+import express from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import pool from "./db";
+import authRoutes from "./routes/auth";
+import dashboardRoutes from "./routes/dashboard";
+import carrierRoutes from "./routes/carriers";
+import settingsRoutes from "./routes/settings";
+
+const app = express();
+const PORT = parseInt(process.env.PORT || "4000");
+
+// Body parsing
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// Sessions
+const PgSession = connectPgSimple(session);
+app.use(session({
+  store: new PgSession({
+    pool,
+    tableName: "session",
+    createTableIfMissing: false,
+  }),
+  secret: process.env.SESSION_SECRET || "cc-dev-secret-change-in-prod",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+  },
+}));
+
+// Routes
+app.get("/", (req, res) => res.redirect("/dashboard"));
+app.use("/", authRoutes);
+app.use("/", dashboardRoutes);
+app.use("/", carrierRoutes);
+app.use("/", settingsRoutes);
+
+// 404
+app.use((req, res) => {
+  res.status(404).send("Page not found");
+});
+
+app.listen(PORT, () => {
+  console.log(`Connected Carriers broker app running on port ${PORT}`);
+  console.log(`Dashboard: http://localhost:${PORT}/dashboard`);
+});
+
+export default app;
