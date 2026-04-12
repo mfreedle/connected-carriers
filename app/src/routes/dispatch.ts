@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { h, csrfToken } from "../middleware/security";
+import { sendSms, isTwilioConfigured } from "../lib/sms";
 import { layout } from "../views/layout";
 
 const router = Router();
@@ -92,11 +93,12 @@ router.get("/dispatch/:id", requireAuth, async (req: AuthenticatedRequest, res: 
     const { blocking, complete } = evaluateGating(packet, policy);
 
     const csrf = csrfToken(req);
+    const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
     const html = layout({
       title: `Dispatch — ${packet.load_reference}`,
       userName: req.session.userName || "",
       csrfToken: csrf,
-      content: dispatchContent(packet, policy, activityRes.rows, blocking, complete, req.query, csrf),
+      content: dispatchContent(packet, policy, activityRes.rows, blocking, complete, req.query, csrf, BASE_URL),
     });
 
     res.send(html);
@@ -180,15 +182,50 @@ router.post("/dispatch/:id/insurance", requireAuth, async (req: AuthenticatedReq
 router.post("/dispatch/:id/tracking/send", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const accountId = req.session.brokerAccountId;
   const packetId = parseInt(req.params.id);
+  const userId = req.session.userId!;
+  const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
 
   try {
+    const packetRes = await query(
+      `SELECT * FROM dispatch_packets WHERE id=$1 AND broker_account_id=$2`,
+      [packetId, accountId]
+    );
+    if (!packetRes.rows.length) return res.redirect(`/dispatch/${packetId}?error=not_found`);
+    const packet = packetRes.rows[0];
+
+    // Generate tracking token if not already set
+    let trackingToken = packet.tracking_token;
+    if (!trackingToken) {
+      trackingToken = crypto.randomBytes(32).toString("hex");
+      await query(`UPDATE dispatch_packets SET tracking_token=$1 WHERE id=$2`, [trackingToken, packetId]);
+    }
+
+    const trackingUrl = `${BASE_URL}/track/${trackingToken}`;
+
+    // Update status
     await query(`
       UPDATE dispatch_packets SET tracking_status='sent', tracking_link_sent_at=NOW(), updated_at=NOW()
       WHERE id=$1 AND broker_account_id=$2
     `, [packetId, accountId]);
 
-    await logActivity("dispatch_packet", packetId, "broker_user", req.session.userId!, "tracking_link_sent", {});
-    res.redirect(`/dispatch/${packetId}?saved=tracking_sent`);
+    // Send SMS if driver phone exists
+    let smsSaved = "tracking_sent";
+    if (packet.driver_phone) {
+      const smsBody = `${packet.load_reference ? `Load ${packet.load_reference}: ` : ""}Your broker requires GPS tracking. Tap to confirm: ${trackingUrl}`;
+      const smsResult = await sendSms(packet.driver_phone, smsBody);
+      await query(`
+        UPDATE dispatch_packets SET
+          tracking_sms_status=$1, tracking_sms_sent_at=${smsResult.sent ? "NOW()" : "tracking_sms_sent_at"}
+        WHERE id=$2
+      `, [smsResult.sent ? "sent" : `failed: ${smsResult.error}`, packetId]);
+      await logActivity("dispatch_packet", packetId, "broker_user", userId, smsResult.sent ? "tracking_sms_sent" : "tracking_sms_failed", {
+        phone: packet.driver_phone, error: smsResult.error
+      });
+      smsSaved = smsResult.sent ? "tracking_sent_sms" : "tracking_sent_no_sms";
+    }
+
+    await logActivity("dispatch_packet", packetId, "broker_user", userId, "tracking_link_sent", { url: trackingUrl });
+    res.redirect(`/dispatch/${packetId}?saved=${smsSaved}`);
   } catch (err) {
     console.error(err);
     res.redirect(`/dispatch/${packetId}?error=save_failed`);
@@ -335,6 +372,19 @@ router.post("/dispatch/:id/clear", requireAuth, async (req: AuthenticatedRequest
       pickup_code_issued: !!pickupCode,
     });
 
+    // Send pickup code SMS if applicable
+    if (pickupCode && packet.driver_phone) {
+      const smsBody = `Connected Carriers: Your pickup code for load ${packet.load_reference || packetId} is ${pickupCode}. Present this to the shipper at pickup. Valid until ${pickupCodeExpires ? new Date(pickupCodeExpires).toLocaleString() : "pickup"}.`;
+      const smsResult = await sendSms(packet.driver_phone, smsBody);
+      await query(`
+        UPDATE dispatch_packets SET pickup_code_sms_status=$1, pickup_code_sms_sent_at=${smsResult.sent ? "NOW()" : "NULL"}
+        WHERE id=$2
+      `, [smsResult.sent ? "sent" : `failed: ${smsResult.error}`, packetId]);
+      await logActivity("dispatch_packet", packetId, "broker_user", userId!, smsResult.sent ? "pickup_code_sms_sent" : "pickup_code_sms_failed", {
+        phone: packet.driver_phone, error: smsResult.error
+      });
+    }
+
     res.redirect(`/dispatch/${packetId}?cleared=1`);
   } catch (err) {
     console.error(err);
@@ -473,7 +523,8 @@ function dispatchContent(
   blocking: string[],
   complete: string[],
   query: Record<string, unknown>,
-  csrf = ""
+  csrf = "",
+  BASE_URL = "https://app.connectedcarriers.org"
 ): string {
   const isCleared = packet.final_clearance_status === "cleared_to_roll";
   const isCancelled = ["cancelled", "failed", "expired"].includes(String(packet.final_clearance_status));
@@ -487,6 +538,8 @@ function dispatchContent(
     driver: "Driver & equipment saved.",
     insurance: "Insurance verification saved.",
     tracking_sent: "Tracking link marked as sent.",
+    tracking_sent_sms: "✓ Tracking link sent and SMS delivered to driver.",
+    tracking_sent_no_sms: "Tracking link marked as sent — SMS could not be delivered. Send manually.",
     tracking_accepted: "Tracking acceptance recorded.",
     tracking_rejected: "Tracking rejection recorded.",
     rate_confirmed: "Rate confirmation marked complete.",
@@ -516,7 +569,7 @@ function dispatchContent(
   ` : ""}
 </div>
 
-${cleared === "1" ? `<div class="alert alert-success">✓ Truck cleared to roll. ${packet.pickup_code ? `Pickup code: <strong>${h(packet.pickup_code)}</strong>${packet.pickup_code_expires_at ? ` (expires ${ts(packet.pickup_code_expires_at)})` : ""}` : ""}</div>` : ""}
+${cleared === "1" ? `<div class="alert alert-success">✓ Truck cleared to roll. ${packet.pickup_code ? `Pickup code: <strong>${h(packet.pickup_code)}</strong>${packet.pickup_code_expires_at ? ` (expires ${ts(packet.pickup_code_expires_at)})` : ""}${packet.pickup_code_sms_status === "sent" ? ` <span style="color:#10b981;font-size:12px">· SMS sent to driver</span>` : packet.driver_phone ? ` <span style="color:#f59e0b;font-size:12px">· SMS not sent — deliver manually</span>` : ""}` : ""}</div>` : ""}
 ${saved && savedMessages[saved] ? `<div class="alert alert-success">${savedMessages[saved]}</div>` : ""}
 ${error === "blocking_items_unresolved" ? `<div class="alert alert-error">Cannot clear — resolve all blocking items first.</div>` : ""}
 ${error && error !== "blocking_items_unresolved" ? `<div class="alert alert-error">Error: ${error.replace(/_/g, " ")}.</div>` : ""}

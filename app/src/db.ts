@@ -353,3 +353,15 @@ export async function migrateSetupPackets() {
 
   console.log("Setup packet migrations complete.");
 }
+
+export async function migrateTwilio() {
+  // Add tracking token to dispatch_packets
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS tracking_token VARCHAR(64) UNIQUE`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_tracking_token ON dispatch_packets(tracking_token)`);
+  // Add SMS delivery status fields
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS pickup_code_sms_status TEXT`);
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS pickup_code_sms_sent_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS tracking_sms_status TEXT`);
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS tracking_sms_sent_at TIMESTAMPTZ`);
+  console.log("Twilio migration complete.");
+}
