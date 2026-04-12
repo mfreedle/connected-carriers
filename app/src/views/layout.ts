@@ -266,6 +266,7 @@ export function layout({ title, userName, content }: LayoutOptions): string {
   <a href="/dashboard" class="nav-brand">Connected<span>Carriers</span></a>
   <div class="nav-links">
     <a href="/dashboard" class="nav-link">Queue</a>
+    <a href="/intake/links" class="nav-link">Intake</a>
     <a href="/settings" class="nav-link">Settings</a>
   </div>
   <div class="nav-user">

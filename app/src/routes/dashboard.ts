@@ -135,11 +135,12 @@ function dashboardContent(
   ];
 
   return `
-<div class="page-header">
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
   <div>
     <h1 class="page-title">Carrier Queue</h1>
     <p class="page-sub">${totalCount} submission${totalCount !== 1 ? "s" : ""} total</p>
   </div>
+  <a href="/intake/links" class="btn-primary" style="text-decoration:none;padding:9px 18px;font-size:13px">+ New Carrier Intake</a>
 </div>
 
 <div class="tabs">

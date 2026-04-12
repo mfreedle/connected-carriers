@@ -186,3 +186,29 @@ export async function migrate() {
 }
 
 export default pool;
+
+export async function migrateIntake() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_intake_links (
+      id SERIAL PRIMARY KEY,
+      broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+      token VARCHAR(64) UNIQUE NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active','submitted','expired','cancelled')),
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES broker_users(id),
+      submitted_submission_id INTEGER REFERENCES carrier_submissions(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_intake_links_token ON carrier_intake_links(token)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_intake_links_broker ON carrier_intake_links(broker_account_id)`);
+
+  // Add intake_link_id to carrier_submissions if not present
+  await query(`ALTER TABLE carrier_submissions ADD COLUMN IF NOT EXISTS intake_link_id INTEGER REFERENCES carrier_intake_links(id)`);
+  await query(`ALTER TABLE carrier_submissions ADD COLUMN IF NOT EXISTS auto_rejected BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE carrier_submissions ADD COLUMN IF NOT EXISTS auto_reject_reasons JSONB DEFAULT '[]'`);
+
+  console.log("Intake migrations complete.");
+}
