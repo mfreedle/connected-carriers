@@ -74,14 +74,14 @@ async function seed() {
 
   await query(`
     INSERT INTO carrier_submissions (
-      broker_account_id, carrier_id, submitted_by_name, submitted_by_email,
+      broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
       submitted_by_phone, status, agreed_to_terms, submitted_at,
       reviewed_at, reviewed_by, decision_reason,
       fmcsa_result
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW() - INTERVAL '2 days',NOW() - INTERVAL '1 day',$8,$9,$10)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW() - INTERVAL '2 days',NOW() - INTERVAL '1 day',$9,$10,$11)
   `, [
-    accountId, c1.rows[0].id, "Marcus Webb", "marcus@swifteagle.com",
+    accountId, "1234567", c1.rows[0].id, "Marcus Webb", "marcus@swifteagle.com",
     "602-555-0102", "approved", true, userId,
     "Active MC, clean safety record, all docs submitted",
     JSON.stringify({ active: true, authority: "AUTHORIZED", safety_rating: "Not Rated", years_in_operation: 4 })
@@ -110,13 +110,13 @@ async function seed() {
 
   await query(`
     INSERT INTO carrier_submissions (
-      broker_account_id, carrier_id, submitted_by_name, submitted_by_email,
+      broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
       submitted_by_phone, status, agreed_to_terms, submitted_at,
       reviewed_at, reviewed_by, decision_reason, fmcsa_result
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW() - INTERVAL '1 day',NOW() - INTERVAL '3 hours',$8,$9,$10)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW() - INTERVAL '1 day',NOW() - INTERVAL '3 hours',$9,$10,$11)
   `, [
-    accountId, c2.rows[0].id, "Rosa Delgado", "rosa@mesafreight.com",
+    accountId, "7654321", c2.rows[0].id, "Rosa Delgado", "rosa@mesafreight.com",
     "480-555-0202", "conditional", true, userId,
     "Conditional safety rating — manual review required before first load",
     JSON.stringify({ active: true, authority: "AUTHORIZED", safety_rating: "Conditional", years_in_operation: 1 })
@@ -145,14 +145,14 @@ async function seed() {
 
   await query(`
     INSERT INTO carrier_submissions (
-      broker_account_id, carrier_id, submitted_by_name, submitted_by_email,
+      broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
       submitted_by_phone, status, agreed_to_terms, submitted_at,
       reviewed_at, reviewed_by, decision_reason, fmcsa_result,
       internal_flags
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW() - INTERVAL '3 days',NOW() - INTERVAL '2 days',$8,$9,$10,$11)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW() - INTERVAL '3 days',NOW() - INTERVAL '2 days',$9,$10,$11,$12)
   `, [
-    accountId, c3.rows[0].id, "Trent Howell", "trent@desertrun.com",
+    accountId, "9991111", c3.rows[0].id, "Trent Howell", "trent@desertrun.com",
     "520-555-0302", "rejected", true, userId,
     "Unsatisfactory FMCSA safety rating — auto-disqualified",
     JSON.stringify({ active: false, authority: "NOT AUTHORIZED", safety_rating: "Unsatisfactory", years_in_operation: 0 }),
