@@ -37,7 +37,7 @@ The broker dashboard exists and the full qualification → dispatch workflow is 
 | Broker dashboard | github-repo-production-2c39.up.railway.app | Online — MVP |
 
 ### Broker Dashboard
-- Login: kateloads@logisticsxpress.com / **password123** (⚠ must change before real use)
+- Login: kateloads@logisticsxpress.com — credential managed via seed/reset flow; no default password documented here (see Security Status section)
 - Root directory in repo: `app/`
 - Migrations run automatically on startup — no manual step needed after deploy
 - Railway auto-deploys on every push to `main`
@@ -87,7 +87,7 @@ Current pickup code implementation (post-hardening):
 - Generated with `crypto.randomInt(100000, 999999)` — cryptographically secure
 - Plaintext stored in `dispatch_packets.pickup_code` for broker UI display (internal broker-only surface)
 - Hash stored in `dispatch_packets.pickup_code_hash` (SHA-256)
-- Displayed once in broker UI on clearance
+- Retained in broker-internal UI after clearance (plaintext in dispatch_packets.pickup_code); hash also stored in pickup_code_hash for future verification path — not sent externally
 - Not sent externally — SMS requires Twilio (not yet wired)
 
 If/when SMS is wired: send the plaintext at generation time, then rely on the hash for verification. At that point, evaluate whether to drop the plaintext column.

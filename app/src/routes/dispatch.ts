@@ -567,19 +567,19 @@ ${/* Clearance status panel */isCleared ? `
       </div>
       <div class="form-field">
         <label class="field-label">CDL photo URL</label>
-        <input type="url" name="cdl_photo_url" value="${String(packet.cdl_photo_url || "")}" class="field-input" placeholder="https://…">
+        <input type="url" name="cdl_photo_url" value="${h(packet.cdl_photo_url || "")}" class="field-input" placeholder="https://…">
       </div>
       <div class="form-field">
         <label class="field-label">Truck photo URL <span class="field-hint" style="display:inline">(showing MC/DOT)</span></label>
-        <input type="url" name="truck_photo_url" value="${String(packet.truck_photo_url || "")}" class="field-input" placeholder="https://…">
+        <input type="url" name="truck_photo_url" value="${h(packet.truck_photo_url || "")}" class="field-input" placeholder="https://…">
       </div>
       <div class="form-field">
         <label class="field-label">VIN photo URL</label>
-        <input type="url" name="vin_photo_url" value="${String(packet.vin_photo_url || "")}" class="field-input" placeholder="https://…">
+        <input type="url" name="vin_photo_url" value="${h(packet.vin_photo_url || "")}" class="field-input" placeholder="https://…">
       </div>
       <div class="form-field">
         <label class="field-label">Cab card URL</label>
-        <input type="url" name="cab_card_url" value="${String(packet.cab_card_url || "")}" class="field-input" placeholder="https://…">
+        <input type="url" name="cab_card_url" value="${h(packet.cab_card_url || "")}" class="field-input" placeholder="https://…">
       </div>
       <button type="submit" class="btn-sm">Save Driver & Equipment</button>
     </form>
