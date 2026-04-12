@@ -325,6 +325,37 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     </div>
     ` : ""}
 
+    <!-- Dispatch Packet -->
+    ${carrier.onboarding_status !== 'rejected' && carrier.onboarding_status !== 'draft' ? `
+    <div class="card" style="border-left:3px solid #C8892A">
+      <div class="card-title">Dispatch</div>
+      <form method="POST" action="/carriers/${String(carrier.id)}/dispatch/create">
+        <input type="hidden" name="carrier_submission_id" value="${latestSubmission ? String(latestSubmission.id) : ''}">
+        <div class="form-field">
+          <label class="field-label">Load reference <span style="color:#ef4444">*</span></label>
+          <input type="text" name="load_reference" class="field-input" placeholder="e.g. DAT-20260412-001" required>
+        </div>
+        <div class="form-field">
+          <label class="field-label">Pickup address</label>
+          <input type="text" name="pickup_address" class="field-input" placeholder="123 Main St, Phoenix AZ">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-field">
+            <label class="field-label">Window start</label>
+            <input type="text" name="pickup_window_start" class="field-input" placeholder="e.g. 04/14 08:00">
+          </div>
+          <div class="form-field">
+            <label class="field-label">Window end</label>
+            <input type="text" name="pickup_window_end" class="field-input" placeholder="e.g. 04/14 12:00">
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%">Open Dispatch Packet →</button>
+      </form>
+      <div style="margin-top:10px">
+        <a href="/carriers/${String(carrier.id)}/dispatch" class="btn-link" style="font-size:12px">View dispatch history</a>
+      </div>
+    </div>
+    ` : ''}
     <!-- Notes -->
     <div class="card" id="notes">
       <div class="card-title">Notes</div>

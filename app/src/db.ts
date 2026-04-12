@@ -212,3 +212,55 @@ export async function migrateIntake() {
 
   console.log("Intake migrations complete.");
 }
+
+export async function migrateDispatch() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS dispatch_packets (
+      id SERIAL PRIMARY KEY,
+      broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      carrier_submission_id INTEGER REFERENCES carrier_submissions(id),
+      load_reference TEXT NOT NULL,
+      pickup_address TEXT,
+      pickup_window_start TEXT,
+      pickup_window_end TEXT,
+      driver_name TEXT,
+      driver_phone TEXT,
+      cdl_photo_url TEXT,
+      truck_photo_url TEXT,
+      vin_number TEXT,
+      vin_photo_url TEXT,
+      cab_card_url TEXT,
+      trailer_number TEXT,
+      insurer_name TEXT,
+      insurance_verification_method TEXT CHECK (insurance_verification_method IN ('phone','email','portal')),
+      insurance_reverified_at TIMESTAMPTZ,
+      insurance_reverified_by INTEGER REFERENCES broker_users(id),
+      vin_verified BOOLEAN DEFAULT false,
+      vin_verification_notes TEXT,
+      tracking_required BOOLEAN DEFAULT true,
+      tracking_link_sent_at TIMESTAMPTZ,
+      tracking_accepted_at TIMESTAMPTZ,
+      tracking_status TEXT DEFAULT 'not_sent' CHECK (tracking_status IN ('not_sent','sent','accepted','rejected')),
+      rate_confirmation_signed_at TIMESTAMPTZ,
+      pickup_appointment_confirmed_at TIMESTAMPTZ,
+      final_clearance_status TEXT DEFAULT 'pending' CHECK (final_clearance_status IN (
+        'pending','docs_pending','verification_in_progress','cleared_to_roll','failed','expired','cancelled'
+      )),
+      final_clearance_notes TEXT,
+      cleared_by INTEGER REFERENCES broker_users(id),
+      cleared_at TIMESTAMPTZ,
+      pickup_code TEXT,
+      pickup_code_expires_at TIMESTAMPTZ,
+      pickup_code_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_carrier ON dispatch_packets(carrier_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_broker ON dispatch_packets(broker_account_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_status ON dispatch_packets(final_clearance_status)`);
+
+  console.log("Dispatch migrations complete.");
+}

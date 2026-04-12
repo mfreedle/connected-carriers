@@ -1,12 +1,13 @@
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import pool, { migrate, migrateIntake } from "./db";
+import pool, { migrate, migrateIntake, migrateDispatch } from "./db";
 import authRoutes from "./routes/auth";
 import dashboardRoutes from "./routes/dashboard";
 import carrierRoutes from "./routes/carriers";
 import settingsRoutes from "./routes/settings";
 import intakeRoutes from "./routes/intake";
+import dispatchRoutes from "./routes/dispatch";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -41,6 +42,7 @@ app.use("/", dashboardRoutes);
 app.use("/", carrierRoutes);
 app.use("/", settingsRoutes);
 app.use("/", intakeRoutes);
+app.use("/", dispatchRoutes);
 
 // One-time setup route — runs seed if no broker accounts exist yet
 app.get("/setup", async (req, res) => {
@@ -67,7 +69,7 @@ app.use((req, res) => {
 });
 
 // Auto-run migrations on startup
-migrate().then(() => migrateIntake())
+migrate().then(() => migrateIntake()).then(() => migrateDispatch())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);
