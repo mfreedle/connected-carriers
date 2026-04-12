@@ -268,3 +268,46 @@ export async function migrateDispatch() {
 
   console.log("Dispatch migrations complete.");
 }
+
+export async function migrateInterest() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS broker_interest_submissions (
+      id SERIAL PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      tms TEXT,
+      estimated_load_volume TEXT,
+      freight_profile_or_lanes TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','reviewed','contacted','rejected')),
+      reviewed_at TIMESTAMPTZ,
+      reviewed_by INTEGER REFERENCES broker_users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_interest_submissions (
+      id SERIAL PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      mc_number TEXT,
+      contact_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      equipment_types JSONB DEFAULT '[]',
+      lanes_or_regions TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','reviewed','contacted','rejected')),
+      reviewed_at TIMESTAMPTZ,
+      reviewed_by INTEGER REFERENCES broker_users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_broker_interest_status ON broker_interest_submissions(status)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_carrier_interest_status ON carrier_interest_submissions(status)`);
+
+  console.log("Interest form migrations complete.");
+}
