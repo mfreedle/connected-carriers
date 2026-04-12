@@ -1,7 +1,7 @@
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import pool from "./db";
+import pool, { migrate } from "./db";
 import authRoutes from "./routes/auth";
 import dashboardRoutes from "./routes/dashboard";
 import carrierRoutes from "./routes/carriers";
@@ -44,9 +44,17 @@ app.use((req, res) => {
   res.status(404).send("Page not found");
 });
 
-app.listen(PORT, () => {
-  console.log(`Connected Carriers broker app running on port ${PORT}`);
-  console.log(`Dashboard: http://localhost:${PORT}/dashboard`);
-});
+// Auto-run migrations on startup
+migrate()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Connected Carriers broker app running on port ${PORT}`);
+      console.log(`Dashboard: http://localhost:${PORT}/dashboard`);
+    });
+  })
+  .catch((err) => {
+    console.error("Migration failed:", err);
+    process.exit(1);
+  });
 
 export default app;
