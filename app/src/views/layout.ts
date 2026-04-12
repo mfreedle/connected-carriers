@@ -2,9 +2,10 @@ interface LayoutOptions {
   title: string;
   userName: string;
   content: string;
+  csrfToken?: string;
 }
 
-export function layout({ title, userName, content }: LayoutOptions): string {
+export function layout({ title, userName, content, csrfToken }: LayoutOptions): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -260,6 +261,7 @@ export function layout({ title, userName, content }: LayoutOptions): string {
     .settings-grid { grid-template-columns: 1fr; }
   }
 </style>
+${csrfToken ? `<meta name="csrf-token" content="${csrfToken}">` : ""}
 </head>
 <body>
 <nav class="nav">

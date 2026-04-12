@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
 **Last updated:** April 12, 2026
-**Status:** Functional MVP live. Directives 1, 2, 3 complete. Not yet production-hardened.
+**Status:** Functional MVP live. Directives 1-3 complete. Security hardening pass complete. Pickup code architecture decided.
 
 ---
 
@@ -9,7 +9,7 @@
 | Stage | Status |
 |-------|--------|
 | Internal demo ready | ✅ Yes |
-| Controlled pilot ready | ⚠ Nearly — requires password change + custom domain |
+| Controlled pilot ready | ⚠ Nearly — requires custom domain + Twilio (SMS not wired) |
 | Production ready | ❌ No — SMS not wired, security not tightened, manual steps remain |
 
 The broker dashboard exists and the full qualification → dispatch workflow is functional. It is not hardened for daily real-world use yet. The description "full workflow" is aspirational — more accurately: **functional MVP workflow with known gaps documented below**.
@@ -78,13 +78,21 @@ This is the authoritative decision on overlapping concepts. Do not leave this am
 ### dispatch_verifications — legacy / narrower scope ⚠
 `dispatch_verifications` was built for the MCP-layer driver arrival geofence confirmation (GPS lat/lng, geofence radius, driver SMS token). It is a different and narrower concept than a full dispatch packet. It is **not deprecated** but it is **not the operational dispatch workflow** — that is `dispatch_packets`. If geofence confirmation is built in a future directive, it should attach to `dispatch_packets` via a foreign key rather than operate independently.
 
-### pickup_codes (original table) — legacy, to be reconciled ⚠
-The original `pickup_codes` table was built for the MCP server's SMS-based pickup code flow. Currently:
-- Pickup codes for the broker dispatch workflow are stored inline on `dispatch_packets.pickup_code`
-- The original `pickup_codes` table is not integrated with `dispatch_packets`
-- These are two disconnected concepts carrying the same intent
+### pickup_codes (original table) — DEPRECATED ✅ DECIDED
+**Decision: Option A — `dispatch_packets.pickup_code` is canonical. `pickup_codes` table is deprecated.**
 
-**Decision needed (next session):** Either integrate `pickup_codes` into `dispatch_packets` (add `pickup_code_id FK`) or deprecate `pickup_codes` and treat `dispatch_packets.pickup_code` as canonical. Until decided, both exist and the `pickup_codes` table is effectively dormant in the broker workflow.
+Rationale: The `pickup_codes` table has no data, no FK references from any broker-layer table, and no code that reads or writes it in the broker app. It was designed for a future SMS flow that was never built. Building it now is premature. The inline `dispatch_packets.pickup_code` pattern is correct for the current MVP.
+
+Current pickup code implementation (post-hardening):
+- Generated with `crypto.randomInt(100000, 999999)` — cryptographically secure
+- Plaintext stored in `dispatch_packets.pickup_code` for broker UI display (internal broker-only surface)
+- Hash stored in `dispatch_packets.pickup_code_hash` (SHA-256)
+- Displayed once in broker UI on clearance
+- Not sent externally — SMS requires Twilio (not yet wired)
+
+If/when SMS is wired: send the plaintext at generation time, then rely on the hash for verification. At that point, evaluate whether to drop the plaintext column.
+
+The `pickup_codes` table in the MCP server schema is inert. It should be marked deprecated in a future MCP server migration.
 
 ---
 
@@ -167,16 +175,22 @@ all gates pass → Kate clicks "Clear to Roll"
 
 | Item | Status |
 |------|--------|
-| Default credentials in DB | ⚠ **YES** — kateloads@logisticsxpress.com / password123 must be changed |
+| Default credentials | ✅ Fixed — seed.ts uses SEED_PASSWORD env var or crypto random in production; password123 eliminated |
+| SESSION_SECRET | ✅ Fixed — app exits on boot in production if SESSION_SECRET not set; no plaintext fallback |
+| Stored XSS | ✅ Fixed — `h()` escapeHtml() applied to all user-supplied fields across all broker templates |
+| Pickup code generation | ✅ Fixed — `crypto.randomInt()` replaces `Math.random()` |
+| Pickup code storage | ✅ Fixed — SHA-256 hash stored in `pickup_code_hash`; plaintext retained for broker-internal UI display only |
+| CSRF protection | ✅ Fixed — session double-submit token on all broker POST routes; public intake form exempt |
+| Settings role gate | ✅ Fixed — POST /settings requires `requireOwner`; reviewer/ops roles cannot mutate policy |
+| Intake rate limiting | ✅ Fixed — max 3 submission attempts per token; DB-backed; blocks FMCSA hammering |
+| /setup route | ✅ Fixed — gated to NODE_ENV !== production; inaccessible on Railway |
 | Custom domain | ❌ Not configured — Railway URL only |
 | HTTPS | ✅ Railway provides HTTPS automatically |
 | Session cookies | ✅ Secure + httpOnly + trust proxy set |
 | Twilio / SMS | ❌ Not configured — no SMS sends at all |
-| Pickup codes | ⚠ UI-display only — not sent to driver, not hashed |
 | Token-based intake links | ✅ 32-byte crypto random tokens |
-| GitHub token in docs | ✅ Scrubbed from HANDOFF and Slack canvas |
-| Security tightening review | ❌ Intentionally deferred — scheduled post-FMCSA build |
-| Trust boundary | App trusts Railway proxy (correct). No public-facing admin routes. Carrier intake form is public but token-gated. |
+| GitHub token in docs | ✅ Scrubbed |
+| Trust boundary | App trusts Railway proxy (correct). No public-facing admin routes. Intake form is public but token-gated and rate-limited. |
 
 ---
 
@@ -229,12 +243,24 @@ all gates pass → Kate clicks "Clear to Roll"
 ## 11. NEXT STEPS (PRIORITY ORDER)
 
 ### Immediate (before real broker use)
-1. **Change Kate's password** — password123 is seeded default, must change before pilot
-2. **Custom domain** — `app.connectedcarriers.org` (GoDaddy CNAME + Railway)
+1. **Custom domain** — `app.connectedcarriers.org` (GoDaddy CNAME + Railway)
+2. **Run migrations on live DB** — `pickup_code_hash` column must be added to production (runs automatically on next deploy restart)
 
-### Technical debt (scheduled next session)
-3. **Schema cleanup: dispatch + pickup code architecture** — decide: integrate `pickup_codes` table with `dispatch_packets` or deprecate it; decide: is `dispatch_verifications` still needed or does it attach to `dispatch_packets`
-4. **Deploy automation** — `CC AGENT — migrate` from Slack so no manual terminal needed
+### Technical debt (resolved this session)
+- ~~Default credentials~~ — fixed
+- ~~SESSION_SECRET fallback~~ — fixed
+- ~~XSS escaping~~ — fixed
+- ~~Math.random() pickup codes~~ — fixed
+- ~~Pickup code not hashed~~ — fixed
+- ~~No CSRF protection~~ — fixed
+- ~~Settings not role-gated~~ — fixed
+- ~~Intake rate limiting~~ — fixed
+- ~~/setup exposed in production~~ — fixed
+- ~~pickup_codes architecture ambiguity~~ — decided (deprecated, dispatch_packets canonical)
+
+### Remaining technical debt
+3. **Deploy automation** — `CC AGENT — migrate` from Slack so no manual terminal needed
+4. **dispatch_verifications → dispatch_packets link** — add FK when geofence feature is built
 
 ### Infrastructure
 5. **Add Twilio env vars to Railway** — then build SMS send in `dispatch.ts`

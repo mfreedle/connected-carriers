@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
+import { h } from "../middleware/security";
 import { layout } from "../views/layout";
 
 const router = Router();
@@ -170,15 +171,15 @@ function dashboardContent(
       ${rows.map((r: Record<string, unknown>) => `
         <tr>
           <td>
-            <div class="carrier-name">${String(r.legal_name || r.company_name || r.submitted_by_name || "—")}</div>
-            <div class="carrier-contact muted">${String(r.submitted_by_email || "")}</div>
+            <div class="carrier-name">${h(r.legal_name || r.company_name || r.submitted_by_name || "—")}</div>
+            <div class="carrier-contact muted">${h(r.submitted_by_email || "")}</div>
           </td>
-          <td><code>MC${String(r.mc_number || "—")}</code></td>
+          <td><code>MC${h(r.mc_number || "—")}</code></td>
           <td class="muted">${r.submitted_at ? new Date(String(r.submitted_at)).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
           <td class="fmcsa-cell">${fmcsaSummary(r.fmcsa_result as Record<string, unknown> | null)}</td>
           <td>${statusBadge(String(r.status))}</td>
           <td class="tier-cell">${tierBadge(String(r.approval_tier || "manual_review"))}</td>
-          <td class="muted">${String(r.reviewer_name || "—")}</td>
+          <td class="muted">${h(r.reviewer_name || "—")}</td>
           <td><a href="/carriers/${r.carrier_id}" class="btn-link">Review →</a></td>
         </tr>
       `).join("")}

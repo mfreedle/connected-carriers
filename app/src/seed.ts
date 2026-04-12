@@ -1,9 +1,39 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { query, migrate } from "./db";
+
+// ── SEED SAFETY GUARD ─────────────────────────────────────────────
+// Seed is for development and initial setup only.
+// In production: use SEED_PASSWORD env var or a random token is generated.
+// password123 is NEVER hardcoded in production paths.
 
 async function seed() {
   await migrate();
   console.log("Seeding...");
+
+  // Generate a safe password for seeding
+  // In production: set SEED_PASSWORD env var before running seed.
+  // If not set, a random token is generated and printed once — save it.
+  const IS_PRODUCTION = process.env.NODE_ENV === "production";
+  let seedPassword: string;
+
+  if (process.env.SEED_PASSWORD) {
+    seedPassword = process.env.SEED_PASSWORD;
+    console.log("Using SEED_PASSWORD from environment.");
+  } else if (IS_PRODUCTION) {
+    seedPassword = crypto.randomBytes(16).toString("hex");
+    console.log("==========================================================");
+    console.log("GENERATED ONE-TIME PASSWORD (save this now — shown once):");
+    console.log(`  Email:    kateloads@logisticsxpress.com`);
+    console.log(`  Password: ${seedPassword}`);
+    console.log("==========================================================");
+  } else {
+    // Dev only — predictable password for convenience
+    seedPassword = "dev-password-123";
+    console.log("DEV MODE: using dev-password-123");
+  }
+
+  const passwordHash = await bcrypt.hash(seedPassword, 12);
 
   // Broker account — Logistics Xpress
   const accountRes = await query(`
@@ -16,11 +46,10 @@ async function seed() {
   const accountId = accountRes.rows[0].id;
 
   // Broker user — Kate
-  const passwordHash = await bcrypt.hash("password123", 10);
   const userRes = await query(`
     INSERT INTO broker_users (broker_account_id, name, email, password_digest, role, active)
     VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
+    ON CONFLICT (email) DO UPDATE SET password_digest = $4, updated_at = NOW()
     RETURNING id
   `, [accountId, "Kate Gonzalez", "kateloads@logisticsxpress.com", passwordHash, "owner", true]);
 
@@ -76,8 +105,7 @@ async function seed() {
     INSERT INTO carrier_submissions (
       broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
       submitted_by_phone, status, agreed_to_terms, submitted_at,
-      reviewed_at, reviewed_by, decision_reason,
-      fmcsa_result
+      reviewed_at, reviewed_by, decision_reason, fmcsa_result
     )
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW() - INTERVAL '2 days',NOW() - INTERVAL '1 day',$9,$10,$11)
   `, [
@@ -170,12 +198,10 @@ async function seed() {
   `, [c2.rows[0].id, accountId, userId, "Conditional safety rating from 4 months ago. Called FMCSA — no active violations. Recommend one load trial before full approval."]);
 
   console.log("Seed complete.");
-  console.log("Login: kateloads@logisticsxpress.com / password123");
 }
 
 export default seed;
 
-// Allow running directly: ts-node src/seed.ts
 if (require.main === module) {
   seed()
     .then(() => process.exit(0))

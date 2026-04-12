@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { query } from "../db";
-import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
+import { AuthenticatedRequest, requireAuth, requireOwner } from "../middleware/auth";
+import { h, csrfToken, csrfField } from "../middleware/security";
 import { layout } from "../views/layout";
 
 const router = Router();
@@ -15,10 +16,12 @@ router.get("/settings", requireAuth, async (req: AuthenticatedRequest, res: Resp
     const account = accountRes.rows[0];
     const policy = policyRes.rows[0] || {};
 
+    const csrf = csrfToken(req);
     const html = layout({
       title: "Settings",
       userName: req.session.userName || "",
-      content: settingsContent(account, policy, req.query.saved as string),
+      csrfToken: csrf,
+      content: settingsContent(account, policy, req.query.saved as string, csrf),
     });
     res.send(html);
   } catch (err) {
@@ -27,7 +30,7 @@ router.get("/settings", requireAuth, async (req: AuthenticatedRequest, res: Resp
   }
 });
 
-router.post("/settings", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/settings", requireOwner, async (req: AuthenticatedRequest, res: Response) => {
   const accountId = req.session.brokerAccountId;
   const b = req.body;
 
@@ -94,7 +97,8 @@ function toggle(name: string, value: boolean, label: string): string {
 function settingsContent(
   account: Record<string, unknown>,
   policy: Record<string, unknown>,
-  saved?: string
+  saved?: string,
+  csrf?: string
 ): string {
   return `
 <div class="page-header">
@@ -104,6 +108,7 @@ function settingsContent(
 ${saved === "1" ? `<div class="alert alert-success">Settings saved.</div>` : ""}
 
 <form method="POST" action="/settings">
+<input type="hidden" name="_csrf" value="${h(csrf)}">
 <div class="settings-grid">
 
   <!-- Company Profile -->
@@ -111,23 +116,23 @@ ${saved === "1" ? `<div class="alert alert-success">Settings saved.</div>` : ""}
     <div class="card-title">Company Profile</div>
     <div class="form-field">
       <label class="field-label">Company name</label>
-      <input type="text" name="company_name" value="${String(account.company_name || "")}" class="field-input">
+      <input type="text" name="company_name" value="${h(account.company_name)}" class="field-input">
     </div>
     <div class="form-field">
       <label class="field-label">Contact name</label>
-      <input type="text" name="contact_name" value="${String(account.contact_name || "")}" class="field-input">
+      <input type="text" name="contact_name" value="${h(account.contact_name)}" class="field-input">
     </div>
     <div class="form-field">
       <label class="field-label">Contact email</label>
-      <input type="email" name="contact_email" value="${String(account.contact_email || "")}" class="field-input">
+      <input type="email" name="contact_email" value="${h(account.contact_email)}" class="field-input">
     </div>
     <div class="form-field">
       <label class="field-label">Contact phone</label>
-      <input type="text" name="contact_phone" value="${String(account.contact_phone || "")}" class="field-input">
+      <input type="text" name="contact_phone" value="${h(account.contact_phone)}" class="field-input">
     </div>
     <div class="form-field">
       <label class="field-label">Certificate holder name</label>
-      <input type="text" name="certificate_holder_name" value="${String(policy.certificate_holder_name || "")}" class="field-input">
+      <input type="text" name="certificate_holder_name" value="${h(policy.certificate_holder_name)}" class="field-input">
       <span class="field-hint">Must appear on carrier's COI exactly as written</span>
     </div>
   </div>

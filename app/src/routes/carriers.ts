@@ -1,6 +1,7 @@
 import { Router, Response, Request } from "express";
 import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
+import { h, csrfToken, csrfField } from "../middleware/security";
 import { layout } from "../views/layout";
 
 const router = Router();
@@ -51,16 +52,19 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
       LIMIT 50
     `, [carrierId]);
 
+    const csrf = csrfToken(req);
     const html = layout({
       title: String(carrier.legal_name || carrier.company_name || "Carrier Detail"),
       userName: req.session.userName || "",
+      csrfToken: csrf,
       content: carrierDetailContent(
         carrier,
         submissionsRes.rows,
         docsRes.rows,
         notesRes.rows,
         activityRes.rows,
-        req.query.success as string
+        req.query.success as string,
+        csrf
       ),
     });
 
@@ -195,7 +199,8 @@ function carrierDetailContent(
   docs: Record<string, unknown>[],
   notes: Record<string, unknown>[],
   activity: Record<string, unknown>[],
-  success?: string
+  success?: string,
+  csrf?: string
 ): string {
   const latestSubmission = submissions[0] || null;
   const fmcsa = latestSubmission?.fmcsa_result as Record<string, unknown> | null;
@@ -212,10 +217,10 @@ function carrierDetailContent(
 <div class="page-header">
   <div>
     <a href="/dashboard" class="back-link">← Queue</a>
-    <h1 class="page-title">${String(carrier.legal_name || carrier.company_name || "Carrier")}</h1>
+    <h1 class="page-title">${h(carrier.legal_name || carrier.company_name || "Carrier")}</h1>
     <div class="page-meta">
-      <code>MC${String(carrier.mc_number)}</code>
-      ${carrier.dot_number ? `<span class="sep">·</span><code>DOT ${String(carrier.dot_number)}</code>` : ""}
+      <code>MC${h(carrier.mc_number)}</code>
+      ${carrier.dot_number ? `<span class="sep">·</span><code>DOT ${h(carrier.dot_number)}</code>` : ""}
       <span class="sep">·</span>${statusBadge(String(carrier.onboarding_status || "draft"))}
     </div>
   </div>
@@ -232,13 +237,13 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     <div class="card">
       <div class="card-title">Carrier Information</div>
       <div class="info-grid">
-        <div class="info-row"><span class="info-label">Legal Name</span><span>${String(carrier.legal_name || carrier.company_name || "—")}</span></div>
-        ${carrier.dba_name ? `<div class="info-row"><span class="info-label">DBA</span><span>${String(carrier.dba_name)}</span></div>` : ""}
-        <div class="info-row"><span class="info-label">MC Number</span><span><code>MC${String(carrier.mc_number)}</code></span></div>
-        ${carrier.dot_number ? `<div class="info-row"><span class="info-label">DOT Number</span><span><code>${String(carrier.dot_number)}</code></span></div>` : ""}
-        ${carrier.phone ? `<div class="info-row"><span class="info-label">Phone</span><span>${String(carrier.phone)}</span></div>` : ""}
-        ${carrier.email ? `<div class="info-row"><span class="info-label">Email</span><span>${String(carrier.email)}</span></div>` : ""}
-        ${carrier.city ? `<div class="info-row"><span class="info-label">Location</span><span>${String(carrier.city)}${carrier.state ? `, ${String(carrier.state)}` : ""}</span></div>` : ""}
+        <div class="info-row"><span class="info-label">Legal Name</span><span>${h(carrier.legal_name || carrier.company_name || "—")}</span></div>
+        ${carrier.dba_name ? `<div class="info-row"><span class="info-label">DBA</span><span>${h(carrier.dba_name)}</span></div>` : ""}
+        <div class="info-row"><span class="info-label">MC Number</span><span><code>MC${h(carrier.mc_number)}</code></span></div>
+        ${carrier.dot_number ? `<div class="info-row"><span class="info-label">DOT Number</span><span><code>${h(carrier.dot_number)}</code></span></div>` : ""}
+        ${carrier.phone ? `<div class="info-row"><span class="info-label">Phone</span><span>${h(carrier.phone)}</span></div>` : ""}
+        ${carrier.email ? `<div class="info-row"><span class="info-label">Email</span><span>${h(carrier.email)}</span></div>` : ""}
+        ${carrier.city ? `<div class="info-row"><span class="info-label">Location</span><span>${h(carrier.city)}${carrier.state ? `, ${h(carrier.state)}` : ""}</span></div>` : ""}
         ${carrier.last_verified_at ? `<div class="info-row"><span class="info-label">Last Verified</span><span class="muted">${new Date(String(carrier.last_verified_at)).toLocaleDateString()}</span></div>` : ""}
       </div>
     </div>
@@ -300,16 +305,17 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     <div class="card decision-card">
       <div class="card-title">Decision</div>
       <div class="submission-meta muted" style="margin-bottom:16px;font-size:12px">
-        Submitted by ${String(latestSubmission.submitted_by_name || "—")} · ${latestSubmission.submitted_at ? new Date(String(latestSubmission.submitted_at)).toLocaleDateString() : ""}
-        ${latestSubmission.reviewer_name ? ` · Reviewed by ${String(latestSubmission.reviewer_name)}` : ""}
+        Submitted by ${h(latestSubmission.submitted_by_name || "—")} · ${latestSubmission.submitted_at ? new Date(String(latestSubmission.submitted_at)).toLocaleDateString() : ""}
+        ${latestSubmission.reviewer_name ? ` · Reviewed by ${h(latestSubmission.reviewer_name)}` : ""}
       </div>
       ${latestSubmission.decision_reason ? `
         <div class="decision-reason">
           <div class="info-label">Previous decision</div>
-          <p>${String(latestSubmission.decision_reason)}</p>
+          <p>${h(latestSubmission.decision_reason)}</p>
         </div>
       ` : ""}
       <form method="POST" action="/carriers/${String(carrier.id)}/decision">
+        <input type="hidden" name="_csrf" value="${h(csrf)}">
         <input type="hidden" name="submission_id" value="${String(latestSubmission.id)}">
         <div class="form-field">
           <label class="field-label">Decision reason <span style="color:#ef4444">*</span></label>
@@ -330,6 +336,7 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     <div class="card" style="border-left:3px solid #C8892A">
       <div class="card-title">Dispatch</div>
       <form method="POST" action="/carriers/${String(carrier.id)}/dispatch/create">
+        <input type="hidden" name="_csrf" value="${h(csrf)}">
         <input type="hidden" name="carrier_submission_id" value="${latestSubmission ? String(latestSubmission.id) : ''}">
         <div class="form-field">
           <label class="field-label">Load reference <span style="color:#ef4444">*</span></label>
@@ -360,6 +367,7 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     <div class="card" id="notes">
       <div class="card-title">Notes</div>
       <form method="POST" action="/carriers/${String(carrier.id)}/notes" style="margin-bottom:16px">
+        <input type="hidden" name="_csrf" value="${h(csrf)}">
         <textarea name="body" rows="2" placeholder="Add a note..." class="field-input" style="margin-bottom:8px"></textarea>
         <button type="submit" class="btn-sm">Add Note</button>
       </form>
@@ -367,8 +375,8 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
         <div class="note-list">
           ${notes.map((n: Record<string, unknown>) => `
             <div class="note-item">
-              <div class="note-author">${String(n.author_name)} <span class="note-time muted">${n.created_at ? new Date(String(n.created_at)).toLocaleDateString() : ""}</span></div>
-              <p class="note-body">${String(n.body)}</p>
+              <div class="note-author">${h(n.author_name)} <span class="note-time muted">${n.created_at ? new Date(String(n.created_at)).toLocaleDateString() : ""}</span></div>
+              <p class="note-body">${h(n.body)}</p>
             </div>
           `).join("")}
         </div>

@@ -8,10 +8,19 @@ import carrierRoutes from "./routes/carriers";
 import settingsRoutes from "./routes/settings";
 import intakeRoutes from "./routes/intake";
 import dispatchRoutes from "./routes/dispatch";
+import { verifyCsrf } from "./middleware/security";
 
 const app = express();
 app.set("trust proxy", 1);
 const PORT = parseInt(process.env.PORT || "4000");
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+// ── Session secret — fail fast in production if not set ───────────
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (IS_PRODUCTION && !SESSION_SECRET) {
+  console.error("FATAL: SESSION_SECRET environment variable is required in production. Exiting.");
+  process.exit(1);
+}
 
 // Body parsing
 app.use(express.urlencoded({ extended: true }));
@@ -25,43 +34,47 @@ app.use(session({
     tableName: "session",
     createTableIfMissing: false,
   }),
-  secret: process.env.SESSION_SECRET || "cc-dev-secret-change-in-prod",
+  secret: SESSION_SECRET || "cc-dev-only-not-for-production",
   resave: false,
   saveUninitialized: false,
   cookie: {
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    secure: IS_PRODUCTION,
     httpOnly: true,
   },
 }));
 
-// Routes
+// Public routes — no CSRF
 app.get("/", (req, res) => res.redirect("/dashboard"));
 app.use("/", authRoutes);
+app.use("/", intakeRoutes);
+
+// Broker routes — CSRF verification on all POSTs
+app.use(verifyCsrf);
 app.use("/", dashboardRoutes);
 app.use("/", carrierRoutes);
 app.use("/", settingsRoutes);
-app.use("/", intakeRoutes);
 app.use("/", dispatchRoutes);
 
-// One-time setup route — runs seed if no broker accounts exist yet
-app.get("/setup", async (req, res) => {
-  try {
-    const { query } = await import("./db");
-    const check = await query("SELECT COUNT(*) as count FROM broker_accounts");
-    const count = parseInt(check.rows[0].count);
-    if (count > 0) {
-      return res.send(`Setup already complete — ${count} broker account(s) exist. <a href="/dashboard">Go to dashboard</a>`);
+// /setup — non-production only
+if (!IS_PRODUCTION) {
+  app.get("/setup", async (req, res) => {
+    try {
+      const { query } = await import("./db");
+      const check = await query("SELECT COUNT(*) as count FROM broker_accounts");
+      const count = parseInt(check.rows[0].count);
+      if (count > 0) {
+        return res.send(`Setup already complete — ${count} broker account(s) exist. <a href="/dashboard">Go to dashboard</a>`);
+      }
+      const seedModule = await import("./seed");
+      await seedModule.default();
+      res.send(`Setup complete. <a href="/login">Log in</a>`);
+    } catch (err) {
+      console.error("Setup error:", err);
+      res.status(500).send(`Setup failed: ${err}`);
     }
-    // Run seed
-    const { default: runSeed } = await import("./seed");
-    await runSeed();
-    res.send(`Setup complete. <a href="/login">Log in as kateloads@logisticsxpress.com / password123</a>`);
-  } catch (err) {
-    console.error("Setup error:", err);
-    res.status(500).send(`Setup failed: ${err}`);
-  }
-});
+  });
+}
 
 // 404
 app.use((req, res) => {
@@ -73,7 +86,6 @@ migrate().then(() => migrateIntake()).then(() => migrateDispatch())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);
-      console.log(`Dashboard: http://localhost:${PORT}/dashboard`);
     });
   })
   .catch((err) => {

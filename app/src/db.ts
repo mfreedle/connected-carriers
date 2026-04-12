@@ -251,6 +251,7 @@ export async function migrateDispatch() {
       cleared_by INTEGER REFERENCES broker_users(id),
       cleared_at TIMESTAMPTZ,
       pickup_code TEXT,
+      pickup_code_hash TEXT,
       pickup_code_expires_at TIMESTAMPTZ,
       pickup_code_used_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -261,6 +262,9 @@ export async function migrateDispatch() {
   await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_carrier ON dispatch_packets(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_broker ON dispatch_packets(broker_account_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_dispatch_packets_status ON dispatch_packets(final_clearance_status)`);
+
+  // Add pickup_code_hash if not present (idempotent — safe to run on existing tables)
+  await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS pickup_code_hash TEXT`);
 
   console.log("Dispatch migrations complete.");
 }

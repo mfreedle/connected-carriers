@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import crypto from "crypto";
 import { query } from "../db";
+import { h, csrfToken } from "../middleware/security";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { layout } from "../views/layout";
 
@@ -131,6 +132,17 @@ router.post("/apply/:token", async (req, res: Response) => {
     const link = linkRes.rows[0];
     const policy = link;
     const accountId = link.broker_account_id;
+
+    // Per-token rate limit: max 3 submission attempts per intake link
+    // Prevents FMCSA lookup hammering if a token is discovered or shared
+    const submissionCount = await query(
+      `SELECT COUNT(*) as count FROM carrier_submissions WHERE intake_link_id = $1`,
+      [link.id]
+    );
+    const attemptCount = parseInt(submissionCount.rows[0].count);
+    if (attemptCount >= 3) {
+      return res.send(intakeErrorPage("This intake link has reached its submission limit. Contact your broker for a new link."));
+    }
 
     // Basic validation
     const errors: string[] = [];
@@ -301,7 +313,7 @@ router.post("/apply/:token", async (req, res: Response) => {
     ]);
 
     // Show confirmation
-    res.send(intakeConfirmationPage(autoRejected, isConditional, link.company_name, body.legal_name));
+    res.send(intakeConfirmationPage(autoRejected, isConditional, h(link.company_name), h(body.legal_name)));
 
   } catch (err) {
     console.error("Intake submission error:", err);
@@ -371,7 +383,7 @@ async function mcpToolCall(toolName: string, args: Record<string, unknown>): Pro
 
 // ── View helpers ──────────────────────────────────────────────────
 
-function intakeLinksContent(rows: Record<string, unknown>[], baseUrl: string): string {
+function intakeLinksContent(rows: Record<string, unknown>[], baseUrl: string, csrf = ""): string {
   return `
 <div class="page-header">
   <div>
@@ -380,6 +392,7 @@ function intakeLinksContent(rows: Record<string, unknown>[], baseUrl: string): s
     <p class="page-sub">Send these links to carriers after they respond to your DAT posting.</p>
   </div>
   <form method="POST" action="/intake/create" style="margin-top:8px">
+    <input type="hidden" name="_csrf" value="${h(csrf)}">
     <button type="submit" class="btn-primary">+ New Intake Link</button>
   </form>
 </div>
@@ -427,6 +440,7 @@ function intakeLinksContent(rows: Record<string, unknown>[], baseUrl: string): s
             <td>
               ${status === "active" ? `
                 <form method="POST" action="/intake/links/${r.id}/cancel" style="display:inline">
+                  <input type="hidden" name="_csrf" value="${h(csrf)}">
                   <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:12px">Cancel</button>
                 </form>
               ` : ""}
@@ -454,7 +468,7 @@ function intakeFormPage(token: string, brokerName: string, policy: Record<string
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Carrier Qualification — ${brokerName}</title>
+<title>Carrier Qualification — ${h(brokerName)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -514,12 +528,12 @@ function intakeFormPage(token: string, brokerName: string, policy: Record<string
 <body>
 <div class="header">
   <div class="header-brand">Connected<span>Carriers</span></div>
-  <div class="header-sub">Carrier qualification for ${brokerName}</div>
+  <div class="header-sub">Carrier qualification for ${h(brokerName)}</div>
 </div>
 <div class="form-wrap">
   <div class="intro">
     <h2>Carrier Qualification</h2>
-    <p>Complete this form to be considered for loads with ${brokerName}. This typically takes 5–10 minutes. Have your MC number, insurance certificate, and W-9 ready.</p>
+    <p>Complete this form to be considered for loads with ${h(brokerName)}. This typically takes 5–10 minutes. Have your MC number, insurance certificate, and W-9 ready.</p>
   </div>
   ${error ? `<div class="error-banner">⚠ ${error}</div>` : ""}
   <form method="POST" action="/apply/${token}" id="intake-form">
@@ -594,7 +608,7 @@ function intakeFormPage(token: string, brokerName: string, policy: Record<string
     <div class="card">
       <div class="section-title">Documents</div>
       <div class="upload-note">
-        Check each document you have ready to provide. ${brokerName} will follow up to collect the actual files.
+        Check each document you have ready to provide. ${h(brokerName)} will follow up to collect the actual files.
       </div>
       <div style="margin-top:12px">
         <label class="upload-check">
@@ -620,7 +634,7 @@ function intakeFormPage(token: string, brokerName: string, policy: Record<string
       </label>
       <label class="terms-check">
         <input type="checkbox" name="agreed_to_terms" value="1" required>
-        <span>I certify that the information provided is accurate and authorize ${brokerName} to verify my company's FMCSA authority, safety record, and insurance.</span>
+        <span>I certify that the information provided is accurate and authorize ${h(brokerName)} to verify my company's FMCSA authority, safety record, and insurance.</span>
       </label>
     </div>
 
@@ -649,7 +663,7 @@ function intakeConfirmationPage(autoRejected: boolean, isConditional: boolean, b
 </head><body><div class="card">
 <div class="icon">📋</div>
 <h2>Submission Received</h2>
-<p>Thank you for submitting your information. After reviewing your qualifications, we are unable to move forward at this time. We appreciate your interest in working with ${brokerName}.</p>
+<p>Thank you for submitting your information. After reviewing your qualifications, we are unable to move forward at this time. We appreciate your interest in working with ${h(brokerName)}.</p>
 </div></body></html>`;
   }
 
@@ -663,8 +677,8 @@ p{font-size:14px;color:#6B7A8A;line-height:1.6;margin-bottom:8px}
 </head><body><div class="card">
 <div class="check">✓</div>
 <h2>Submission received</h2>
-<p>${carrierName} has been submitted to ${brokerName} for qualification review.</p>
-${isConditional ? `<p>Your submission has been flagged for manual review. The team will be in touch within 1 business day.</p>` : `<p>Your information is being reviewed. You will hear from ${brokerName} shortly regarding next steps.</p>`}
+<p>${carrierName} has been submitted to ${h(brokerName)} for qualification review.</p>
+${isConditional ? `<p>Your submission has been flagged for manual review. The team will be in touch within 1 business day.</p>` : `<p>Your information is being reviewed. You will hear from ${h(brokerName)} shortly regarding next steps.</p>`}
 <div class="note">Keep your insurance certificate and W-9 handy — you may be asked to provide them during onboarding.</div>
 </div></body></html>`;
 }

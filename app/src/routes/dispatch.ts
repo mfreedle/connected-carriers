@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import crypto from "crypto";
 import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
+import { h, csrfToken } from "../middleware/security";
 import { layout } from "../views/layout";
 
 const router = Router();
@@ -90,10 +91,12 @@ router.get("/dispatch/:id", requireAuth, async (req: AuthenticatedRequest, res: 
 
     const { blocking, complete } = evaluateGating(packet, policy);
 
+    const csrf = csrfToken(req);
     const html = layout({
       title: `Dispatch — ${packet.load_reference}`,
       userName: req.session.userName || "",
-      content: dispatchContent(packet, policy, activityRes.rows, blocking, complete, req.query),
+      csrfToken: csrf,
+      content: dispatchContent(packet, policy, activityRes.rows, blocking, complete, req.query, csrf),
     });
 
     res.send(html);
@@ -295,8 +298,13 @@ router.post("/dispatch/:id/clear", requireAuth, async (req: AuthenticatedRequest
     let pickupCode: string | null = null;
     let pickupCodeExpires: Date | null = null;
 
+    let pickupCodeHash: string | null = null;
+
     if (packet.pickup_code_required) {
-      pickupCode = Math.floor(100000 + Math.random() * 900000).toString();
+      // crypto.randomInt is cryptographically secure — never use Math.random() for codes
+      pickupCode = crypto.randomInt(100000, 999999).toString();
+      // Store SHA-256 hash — plaintext is shown once in the UI response and never re-read from DB
+      pickupCodeHash = crypto.createHash("sha256").update(pickupCode).digest("hex");
       pickupCodeExpires = packet.pickup_window_end
         ? new Date(packet.pickup_window_end)
         : new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -309,13 +317,15 @@ router.post("/dispatch/:id/clear", requireAuth, async (req: AuthenticatedRequest
         cleared_by=$2,
         cleared_at=NOW(),
         pickup_code=$3,
-        pickup_code_expires_at=$4,
+        pickup_code_hash=$4,
+        pickup_code_expires_at=$5,
         updated_at=NOW()
-      WHERE id=$5 AND broker_account_id=$6
+      WHERE id=$6 AND broker_account_id=$7
     `, [
       final_clearance_notes?.trim() || null,
       userId,
-      pickupCode,
+      pickupCode,       // kept for broker UI display — acceptable for internal broker-only view
+      pickupCodeHash,
       pickupCodeExpires,
       packetId, accountId,
     ]);
@@ -372,10 +382,12 @@ router.get("/carriers/:id/dispatch", requireAuth, async (req: AuthenticatedReque
     const carrierRes = await query(`SELECT * FROM carriers WHERE id=$1`, [carrierId]);
     const carrier = carrierRes.rows[0];
 
+    const csrf = csrfToken(req);
     const html = layout({
       title: `Dispatch History — ${carrier?.legal_name || "Carrier"}`,
       userName: req.session.userName || "",
-      content: dispatchHistoryContent(carrier, packets.rows),
+      csrfToken: csrf,
+      content: dispatchHistoryContent(carrier, packets.rows, csrf),
     });
     res.send(html);
   } catch (err) {
@@ -460,7 +472,8 @@ function dispatchContent(
   activity: Record<string, unknown>[],
   blocking: string[],
   complete: string[],
-  query: Record<string, unknown>
+  query: Record<string, unknown>,
+  csrf = ""
 ): string {
   const isCleared = packet.final_clearance_status === "cleared_to_roll";
   const isCancelled = ["cancelled", "failed", "expired"].includes(String(packet.final_clearance_status));
@@ -488,21 +501,22 @@ function dispatchContent(
     <a href="/carriers/${packet.carrier_id}" class="back-link">← ${carrierName}</a>
     <h1 class="page-title">Dispatch Packet</h1>
     <div class="page-meta">
-      <code>${String(packet.load_reference)}</code>
+      <code>${h(packet.load_reference)}</code>
       <span class="sep">·</span>
-      <code>MC${String(packet.mc_number)}</code>
+      <code>MC${h(packet.mc_number)}</code>
       <span class="sep">·</span>
       ${clearanceStatusBadge(String(packet.final_clearance_status))}
     </div>
   </div>
   ${!isCleared && !isCancelled ? `
     <form method="POST" action="/dispatch/${packet.id}/cancel">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
       <button type="submit" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:7px 14px;border-radius:3px;cursor:pointer;font-size:12px">Cancel Packet</button>
     </form>
   ` : ""}
 </div>
 
-${cleared === "1" ? `<div class="alert alert-success">✓ Truck cleared to roll. ${packet.pickup_code ? `Pickup code: <strong>${String(packet.pickup_code)}</strong>${packet.pickup_code_expires_at ? ` (expires ${ts(packet.pickup_code_expires_at)})` : ""}` : ""}</div>` : ""}
+${cleared === "1" ? `<div class="alert alert-success">✓ Truck cleared to roll. ${packet.pickup_code ? `Pickup code: <strong>${h(packet.pickup_code)}</strong>${packet.pickup_code_expires_at ? ` (expires ${ts(packet.pickup_code_expires_at)})` : ""}` : ""}</div>` : ""}
 ${saved && savedMessages[saved] ? `<div class="alert alert-success">${savedMessages[saved]}</div>` : ""}
 ${error === "blocking_items_unresolved" ? `<div class="alert alert-error">Cannot clear — resolve all blocking items first.</div>` : ""}
 ${error && error !== "blocking_items_unresolved" ? `<div class="alert alert-error">Error: ${error.replace(/_/g, " ")}.</div>` : ""}
@@ -511,10 +525,10 @@ ${/* Clearance status panel */isCleared ? `
 <div class="card" style="border-left:4px solid #10b981;background:#f0fdf4">
   <div class="card-title" style="color:#15803d">✓ Cleared to Roll</div>
   <div class="info-grid">
-    <div class="info-row"><span class="info-label">Cleared by</span><span>${String(packet.cleared_by_name || "—")}</span></div>
+    <div class="info-row"><span class="info-label">Cleared by</span><span>${h(packet.cleared_by_name || "—")}</span></div>
     <div class="info-row"><span class="info-label">Cleared at</span><span>${ts(packet.cleared_at) || "—"}</span></div>
-    ${packet.final_clearance_notes ? `<div class="info-row"><span class="info-label">Notes</span><span>${String(packet.final_clearance_notes)}</span></div>` : ""}
-    ${packet.pickup_code ? `<div class="info-row"><span class="info-label">Pickup code</span><span style="font-size:24px;font-weight:700;color:#1C2B3A;letter-spacing:0.1em">${String(packet.pickup_code)}</span></div>` : ""}
+    ${packet.final_clearance_notes ? `<div class="info-row"><span class="info-label">Notes</span><span>${h(packet.final_clearance_notes)}</span></div>` : ""}
+    ${packet.pickup_code ? `<div class="info-row"><span class="info-label">Pickup code</span><span style="font-size:24px;font-weight:700;color:#1C2B3A;letter-spacing:0.1em">${h(packet.pickup_code)}</span></div>` : ""}
   </div>
 </div>
 ` : ""}
@@ -527,28 +541,29 @@ ${/* Clearance status panel */isCleared ? `
     <div class="card-title">Driver & Equipment</div>
     ${isCleared ? `
       <div class="info-grid">
-        <div class="info-row"><span class="info-label">Driver</span><span>${String(packet.driver_name || "—")}</span></div>
-        <div class="info-row"><span class="info-label">Phone</span><span>${String(packet.driver_phone || "—")}</span></div>
-        <div class="info-row"><span class="info-label">VIN</span><span><code>${String(packet.vin_number || "—")}</code></span></div>
-        <div class="info-row"><span class="info-label">Trailer</span><span>${String(packet.trailer_number || "—")}</span></div>
+        <div class="info-row"><span class="info-label">Driver</span><span>${h(packet.driver_name || "—")}</span></div>
+        <div class="info-row"><span class="info-label">Phone</span><span>${h(packet.driver_phone || "—")}</span></div>
+        <div class="info-row"><span class="info-label">VIN</span><span><code>${h(packet.vin_number || "—")}</code></span></div>
+        <div class="info-row"><span class="info-label">Trailer</span><span>${h(packet.trailer_number || "—")}</span></div>
       </div>
     ` : `
     <form method="POST" action="/dispatch/${packet.id}/driver">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
       <div class="form-field">
         <label class="field-label">Driver name <span style="color:#ef4444">*</span></label>
-        <input type="text" name="driver_name" value="${String(packet.driver_name || "")}" class="field-input" placeholder="Full name">
+        <input type="text" name="driver_name" value="${h(packet.driver_name || "")}" class="field-input" placeholder="Full name">
       </div>
       <div class="form-field">
         <label class="field-label">Driver phone ${policy.require_driver_phone ? '<span style="color:#ef4444">*</span>' : ""}</label>
-        <input type="tel" name="driver_phone" value="${String(packet.driver_phone || "")}" class="field-input" placeholder="e.g. 602-555-0100">
+        <input type="tel" name="driver_phone" value="${h(packet.driver_phone || "")}" class="field-input" placeholder="e.g. 602-555-0100">
       </div>
       <div class="form-field">
         <label class="field-label">VIN number ${policy.require_truck_and_trailer_number ? '<span style="color:#ef4444">*</span>' : ""}</label>
-        <input type="text" name="vin_number" value="${String(packet.vin_number || "")}" class="field-input" placeholder="17-character VIN">
+        <input type="text" name="vin_number" value="${h(packet.vin_number || "")}" class="field-input" placeholder="17-character VIN">
       </div>
       <div class="form-field">
         <label class="field-label">Trailer number ${policy.require_truck_and_trailer_number ? '<span style="color:#ef4444">*</span>' : ""}</label>
-        <input type="text" name="trailer_number" value="${String(packet.trailer_number || "")}" class="field-input" placeholder="Trailer ID">
+        <input type="text" name="trailer_number" value="${h(packet.trailer_number || "")}" class="field-input" placeholder="Trailer ID">
       </div>
       <div class="form-field">
         <label class="field-label">CDL photo URL</label>
@@ -579,16 +594,17 @@ ${/* Clearance status panel */isCleared ? `
     ` : ""}
     ${isCleared ? `
       <div class="info-grid">
-        <div class="info-row"><span class="info-label">Insurer</span><span>${String(packet.insurer_name || "—")}</span></div>
+        <div class="info-row"><span class="info-label">Insurer</span><span>${h(packet.insurer_name || "—")}</span></div>
         <div class="info-row"><span class="info-label">Method</span><span>${String(packet.insurance_verification_method || "—")}</span></div>
         <div class="info-row"><span class="info-label">VIN verified</span><span>${packet.vin_verified ? "✓ Yes" : "No"}</span></div>
-        ${packet.vin_verification_notes ? `<div class="info-row"><span class="info-label">Notes</span><span>${String(packet.vin_verification_notes)}</span></div>` : ""}
+        ${packet.vin_verification_notes ? `<div class="info-row"><span class="info-label">Notes</span><span>${h(packet.vin_verification_notes)}</span></div>` : ""}
       </div>
     ` : `
     <form method="POST" action="/dispatch/${packet.id}/insurance">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
       <div class="form-field">
         <label class="field-label">Insurer name <span style="color:#ef4444">*</span></label>
-        <input type="text" name="insurer_name" value="${String(packet.insurer_name || "")}" class="field-input" placeholder="e.g. Progressive Commercial">
+        <input type="text" name="insurer_name" value="${h(packet.insurer_name || "")}" class="field-input" placeholder="e.g. Progressive Commercial">
       </div>
       <div class="form-field">
         <label class="field-label">Verification method <span style="color:#ef4444">*</span></label>
@@ -607,7 +623,7 @@ ${/* Clearance status panel */isCleared ? `
       </div>
       <div class="form-field">
         <label class="field-label">Notes</label>
-        <textarea name="vin_verification_notes" class="field-input" rows="2" placeholder="e.g. Spoke with agent, confirmed coverage dates">${String(packet.vin_verification_notes || "")}</textarea>
+        <textarea name="vin_verification_notes" class="field-input" rows="2" placeholder="e.g. Spoke with agent, confirmed coverage dates">${h(packet.vin_verification_notes || "")}</textarea>
       </div>
       <button type="submit" class="btn-sm">Save Insurance Reverification</button>
     </form>
@@ -626,6 +642,7 @@ ${/* Clearance status panel */isCleared ? `
       <div style="margin-top:16px">
         ${blocking.length === 0 ? `
         <form method="POST" action="/dispatch/${packet.id}/clear">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
           <div class="form-field">
             <label class="field-label">Clearance notes</label>
             <textarea name="final_clearance_notes" class="field-input" rows="2" placeholder="Optional notes…"></textarea>
@@ -656,19 +673,23 @@ ${/* Clearance status panel */isCleared ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${packet.tracking_status === "not_sent" ? `
           <form method="POST" action="/dispatch/${packet.id}/tracking/send">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
             <button type="submit" class="btn-sm">Send tracking link</button>
           </form>
         ` : ""}
         ${packet.tracking_status === "sent" ? `
           <form method="POST" action="/dispatch/${packet.id}/tracking/accept">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
             <button type="submit" class="btn-sm" style="background:#10b981">✓ Mark accepted</button>
           </form>
           <form method="POST" action="/dispatch/${packet.id}/tracking/reject">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
             <button type="submit" class="btn-sm" style="background:#ef4444">✗ Mark rejected</button>
           </form>
         ` : ""}
         ${packet.tracking_status === "rejected" ? `
           <form method="POST" action="/dispatch/${packet.id}/tracking/send">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
             <button type="submit" class="btn-sm">Resend tracking link</button>
           </form>
         ` : ""}
@@ -685,6 +706,7 @@ ${/* Clearance status panel */isCleared ? `
       <p style="font-size:13px;color:#15803d">✓ Signed ${ts(packet.rate_confirmation_signed_at)}</p>
     ` : !isCleared ? `
       <form method="POST" action="/dispatch/${packet.id}/rate-confirm">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
         <button type="submit" class="btn-sm">✓ Mark rate confirmation signed</button>
       </form>
     ` : `<p class="muted" style="font-size:13px">Not confirmed.</p>`}
@@ -693,8 +715,8 @@ ${/* Clearance status panel */isCleared ? `
   <!-- Pickup Appointment -->
   <div class="card">
     <div class="card-title">Pickup Appointment</div>
-    ${packet.pickup_address ? `<p style="font-size:13px;margin-bottom:8px">${String(packet.pickup_address)}</p>` : ""}
-    ${packet.pickup_window_start ? `<p class="muted" style="font-size:12px">${String(packet.pickup_window_start)}${packet.pickup_window_end ? ` – ${String(packet.pickup_window_end)}` : ""}</p>` : ""}
+    ${packet.pickup_address ? `<p style="font-size:13px;margin-bottom:8px">${h(packet.pickup_address)}</p>` : ""}
+    ${packet.pickup_window_start ? `<p class="muted" style="font-size:12px">${h(packet.pickup_window_start)}${packet.pickup_window_end ? ` – ${h(packet.pickup_window_end)}` : ""}</p>` : ""}
     ${packet.pickup_appointment_confirmed_at ? `
       <p style="font-size:13px;color:#15803d;margin-top:8px">✓ Confirmed ${ts(packet.pickup_appointment_confirmed_at)}</p>
     ` : !isCleared ? `
@@ -723,7 +745,7 @@ ${/* Clearance status panel */isCleared ? `
 </div>`;
 }
 
-function dispatchHistoryContent(carrier: Record<string, unknown>, packets: Record<string, unknown>[]): string {
+function dispatchHistoryContent(carrier: Record<string, unknown>, packets: Record<string, unknown>[], csrf = ""): string {
   return `
 <div class="page-header">
   <div>
@@ -738,10 +760,10 @@ function dispatchHistoryContent(carrier: Record<string, unknown>, packets: Recor
     <tbody>
       ${packets.map((p: Record<string, unknown>) => `
         <tr>
-          <td><code>${String(p.load_reference)}</code></td>
+          <td><code>${h(p.load_reference)}</code></td>
           <td class="muted">${p.created_at ? new Date(String(p.created_at)).toLocaleDateString() : "—"}</td>
           <td>${clearanceStatusBadge(String(p.final_clearance_status))}</td>
-          <td class="muted">${String(p.cleared_by_name || "—")}</td>
+          <td class="muted">${h(p.cleared_by_name || "—")}</td>
           <td><code>${p.pickup_code ? String(p.pickup_code) : "—"}</code></td>
           <td><a href="/dispatch/${p.id}" class="btn-link">View →</a></td>
         </tr>
