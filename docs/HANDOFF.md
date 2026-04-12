@@ -38,7 +38,7 @@ The broker dashboard exists and the full qualification → dispatch workflow is 
 | Broker dashboard (custom) | app.connectedcarriers.org | Online ✅ |
 
 ### Broker Dashboard
-- Login: kateloads@logisticsxpress.com — credential managed via seed/reset flow; no default password documented here (see Security Status section)
+- Login: kateloads@logisticsxpress.com — production DB was seeded before hardening pass; password123 is still the active credential until manually rotated. seed.ts no longer emits password123 for new deploys.
 - Root directory in repo: `app/`
 - Migrations run automatically on startup — no manual step needed after deploy
 - Railway auto-deploys on every push to `main`

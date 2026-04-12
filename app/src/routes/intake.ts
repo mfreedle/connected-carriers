@@ -56,11 +56,13 @@ router.get("/intake/links", requireAuth, async (req: AuthenticatedRequest, res: 
   `, [accountId]);
 
   const BASE_URL = process.env.BASE_URL || `https://github-repo-production-2c39.up.railway.app`;
+  const csrf = csrfToken(req);
 
   const html = layout({
     title: "Intake Links",
     userName: req.session.userName || "",
-    content: intakeLinksContent(links.rows, BASE_URL),
+    csrfToken: csrf,
+    content: intakeLinksContent(links.rows, BASE_URL, csrf),
   });
   res.send(html);
 });
