@@ -8,6 +8,7 @@ import carrierRoutes from "./routes/carriers";
 import settingsRoutes from "./routes/settings";
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = parseInt(process.env.PORT || "4000");
 
 // Body parsing
