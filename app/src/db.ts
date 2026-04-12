@@ -311,3 +311,45 @@ export async function migrateInterest() {
 
   console.log("Interest form migrations complete.");
 }
+
+export async function migrateSetupPackets() {
+  // carrier_setup_packets — one per carrier per broker, broker-initiated
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_setup_packets (
+      id SERIAL PRIMARY KEY,
+      broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      token VARCHAR(64) UNIQUE NOT NULL,
+      carrier_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (carrier_status IN ('pending','partially_complete','submitted')),
+      broker_status TEXT NOT NULL DEFAULT 'under_review'
+        CHECK (broker_status IN ('under_review','complete','rejected','expired','cancelled')),
+      expires_at TIMESTAMPTZ NOT NULL,
+      carrier_name TEXT,
+      carrier_email TEXT,
+      carrier_phone TEXT,
+      created_by INTEGER NOT NULL REFERENCES broker_users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_setup_packets_carrier ON carrier_setup_packets(carrier_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_setup_packets_broker ON carrier_setup_packets(broker_account_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_setup_packets_token ON carrier_setup_packets(token)`);
+
+  // Extend carrier_documents with setup packet FK and broker fields
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS carrier_setup_packet_id INTEGER REFERENCES carrier_setup_packets(id)`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS verified_by INTEGER REFERENCES broker_users(id)`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS insurer_name TEXT`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS r2_object_key TEXT`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS file_name TEXT`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS file_size INTEGER`);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS mime_type TEXT`);
+
+  // Relax file_url NOT NULL constraint for URL-optional uploads
+  await query(`ALTER TABLE carrier_documents ALTER COLUMN file_url DROP NOT NULL`);
+
+  console.log("Setup packet migrations complete.");
+}

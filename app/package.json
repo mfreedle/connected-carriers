@@ -11,10 +11,13 @@
     "seed": "ts-node src/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1029.0",
+    "@aws-sdk/s3-request-presigner": "^3.1029.0",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^9.0.1",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
+    "multer": "^2.1.1",
     "pg": "^8.11.3"
   },
   "devDependencies": {
@@ -22,6 +25,7 @@
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^4.17.21",
     "@types/express-session": "^1.17.10",
+    "@types/multer": "^2.1.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.0",
     "ts-node": "^10.9.2",

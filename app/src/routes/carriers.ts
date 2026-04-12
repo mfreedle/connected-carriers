@@ -331,6 +331,17 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     </div>
     ` : ""}
 
+    <!-- Setup Packet -->
+    ${carrier.onboarding_status !== 'rejected' ? `
+    <div class="card" style="border-left:3px solid #3b82f6">
+      <div class="card-title">Compliance Setup</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Send carrier a setup link to collect COI, W-9, and signed agreement before dispatch.</p>
+      <form method="POST" action="/carriers/${String(carrier.id)}/setup/create">
+        <input type="hidden" name="_csrf" value="${h(csrf)}">
+        <button type="submit" class="btn-primary" style="width:100%">Send Setup Packet →</button>
+      </form>
+    </div>
+    ` : ''}
     <!-- Dispatch Packet -->
     ${carrier.onboarding_status !== 'rejected' && carrier.onboarding_status !== 'draft' ? `
     <div class="card" style="border-left:3px solid #C8892A">
