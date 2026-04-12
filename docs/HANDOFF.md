@@ -35,6 +35,7 @@ The broker dashboard exists and the full qualification → dispatch workflow is 
 | Postgres | internal / public: crossover.proxy.rlwy.net:22571 | Online |
 | MCP server | cc-mcp-server-production.up.railway.app | Online — v1.2.0 |
 | Broker dashboard | github-repo-production-2c39.up.railway.app | Online — MVP |
+| Broker dashboard (custom) | app.connectedcarriers.org | Online ✅ |
 
 ### Broker Dashboard
 - Login: kateloads@logisticsxpress.com — credential managed via seed/reset flow; no default password documented here (see Security Status section)
