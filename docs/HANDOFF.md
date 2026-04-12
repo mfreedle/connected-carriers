@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
 **Last updated:** April 12, 2026
-**Status:** Broker dashboard live. MCP server v1.2.0 live. Slack listener active with MC lookup fast-path.
+**Status:** Directives 1, 2, and 3 complete. Broker dashboard live with full carrier qualification + dispatch clearance workflow.
 
 ---
 
@@ -20,31 +20,28 @@
 | Service | URL | Status |
 |---------|-----|--------|
 | Landing page | connected-carriers-production.up.railway.app | Online |
-| Postgres | internal | Online |
+| Postgres | internal / public: crossover.proxy.rlwy.net:22571 | Online |
 | MCP server | cc-mcp-server-production.up.railway.app | Online — v1.2.0 |
-| Broker dashboard | github-repo-production-2c39.up.railway.app | Online — Directive 1 |
+| Broker dashboard | github-repo-production-2c39.up.railway.app | Online — Directives 1+2+3 |
 
-### Broker Dashboard (Directive 1 — deployed April 12)
+### Broker Dashboard (deployed April 12)
 - URL: https://github-repo-production-2c39.up.railway.app
 - Login: kateloads@logisticsxpress.com / password123 (change after first use)
-- Root directory: `app/` in repo
-- Features: submission queue, carrier detail, decision actions, notes, activity log, settings
-- Migrations run, seed data loaded (Kate's account + 3 sample carriers)
+- Root directory in repo: `app/`
+- Migrations run automatically on startup
+- Seed data: Kate's account + 3 sample carriers
 
-### MCP Server (v1.2.0 — deployed April 12)
-- Health: `GET https://cc-mcp-server-production.up.railway.app/health`
+### MCP Server (v1.2.0)
 - Tools: `cc_lookup_carrier`, `cc_verify_carrier`, `cc_assign_tier`
-- `/mcp` endpoint: **FIXED** — per-request McpServer factory pattern
-- Geocoding: working via Nominatim fallback
 - SMS (Twilio): **NOT YET WIRED** — env vars not set in Railway
 
 ### VPS Agent Listener
-- VPS: `root@137.184.36.72` (DigitalOcean, SSH key auth)
+- VPS: `root@137.184.36.72` (SSH key auth)
 - Service: `cc_slack_listener` — **RUNNING**
 - Listener: `/home/connected-carriers/scripts/slack_listener.py`
 - Env file: `/home/connected-carriers/.env`
 - Slack channel: `C0ARKBC5VRA` (#cc-agent-logs)
-- Fast-path: `CC AGENT — lookup MC<number>` → hits MCP, posts result in ~3s
+- Fast-path: `CC AGENT — lookup MC<number>` → MCP → posts result in ~3s
 
 ### GitHub
 - Repo: `github.com/mfreedle/connected-carriers`
@@ -53,99 +50,126 @@
 
 ---
 
-## 3. DATABASE SCHEMA (Postgres on Railway)
+## 3. DATABASE SCHEMA
 
-### Original tables (MCP server)
+### Original (MCP server)
 | Table | Purpose |
 |-------|---------|
-| `carriers` | Extended — now has broker fields + onboarding status |
-| `carrier_submissions` | Extended — now has broker fields + FMCSA result |
+| `carriers` | Extended with broker fields + onboarding status |
+| `carrier_submissions` | Extended with broker fields, FMCSA result, auto-reject |
 | `pickup_codes` | 6-digit dispatch fraud prevention codes |
-| `dispatch_verifications` | Driver arrival confirmations with GPS + geofence result |
+| `dispatch_verifications` | Driver arrival confirmations with GPS |
 
-### Broker dashboard tables (added Directive 1)
+### Broker dashboard tables
 | Table | Purpose |
 |-------|---------|
-| `broker_accounts` | Broker companies (e.g. Logistics Xpress) |
-| `broker_users` | Broker users with role (owner/ops/reviewer) |
-| `broker_policies` | Per-broker qualification rules seeded from Kate's form |
+| `broker_accounts` | Broker companies |
+| `broker_users` | Users with role (owner/ops/reviewer) |
+| `broker_policies` | Per-broker qualification rules |
 | `carrier_documents` | COI, W9, agreements, photos |
-| `carrier_notes` | Internal broker notes on carriers |
+| `carrier_notes` | Internal notes |
 | `activity_logs` | Full audit trail |
 | `session` | Express session store |
+| `carrier_intake_links` | Token-based intake links (72hr expiry) |
+| `dispatch_packets` | Full dispatch clearance workflow per load |
 
 ---
 
-## 4. KATE GONZALEZ — FIRST BROKER
+## 4. FEATURE STATUS
 
-- Company: Logistics Xpress (formerly Vegastar Brokerage)
+### Directive 1 — Broker Foundation ✅
+- Auth: session-based login/logout
+- Dashboard: submission queue with filter tabs + counts
+- Carrier detail: FMCSA block, docs, flags, notes, activity timeline
+- Decision actions: approve / conditional / reject / more info
+- Settings: company profile + all policy toggles
+
+### Directive 2 — Carrier Intake ✅
+- Broker generates token-based intake link (72hr)
+- Public mobile-friendly form at `/apply/:token`
+- FMCSA verification via `cc_verify_carrier` MCP on submit
+- Hard-stop auto-reject: inactive MC, MC not found, unsatisfactory safety, authority age, double brokering
+- Conditional flags: conditional safety rating, missing W-9/agreement
+- Passing submissions land in Kate's queue
+- Intake link management at `/intake/links`
+
+### Directive 3 — Dispatch Packet ✅
+- "Open Dispatch Packet" from approved/conditional carrier detail
+- Single-screen checklist: driver+equipment, insurance reverification, tracking, rate con, pickup
+- Gating: all items must pass before "Clear to Roll" activates
+- Pickup code: 6-digit generated on clearance when policy requires
+- Full activity audit trail
+- Dispatch history per carrier at `/carriers/:id/dispatch`
+
+---
+
+## 5. KATE GONZALEZ — FIRST BROKER
+
+- Company: Logistics Xpress
 - MC#: 064447
-- Email: kateloads@logisticsxpress.com / kate@logisticsxpress.com
-- TMS: Port TMS
-- Load boards: DAT
-- Current tools: RMIS, Carrier411, Outlook, Teams, QuickBooks, SharePoint
-- Policy: all defaults seeded from her form response (April 7, 2026)
-- Key pain points: manual insurance/VIN verification, inundated with non-qualifying carriers
+- Email: kateloads@logisticsxpress.com
+- Policy: all seeded from her form response (April 7, 2026)
+- Key requirements: real-time GPS, $1M auto, 180-day authority minimum, COI at submission
 
 ---
 
-## 5. SLACK / AGENT SETUP
+## 6. SLACK / AGENT SETUP
 
 - Workspace: connectedcarriers.slack.com
 - Bot: CC Agent Dispatcher (A0ARULHN57T)
-- Channel: #cc-agent-logs (ID: `C0ARKBC5VRA`) — public channel despite lock icon
+- Channel: #cc-agent-logs (ID: `C0ARKBC5VRA`) — public via API despite lock icon
+- Event subscriptions: `message.channels` AND `message.groups` (both required)
 - Directive pattern: `CC AGENT — [directive]`
-- Event subscriptions required: `message.channels` AND `message.groups` (both needed)
-- Bot joined channel via `conversations.join` API (requires `channels:join` scope)
 
 ---
 
-## 6. GOOGLE WORKSPACE
+## 7. GOOGLE WORKSPACE
 
-- Domain: connectedcarriers.org (verified in GoDaddy)
+- Domain: connectedcarriers.org
 - Email: admin@connectedcarriers.org
-- Plan: Starter ($16.80/mo)
 - **Trial ends: April 20, 2026 — decide keep or replace**
 
 ---
 
-## 7. CARRIER TIERS (BUSINESS DECISIONS — DO NOT CHANGE IN CODE)
+## 8. CARRIER TIERS (BUSINESS DECISIONS — DO NOT CHANGE IN CODE)
 
 | Tier | Criteria |
 |------|----------|
-| Tier 1 Preferred | In Port TMS + 3+ loads + clean history → bypasses screening |
-| Tier 2 Approved | New carrier, passes hard stops → standard onboarding |
-| Tier 3 Conditional | Passes minimums, needs review → manual review queue |
-| Rejected | Fails any auto-disqualifier → instant rejection |
+| Tier 1 Preferred | In Port TMS + 3+ loads + clean history |
+| Tier 2 Approved | New carrier, passes hard stops |
+| Tier 3 Conditional | Passes minimums, needs review |
+| Rejected | Fails any auto-disqualifier |
 
 ---
 
-## 8. NEXT STEPS (PRIORITY ORDER)
+## 9. NEXT STEPS (PRIORITY ORDER)
 
-1. **Directive 2** — Carrier intake + fast qualification gate (in progress)
+1. **Custom domain** — point `app.connectedcarriers.org` → broker dashboard (GoDaddy DNS + Railway)
 2. **Add Twilio env vars to Railway** — `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
-3. **Deploy automation** — `CC AGENT — migrate` directive via Slack listener
-4. **Custom domain** — point `app.connectedcarriers.org` to broker dashboard
+3. **Deploy automation** — `CC AGENT — migrate` directive via Slack listener (no more manual terminal)
+4. **Change Kate's password** — default password123 must be changed before real use
 5. **Google Workspace decision** — April 20 deadline
-6. **Directive 3** — Dispatch packet + truck-roll clearance
-
----
-
-## 9. PRODUCT ROADMAP
-
-```
-Layer 1 (NOW):  Carrier qualification portal — active build
-Layer 2 (NEXT): Performance memory per carrier per load
-Layer 3:        Network intelligence across multiple brokers
-Layer 4:        Load marketplace for pre-screened carriers
-```
+6. **Security tightening review** — per checklist deferred from earlier session
 
 ---
 
 ## 10. KEY LESSONS / GOTCHAS
 
-- Railway proxy hostname only reachable from inside Railway network — use public URL for local migrations
-- #cc-agent-logs reports as public via API despite lock icon in UI — needs `message.channels` event subscription
-- Claude's Slack tool is connected to Signature Fencing workspace, NOT Connected Carriers
-- Express apps behind Railway proxy need `app.set("trust proxy", 1)` for secure cookies to work
-- Broker dashboard migrations run automatically on startup via `migrate()` in index.ts
+- Railway internal hostname unreachable from outside — use public URL for local migrations
+- `app.set("trust proxy", 1)` required for secure cookies to work behind Railway proxy
+- #cc-agent-logs is public via API despite lock icon — needs `message.channels` event subscription
+- Claude's Slack tool = Signature Fencing workspace, NOT Connected Carriers
+- Broker dashboard root directory in Railway is `app/` (not repo root)
+- Migrations run automatically on startup — no manual step needed after deploy
+- `railway run` must be executed from the repo's `app/` directory, not from any other folder
+
+---
+
+## 11. PRODUCT ROADMAP
+
+```
+Layer 1 (NOW):  Carrier qualification portal — Directives 1+2+3 complete
+Layer 2 (NEXT): Performance memory per carrier per load
+Layer 3:        Network intelligence across multiple brokers
+Layer 4:        Load marketplace for pre-screened carriers
+```
