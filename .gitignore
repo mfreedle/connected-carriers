@@ -1,25 +1,23 @@
-# Dependencies
+# Node modules
 node_modules/
-app/node_modules/
-mcp-server/node_modules/
+**/node_modules/
 
 # Build output
 dist/
-app/dist/
-mcp-server/dist/
+**/dist/
 
-# Environment
+# Environment files
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Logs
-*.log
 logs/
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# TypeScript
-*.tsbuildinfo
+# Railway
+.railway/
