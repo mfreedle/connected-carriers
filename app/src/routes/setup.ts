@@ -166,27 +166,16 @@ router.post("/carriers/:id/setup/:packetId/doc/:docId/verify", requireAuth, asyn
   }
 
   try {
-    await query(`
-      UPDATE carrier_documents SET
-        verification_status=$1,
-        verified_at=${action === "verified" ? "NOW()" : "NULL"},
-        verified_by=${action === "verified" ? "$2" : "NULL"},
-        last_reviewed_at=NOW(),
-        notes=COALESCE($3, notes),
-        updated_at=NOW()
-      WHERE id=$4
-    `, action === "verified"
-      ? [action, userId, notes?.trim() || null, docId]
-      : [action, notes?.trim() || null, docId, "unused"]
-    );
-
-    // Simpler approach — two separate queries
     if (action === "verified") {
-      await query(`UPDATE carrier_documents SET verification_status=$1, verified_at=NOW(), verified_by=$2, last_reviewed_at=NOW(), notes=COALESCE($3,notes), updated_at=NOW() WHERE id=$4`,
-        [action, userId, notes?.trim() || null, docId]);
+      await query(
+        `UPDATE carrier_documents SET verification_status=$1, verified_at=NOW(), verified_by=$2, last_reviewed_at=NOW(), notes=COALESCE($3,notes), updated_at=NOW() WHERE id=$4`,
+        [action, userId, notes?.trim() || null, docId]
+      );
     } else {
-      await query(`UPDATE carrier_documents SET verification_status=$1, verified_at=NULL, verified_by=NULL, last_reviewed_at=NOW(), notes=COALESCE($2,notes), updated_at=NOW() WHERE id=$3`,
-        [action, notes?.trim() || null, docId]);
+      await query(
+        `UPDATE carrier_documents SET verification_status=$1, verified_at=NULL, verified_by=NULL, last_reviewed_at=NOW(), notes=COALESCE($2,notes), updated_at=NOW() WHERE id=$3`,
+        [action, notes?.trim() || null, docId]
+      );
     }
 
     await query(`
