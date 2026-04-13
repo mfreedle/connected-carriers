@@ -487,6 +487,7 @@ const httpServer = http.createServer(async (req, res) => {
         load_id,
         slug,
         apply_url: applyUrl,
+        board_url: `${BASE_URL}/board/${slug}`,
         post_text: postText
       }));
     } catch (err) {
@@ -675,7 +676,7 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
       const apps = await query(
-        `SELECT mc_number, company_name, contact_name, contact_phone, contact_email,
+        `SELECT id, mc_number, company_name, contact_name, contact_phone, contact_email,
                 fmcsa_authority, fmcsa_safety, qualification_result, has_profile, created_at
          FROM load_applications WHERE load_id = $1 ORDER BY created_at DESC`,
         [load.id]
@@ -686,6 +687,158 @@ const httpServer = http.createServer(async (req, res) => {
       console.error("[GET /loads/applicants error]", err);
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
+  // ── POST /load/:slug/assign — broker picks a carrier → system auto-sends doc request or arrival check
+  if (req.method === "POST" && url.match(/^\/load\/[A-Z0-9]+\/assign$/)) {
+    setCors(res);
+    const slug = url.split("/")[2];
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const { applicant_id, driver_phone, pickup_window_start, pickup_window_end } = body;
+
+      const loadResult = await query("SELECT * FROM loads WHERE slug = $1 AND status = 'open'", [slug]);
+      if (!loadResult.rows.length) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Load not found or already covered" }));
+        return;
+      }
+      const load = loadResult.rows[0];
+
+      // Get the applicant
+      const appResult = await query("SELECT * FROM load_applications WHERE id = $1 AND load_id = $2", [applicant_id, load.id]);
+      if (!appResult.rows.length) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Applicant not found" }));
+        return;
+      }
+      const applicant = appResult.rows[0];
+
+      // Check if carrier has a complete profile (CDL, VIN, insurance all uploaded)
+      let profileComplete = false;
+      try {
+        const profileCheck = await query(
+          "SELECT completion_status FROM carrier_profiles WHERE mc_number = $1 AND completion_status = 'dispatch_ready' ORDER BY created_at DESC LIMIT 1",
+          [applicant.mc_number]
+        );
+        profileComplete = profileCheck.rows.length > 0;
+      } catch { /* profile table might be on the app DB, not MCP DB — check carriers table too */ }
+
+      const carrierPhone = driver_phone || applicant.contact_phone;
+      if (!carrierPhone) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No phone number available for this carrier. Provide driver_phone." }));
+        return;
+      }
+
+      // Supersede any existing pending verifications for this load's pickup
+      const existingPending = await query(
+        "SELECT * FROM dispatch_verifications WHERE pickup_address = $1 AND broker_phone = $2 AND status = 'pending'",
+        [load.origin + " → " + load.destination, load.broker_phone]
+      );
+      for (const old of existingPending.rows) {
+        await query("UPDATE dispatch_verifications SET status = 'superseded' WHERE id = $1", [old.id]);
+        if (old.driver_phone !== normalizePhone(carrierPhone)) {
+          await sendSms(old.driver_phone,
+            `Load ${old.load_id} has been assigned to another carrier. No action needed.\nComplete your carrier profile for faster clearance next time: ${BASE_URL}/carrier-profile`
+          );
+        }
+      }
+
+      const results: Record<string, unknown> = {
+        assigned: true,
+        carrier: applicant.company_name,
+        mc: applicant.mc_number,
+        profile_complete: profileComplete,
+      };
+
+      if (profileComplete) {
+        // ── FAST PATH: Profile complete → skip doc chase, go straight to arrival check
+        const verifyLoadId = `CC-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+        const verifyToken = crypto.randomBytes(32).toString("hex");
+        const coords = await geocodeAddress(load.origin);
+
+        await query(
+          `INSERT INTO dispatch_verifications
+           (load_id, token, driver_phone, broker_phone, mc_number,
+            pickup_address, pickup_window_start, pickup_window_end,
+            geo_center_lat, geo_center_lng, fmcsa_authority, fmcsa_company)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [verifyLoadId, verifyToken, normalizePhone(carrierPhone), load.broker_phone,
+           applicant.mc_number, load.origin,
+           pickup_window_start || null, pickup_window_end || null,
+           coords?.lat || null, coords?.lng || null,
+           applicant.fmcsa_authority, applicant.company_name]
+        );
+
+        const verifyUrl = `${BASE_URL}/verify/${verifyToken}`;
+        await sendSms(normalizePhone(carrierPhone),
+          `${verifyLoadId} — pickup at ${load.origin.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`
+        );
+
+        await sendSms(load.broker_phone,
+          `✓ ${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nProfile complete — arrival check sent directly. No docs to chase.`
+        );
+
+        results.action = "arrival_check_sent";
+        results.verify_load_id = verifyLoadId;
+        results.message = "Carrier has complete profile. Arrival check sent directly — no doc chase needed.";
+
+      } else {
+        // ── STANDARD PATH: Profile incomplete → send doc request with auto-chase
+        const docRequestUrl = `https://app.connectedcarriers.org/profile/carrier?source=load_assign&mc=${applicant.mc_number}`;
+
+        await sendSms(normalizePhone(carrierPhone),
+          `${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nThis request is time-sensitive — respond within 10 minutes.`
+        );
+
+        await sendSms(load.broker_phone,
+          `${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nDoc request sent — waiting on CDL, VIN photo, truck info.\nYou'll get an alert when they respond or if they go quiet.`
+        );
+
+        results.action = "doc_request_sent";
+        results.message = "Carrier profile incomplete. Doc request sent with 10-minute auto-chase.";
+      }
+
+      // Mark load as covered
+      await query("UPDATE loads SET status = 'covered' WHERE id = $1", [load.id]);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(results));
+
+    } catch (err) {
+      console.error("[POST /load/assign error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
+  // ── GET /board/:slug — broker load board view (see applicants, assign carrier)
+  if (req.method === "GET" && url.match(/^\/board\/[A-Z0-9]+$/)) {
+    const slug = url.replace("/board/", "");
+    try {
+      const loadResult = await query("SELECT * FROM loads WHERE slug = $1", [slug]);
+      if (!loadResult.rows.length) {
+        res.writeHead(404, { "Content-Type": "text/html" });
+        res.end(loadNotFoundPage());
+        return;
+      }
+      const load = loadResult.rows[0];
+      const apps = await query(
+        `SELECT id, mc_number, company_name, contact_name, contact_phone, contact_email,
+                fmcsa_authority, fmcsa_safety, qualification_result, has_profile, created_at
+         FROM load_applications WHERE load_id = $1 AND qualification_result IN ('qualified','review')
+         ORDER BY has_profile DESC, qualification_result ASC, created_at ASC`,
+        [load.id]
+      );
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(loadBoardPage(load, apps.rows, slug));
+    } catch (err) {
+      console.error("[GET /board error]", err);
+      res.writeHead(500); res.end("Server error");
     }
     return;
   }
@@ -1235,6 +1388,107 @@ function loadClosedPage(load: Record<string, unknown>): string {
   h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px}
   .btn{display:inline-block;margin-top:16px;padding:12px 24px;background:#C8892A;color:#1C2B3A;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px}</style></head>
   <body><div class="card"><h2>Load covered</h2><p>${load.origin} → ${load.destination} has been assigned to a carrier.</p><a href="https://app.connectedcarriers.org/profile/carrier" class="btn">Complete your carrier profile</a></div></body></html>`;
+}
+
+function loadBoardPage(load: Record<string, unknown>, applicants: Record<string, unknown>[], slug: string): string {
+  const appRows = applicants.map((a: Record<string, unknown>) => `
+    <div class="app-row" id="app-${a.id}">
+      <div class="app-main">
+        <div class="app-name">${a.company_name || "Unknown"}</div>
+        <div class="app-detail">MC ${a.mc_number} · ${a.contact_name || "No contact"} · ${a.contact_phone || "No phone"}</div>
+        <div class="app-badges">
+          <span class="badge ${a.qualification_result === "qualified" ? "badge-green" : "badge-yellow"}">${a.qualification_result === "qualified" ? "Qualified" : "Review"}</span>
+          <span class="badge ${a.has_profile ? "badge-green" : "badge-gray"}">${a.has_profile ? "Profile Complete" : "Needs Docs"}</span>
+          <span class="badge badge-gray">${a.fmcsa_authority} · Safety: ${a.fmcsa_safety}</span>
+        </div>
+      </div>
+      <div class="app-actions">
+        <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, '${a.contact_phone || ""}', '${a.company_name || ""}')">
+          ${a.has_profile ? "Assign → Arrival Check" : "Assign → Send Doc Request"}
+        </button>
+      </div>
+    </div>`).join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${load.load_id} — Applicants</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1C2B3A; min-height: 100vh; padding: 20px; }
+  .container { max-width: 600px; margin: 0 auto; padding-top: 20px; }
+  .header { margin-bottom: 24px; }
+  .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #C8892A; margin-bottom: 8px; }
+  .route { font-size: 22px; font-weight: 600; color: #F7F5F0; margin-bottom: 4px; }
+  .meta { font-size: 13px; color: #6b7a8a; }
+  .count { font-size: 14px; color: #F7F5F0; margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(247,245,240,0.1); }
+  .count span { color: #C8892A; font-weight: 600; }
+  .app-row { background: #fff; border-radius: 8px; padding: 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .app-name { font-size: 16px; font-weight: 600; color: #1C2B3A; margin-bottom: 4px; }
+  .app-detail { font-size: 13px; color: #6b7a8a; margin-bottom: 8px; }
+  .app-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; }
+  .badge-green { background: #EAF3DE; color: #3b6d11; }
+  .badge-yellow { background: #FFF8ED; color: #8B6914; }
+  .badge-gray { background: #F0EDE7; color: #6b7a8a; }
+  .assign-btn { padding: 10px 16px; background: #C8892A; border: none; border-radius: 6px; color: #1C2B3A; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .assign-btn:hover { background: #E09B35; }
+  .assign-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .assigned-msg { display: none; background: #EAF3DE; border-radius: 8px; padding: 18px; margin-bottom: 10px; text-align: center; }
+  .assigned-msg h3 { color: #3b6d11; font-size: 16px; margin-bottom: 6px; }
+  .assigned-msg p { color: #6b7a8a; font-size: 13px; }
+  .empty { color: #6b7a8a; text-align: center; padding: 40px; font-size: 14px; }
+  .window-fields { display: none; margin-top: 12px; }
+  .window-fields input { padding: 8px 10px; border: 1px solid #e8e4de; border-radius: 4px; font-size: 13px; width: 120px; }
+  .window-fields label { font-size: 11px; color: #6b7a8a; display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="tag">Load Board — ${load.load_id}</div>
+    <div class="route">${load.origin} → ${load.destination}</div>
+    <div class="meta">${load.equipment}${load.pickup_date ? " · Pickup: " + load.pickup_date : ""}</div>
+  </div>
+  <div class="count"><span>${applicants.length}</span> qualified carrier${applicants.length !== 1 ? "s" : ""}</div>
+  <div id="assigned-msg" class="assigned-msg">
+    <h3 id="assigned-title">✓ Carrier Assigned</h3>
+    <p id="assigned-detail"></p>
+  </div>
+  ${appRows || '<div class="empty">No qualified carriers yet. Share your load link and check back.</div>'}
+</div>
+<script>
+async function assignCarrier(slug, appId, phone, name) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Assigning...';
+  try {
+    const res = await fetch('/load/' + slug + '/assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicant_id: appId, driver_phone: phone || undefined })
+    });
+    const data = await res.json();
+    if (data.assigned) {
+      document.getElementById('assigned-msg').style.display = 'block';
+      document.getElementById('assigned-title').textContent = '✓ ' + (data.carrier || name) + ' Assigned';
+      document.getElementById('assigned-detail').textContent = data.message;
+      document.getElementById('app-' + appId).style.opacity = '0.4';
+      btn.textContent = 'Assigned';
+    } else {
+      btn.textContent = 'Error — try again';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = 'Error — try again';
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>`;
 }
 
 // ── STARTUP ───────────────────────────────────────────────────────

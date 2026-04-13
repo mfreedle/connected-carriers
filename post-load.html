@@ -151,6 +151,11 @@
     <span class="result-link" id="apply-url"></span>
     <button class="copy-btn" id="copy-link-btn" onclick="copyLink()">Copy Link</button>
 
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(247,245,240,0.1);">
+      <div style="font-size:10px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(247,245,240,0.4);margin-bottom:6px">Your load board (see who applied)</div>
+      <a id="board-url" href="#" target="_blank" style="font-size:14px;color:var(--amber);text-decoration:none;word-break:break-all"></a>
+    </div>
+
     <div class="post-text">
       <div class="post-text-label">Ready-to-paste load board text</div>
       <pre id="post-text"></pre>
@@ -197,6 +202,8 @@ async function createLoad() {
       currentPostText = data.post_text;
       document.getElementById('apply-url').textContent = data.apply_url;
       document.getElementById('post-text').textContent = data.post_text;
+      document.getElementById('board-url').textContent = data.board_url;
+      document.getElementById('board-url').href = data.board_url;
       document.getElementById('result-card').style.display = 'block';
       btn.textContent = 'Create Another Load';
       btn.disabled = false;
