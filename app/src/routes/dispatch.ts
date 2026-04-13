@@ -1,12 +1,22 @@
-import { Router, Response } from "express";
+import { Router, Response, Request } from "express";
+import multer from "multer";
 import crypto from "crypto";
 import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { h, csrfToken } from "../middleware/security";
 import { sendSms, isTwilioConfigured } from "../lib/sms";
 import { layout } from "../views/layout";
+import { uploadToR2, getPresignedDownloadUrl, validateUpload, isR2Configured, deleteFromR2 } from "../lib/storage";
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+const DISPATCH_DOC_TYPES: Record<string, string> = {
+  cdl_photo: "cdl",
+  truck_photo: "truck_photo",
+  vin_photo: "vin_photo",
+  cab_card: "cab_card",
+};
 
 // ── Open dispatch packet from carrier detail ──────────────────────
 
@@ -392,6 +402,119 @@ router.post("/dispatch/:id/clear", requireAuth, async (req: AuthenticatedRequest
   }
 });
 
+
+// ── Upload dispatch document (CDL, truck photo, VIN photo, cab card) ──
+
+router.post("/dispatch/:id/doc/:docType", requireAuth, upload.single("file"), async (req: AuthenticatedRequest, res: Response) => {
+  const accountId = req.session.brokerAccountId!;
+  const userId = req.session.userId!;
+  const packetId = parseInt(req.params.id);
+  const docType = req.params.docType;
+
+  if (!DISPATCH_DOC_TYPES[docType]) {
+    return res.redirect(`/dispatch/${packetId}?error=invalid_doc_type`);
+  }
+
+  try {
+    // Verify packet belongs to this broker
+    const packetRes = await query(`SELECT * FROM dispatch_packets WHERE id=$1 AND broker_account_id=$2`, [packetId, accountId]);
+    if (!packetRes.rows.length) return res.redirect(`/dispatch/${packetId}?error=not_found`);
+    const packet = packetRes.rows[0];
+
+    let fileUrl: string | null = null;
+    let r2ObjectKey: string | null = null;
+    let fileName: string | null = null;
+    let fileSize: number | null = null;
+    let mimeType: string | null = null;
+
+    if (req.file) {
+      const validationError = validateUpload(req.file.mimetype, req.file.size);
+      if (validationError) return res.redirect(`/dispatch/${packetId}?error=${encodeURIComponent(validationError)}`);
+      if (!isR2Configured()) return res.redirect(`/dispatch/${packetId}?error=storage_not_configured`);
+
+      // Delete old R2 object if replacing
+      const existing = await query(
+        `SELECT r2_object_key FROM carrier_documents WHERE carrier_id=$1 AND document_type=$2 AND carrier_submission_id IS NULL AND carrier_setup_packet_id IS NULL ORDER BY created_at DESC LIMIT 1`,
+        [packet.carrier_id, DISPATCH_DOC_TYPES[docType]]
+      );
+      if (existing.rows.length && existing.rows[0].r2_object_key) {
+        try { await deleteFromR2(existing.rows[0].r2_object_key); } catch (e) { console.error("R2 cleanup:", e); }
+      }
+
+      const uploaded = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype, `dispatch/${packetId}`);
+      r2ObjectKey = uploaded.objectKey;
+      fileUrl = uploaded.fileUrl;
+      fileName = uploaded.fileName;
+      fileSize = uploaded.fileSize;
+      mimeType = uploaded.mimeType;
+    } else if (req.body.link_url?.trim()) {
+      fileUrl = req.body.link_url.trim();
+      fileName = fileUrl;
+    } else {
+      return res.redirect(`/dispatch/${packetId}?error=no_file_provided`);
+    }
+
+    // Upsert into carrier_documents
+    const existing2 = await query(
+      `SELECT id FROM carrier_documents WHERE carrier_id=$1 AND document_type=$2 AND carrier_submission_id IS NULL AND carrier_setup_packet_id IS NULL`,
+      [packet.carrier_id, DISPATCH_DOC_TYPES[docType]]
+    );
+
+    if (existing2.rows.length) {
+      await query(
+        `UPDATE carrier_documents SET file_url=$1, r2_object_key=$2, file_name=$3, file_size=$4, mime_type=$5, verification_status='pending', updated_at=NOW() WHERE id=$6`,
+        [fileUrl, r2ObjectKey, fileName, fileSize, mimeType, existing2.rows[0].id]
+      );
+    } else {
+      await query(
+        `INSERT INTO carrier_documents (carrier_id, document_type, file_url, r2_object_key, file_name, file_size, mime_type, verification_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')`,
+        [packet.carrier_id, DISPATCH_DOC_TYPES[docType], fileUrl, r2ObjectKey, fileName, fileSize, mimeType]
+      );
+    }
+
+    // Also update the URL field on dispatch_packets for backward compat
+    const urlField = docType + "_url";
+    await query(`UPDATE dispatch_packets SET ${urlField}=$1, updated_at=NOW() WHERE id=$2`, [fileUrl, packetId]);
+
+    await logActivity("dispatch_packet", packetId, "broker_user", userId, "doc_uploaded", { docType, fileName });
+    res.redirect(`/dispatch/${packetId}?saved=doc_${docType}`);
+  } catch (err) {
+    console.error("Dispatch doc upload error:", err);
+    res.redirect(`/dispatch/${packetId}?error=upload_failed`);
+  }
+});
+
+// ── Download dispatch document via presigned URL ──────────────────
+
+router.get("/dispatch/:id/doc/:docType/download", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const accountId = req.session.brokerAccountId!;
+  const packetId = parseInt(req.params.id);
+  const docType = req.params.docType;
+
+  try {
+    const packetRes = await query(`SELECT carrier_id FROM dispatch_packets WHERE id=$1 AND broker_account_id=$2`, [packetId, accountId]);
+    if (!packetRes.rows.length) return res.status(404).send("Not found");
+
+    const docRes = await query(
+      `SELECT * FROM carrier_documents WHERE carrier_id=$1 AND document_type=$2 AND carrier_submission_id IS NULL AND carrier_setup_packet_id IS NULL ORDER BY updated_at DESC LIMIT 1`,
+      [packetRes.rows[0].carrier_id, DISPATCH_DOC_TYPES[docType]]
+    );
+
+    if (!docRes.rows.length) return res.status(404).send("Document not found");
+    const doc = docRes.rows[0];
+
+    if (doc.r2_object_key) {
+      const url = await getPresignedDownloadUrl(doc.r2_object_key, 300);
+      return res.redirect(url);
+    }
+    if (doc.file_url && !doc.file_url.startsWith("r2://")) return res.redirect(doc.file_url);
+    res.status(404).send("File not available");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error");
+  }
+});
+
 // ── Cancel / fail dispatch packet ────────────────────────────────
 
 router.post("/dispatch/:id/cancel", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -447,6 +570,14 @@ router.get("/carriers/:id/dispatch", requireAuth, async (req: AuthenticatedReque
 });
 
 export default router;
+
+// ── Phone formatter ──────────────────────────────────────────────
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) return `+1 (${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  return raw;
+}
 
 // ── Gating logic ──────────────────────────────────────────────────
 
@@ -544,6 +675,10 @@ function dispatchContent(
     tracking_rejected: "Tracking rejection recorded.",
     rate_confirmed: "Rate confirmation marked complete.",
     pickup_confirmed: "Pickup appointment confirmed.",
+    doc_cdl_photo: "CDL photo uploaded.",
+    doc_truck_photo: "Truck photo uploaded.",
+    doc_vin_photo: "VIN photo uploaded.",
+    doc_cab_card: "Cab card uploaded.",
   };
 
   const ts = (val: unknown) => val ? new Date(String(val)).toLocaleString() : null;
@@ -595,7 +730,7 @@ ${/* Clearance status panel */isCleared ? `
     ${isCleared ? `
       <div class="info-grid">
         <div class="info-row"><span class="info-label">Driver</span><span>${h(packet.driver_name || "—")}</span></div>
-        <div class="info-row"><span class="info-label">Phone</span><span>${h(packet.driver_phone || "—")}</span></div>
+        <div class="info-row"><span class="info-label">Phone</span><span>${packet.driver_phone ? h(formatPhone(String(packet.driver_phone))) : "—"}</span></div>
         <div class="info-row"><span class="info-label">VIN</span><span><code>${h(packet.vin_number || "—")}</code></span></div>
         <div class="info-row"><span class="info-label">Trailer</span><span>${h(packet.trailer_number || "—")}</span></div>
       </div>
@@ -618,24 +753,37 @@ ${/* Clearance status panel */isCleared ? `
         <label class="field-label">Trailer number ${policy.require_truck_and_trailer_number ? '<span style="color:#ef4444">*</span>' : ""}</label>
         <input type="text" name="trailer_number" value="${h(packet.trailer_number || "")}" class="field-input" placeholder="Trailer ID">
       </div>
-      <div class="form-field">
-        <label class="field-label">CDL photo URL</label>
-        <input type="url" name="cdl_photo_url" value="${h(packet.cdl_photo_url || "")}" class="field-input" placeholder="https://…">
-      </div>
-      <div class="form-field">
-        <label class="field-label">Truck photo URL <span class="field-hint" style="display:inline">(showing MC/DOT)</span></label>
-        <input type="url" name="truck_photo_url" value="${h(packet.truck_photo_url || "")}" class="field-input" placeholder="https://…">
-      </div>
-      <div class="form-field">
-        <label class="field-label">VIN photo URL</label>
-        <input type="url" name="vin_photo_url" value="${h(packet.vin_photo_url || "")}" class="field-input" placeholder="https://…">
-      </div>
-      <div class="form-field">
-        <label class="field-label">Cab card URL</label>
-        <input type="url" name="cab_card_url" value="${h(packet.cab_card_url || "")}" class="field-input" placeholder="https://…">
-      </div>
       <button type="submit" class="btn-sm">Save Driver & Equipment</button>
     </form>
+
+    <!-- Supporting document uploads (separate forms per doc) -->
+    <div style="margin-top:16px;border-top:1px solid var(--cream2);padding-top:14px">
+      <div style="font-size:11px;font-weight:500;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Supporting Documents</div>
+      ${[
+        { key: "cdl_photo", label: "CDL photo" },
+        { key: "truck_photo", label: "Truck photo (showing MC/DOT)" },
+        { key: "vin_photo", label: "VIN photo" },
+        { key: "cab_card", label: "Cab card" },
+      ].map(({ key, label }) => {
+        const urlField = key + "_url";
+        const currentUrl = packet[urlField as keyof typeof packet];
+        return `
+        <div style="margin-bottom:12px;padding:10px 12px;background:var(--cream);border-radius:2px;border:1px solid var(--cream3)">
+          <div style="font-size:12px;font-weight:500;color:var(--slate);margin-bottom:6px">${label}
+            ${currentUrl ? `<a href="/dispatch/${packet.id}/doc/${key}/download" target="_blank" style="margin-left:8px;font-size:11px;color:var(--amber);text-decoration:none">View →</a>` : ""}
+          </div>
+          <form method="POST" action="/dispatch/${packet.id}/doc/${key}" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:6px"
+            onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Uploading…'">
+            <input type="hidden" name="_csrf" value="${h(csrf)}">
+            <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.heic" 
+              style="font-size:12px;color:var(--muted)"
+              onchange="this.nextElementSibling.style.display='none'">
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">or <input type="url" name="link_url" placeholder="paste a URL" style="border:none;border-bottom:1px solid var(--cream3);background:transparent;font-size:11px;width:200px;outline:none;padding:1px 2px"></div>
+            <button type="submit" class="btn-sm" style="align-self:flex-start;margin-top:4px;font-size:11px;padding:5px 12px">${currentUrl ? "Replace" : "Upload"}</button>
+          </form>
+        </div>`;
+      }).join("")}
+    </div>
     `}
   </div>
 
