@@ -298,8 +298,8 @@
 <section class="hero">
   <div class="hero-inner">
     <div class="hero-eyebrow">Dispatch Verification</div>
-    <h1>Make sure the truck that shows up is the one you <em>booked.</em></h1>
-    <p class="hero-sub">We alert you if something changed at pickup — before the load is released.</p>
+    <h1>Send an arrival check. Know if something changed at pickup.</h1>
+    <p class="hero-sub">Send a quick verification text to the driver. Get a signal based on time and location when they arrive.</p>
     <div class="form-card">
       <div class="form-row">
         <div class="field">
@@ -330,7 +330,7 @@
         <input type="text" id="mc_number" placeholder="MC-123456" />
       </div>
       <button class="send-btn" id="send-btn" onclick="submitDispatch()">
-        Send verification text
+        Send Arrival Check
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <p class="microcopy" id="form-status">Takes 10 seconds. No signup required.</p>
@@ -352,17 +352,17 @@
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-title">You send the check</div>
-        <p class="step-text">Enter the driver's phone and pickup details. The system geocodes the address and sets the geofence automatically.</p>
+        <p class="step-text">Enter the driver's phone and pickup details.</p>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-title">Driver confirms at pickup</div>
-        <p class="step-text">One tap. No app. No login. Works on any phone. The browser captures location and timestamp behind the scenes.</p>
+        <p class="step-text">One tap. No app. No login.</p>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-title">You get the signal</div>
-        <p class="step-text">You get a text if everything matches — or if something changed. Distance, timing, and geofence status in one alert.</p>
+        <p class="step-text">We tell you if everything matches — or if something changed.</p>
       </div>
     </div>
   </div>
@@ -379,21 +379,21 @@
         <div class="result-bar"></div>
         <div class="result-badge">Confirmed near pickup</div>
         <h3>Arrival confirmed</h3>
-        <p>Driver confirmed within 1 mile of the pickup address, inside the expected window. No action needed.</p>
+        <p>Arrival confirmed near pickup. No action needed.</p>
         <div class="result-detail">Distance: <span>0.12 mi</span> &nbsp;|&nbsp; Confirmed: <span>1:04 PM</span></div>
       </div>
       <div class="result-card yellow">
         <div class="result-bar"></div>
-        <div class="result-badge">Confirmed, but review recommended</div>
+        <div class="result-badge">Review recommended</div>
         <h3>Something looks different</h3>
-        <p>Driver confirmed between 1 and 2 miles from pickup, or outside the expected time window. Could be a staging area — or something changed.</p>
+        <p>Something looks different. Review recommended.</p>
         <div class="result-detail">Distance: <span>1.4 mi</span> &nbsp;|&nbsp; Action: <span>Call to confirm before release</span></div>
       </div>
       <div class="result-card red">
         <div class="result-bar"></div>
-        <div class="result-badge">Something changed — call before freight moves</div>
-        <h3>Review before loading</h3>
-        <p>Driver confirmed more than 2 miles from the pickup address. Do not release freight until you've spoken with the carrier directly.</p>
+        <div class="result-badge">Call before loading</div>
+        <h3>Something changed</h3>
+        <p>Something changed. Call before loading.</p>
         <div class="result-detail">Distance: <span>4.2 mi</span> &nbsp;|&nbsp; Action: <span>Do not release — call carrier</span></div>
       </div>
     </div>
@@ -442,7 +442,7 @@
 <section class="record-section">
   <div class="section-inner">
     <div class="section-eyebrow">The record</div>
-    <h2 class="section-h2">See exactly what happened at pickup.</h2>
+    <h2 class="section-h2">See what happened at pickup — with time and location.</h2>
     <p class="section-sub">Every arrival check creates a timestamped record — location, distance, timing, and FMCSA context if you provided an MC.</p>
     <div class="record-grid">
       <div class="record-item">
@@ -503,9 +503,9 @@
     <div class="pain-grid">
       <div class="pain-copy">
         <div class="section-eyebrow">Why it matters</div>
-        <h2>A phone confirms from 40 miles away. The timing doesn't match the window. The load moves before anyone notices.</h2>
-        <p>The most common freight theft isn't a hijacking — it's a carrier who looks legitimate but isn't. A cloned MC. A different truck. A load that disappears before the broker knows something was off.</p>
-        <p>This gives you a signal before it's too late. A timestamped, location-verified record that the driver was — or wasn't — where they said they'd be.</p>
+        <h2>A phone confirms from miles away. The timing doesn't match. The load moves before anyone notices.</h2>
+        <p>This gives you a signal before that happens. A timestamped, location-based record that the driver was — or wasn't — where they said they'd be.</p>
+        <p>It won't catch everything. But it gives you more to work with than a phone call and a promise.</p>
       </div>
       <div>
         <div class="pain-stat">
@@ -532,9 +532,10 @@
     <h2>Takes 10 seconds.<br>No signup required.</h2>
     <p>Try it on your next load. Scroll up and enter a driver's phone number. That's the whole onboarding process.</p>
     <a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;" class="btn-cta">
-      Send an arrival check now
+      Send Arrival Check
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2l5 5-5 5M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
+    <div style="margin-top:14px;font-size:13px;color:rgba(28,43,58,0.5)">Try it on your next load. Takes 10 seconds.</div>
   </div>
 </section>
 
