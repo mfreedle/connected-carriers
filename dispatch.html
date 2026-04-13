@@ -559,7 +559,38 @@
 
 <script>
 const API = 'https://cc-mcp-server-production.up.railway.app';
+const FREE_LIMIT = 3;
+const USAGE_KEY = 'cc_dispatch_uses';
+
+function getUsageCount() {
+  try { return parseInt(localStorage.getItem(USAGE_KEY) || '0'); } catch { return 0; }
+}
+function incrementUsage() {
+  try { localStorage.setItem(USAGE_KEY, String(getUsageCount() + 1)); } catch {}
+}
+function isOverLimit() {
+  return getUsageCount() >= FREE_LIMIT;
+}
+
+function showGate() {
+  const form = document.querySelector('.form-card');
+  if (!form) return;
+  form.innerHTML = `
+    <div style="text-align:center;padding:24px 16px">
+      <div style="font-size:28px;margin-bottom:12px">&#128274;</div>
+      <h3 style="font-family:var(--serif);font-size:20px;color:var(--cream);margin-bottom:8px">You've used your free arrival checks</h3>
+      <p style="font-size:14px;color:rgba(247,245,240,0.6);margin-bottom:20px;line-height:1.6">Start a free trial to get unlimited arrival checks, load filtering, automated doc chasing, and access to your full history and logs.</p>
+      <a href="https://connectedcarriers.org/pricing.html" style="display:inline-block;padding:14px 32px;background:var(--amber);color:var(--slate);font-family:var(--sans);font-size:14px;font-weight:500;border-radius:2px;text-decoration:none;margin-bottom:8px">Start Free Trial — 30 Days Free</a>
+      <div style="margin-top:12px"><a href="https://app.connectedcarriers.org/login" style="font-size:13px;color:rgba(247,245,240,0.5);text-decoration:none">Already have an account? Log in →</a></div>
+    </div>`;
+}
+
+// Check on page load
+if (isOverLimit()) { document.addEventListener('DOMContentLoaded', showGate); }
+
 async function submitDispatch() {
+  if (isOverLimit()) { showGate(); return; }
+
   const driver_phone  = document.getElementById('driver_phone').value.trim();
   const broker_phone  = document.getElementById('broker_phone').value.trim();
   const pickup_address = document.getElementById('pickup_address').value.trim();
@@ -587,13 +618,17 @@ async function submitDispatch() {
     });
     const data = await res.json();
     if (data.success) {
+      incrementUsage();
+      const remaining = FREE_LIMIT - getUsageCount();
       document.getElementById('success-load-id').textContent = 'Load ' + data.load_id + ' created';
       document.getElementById('success-block').style.display = 'block';
-      document.getElementById('form-status').textContent = data.sms_sent ? 'SMS sent to driver.' : 'Record created (SMS delivery pending).';
+      const smsMsg = data.sms_sent ? 'SMS sent to driver.' : 'Record created (SMS delivery pending).';
+      const remainMsg = remaining > 0 ? ` ${remaining} free check${remaining !== 1 ? 's' : ''} remaining.` : ' Start a free trial for unlimited checks.';
+      document.getElementById('form-status').textContent = smsMsg + remainMsg;
       document.getElementById('form-status').style.color = '#639922';
       btn.textContent = 'Send another';
       btn.disabled = false;
-      btn.onclick = () => { document.getElementById('success-block').style.display='none'; document.getElementById('driver_phone').value=''; document.getElementById('pickup_address').value=''; document.getElementById('mc_number').value=''; document.getElementById('form-status').textContent='Takes 10 seconds. No signup required.'; document.getElementById('form-status').style.color=''; btn.onclick = submitDispatch; };
+      btn.onclick = () => { document.getElementById('success-block').style.display='none'; document.getElementById('driver_phone').value=''; document.getElementById('pickup_address').value=''; document.getElementById('mc_number').value=''; document.getElementById('form-status').textContent=''; document.getElementById('form-status').style.color=''; btn.onclick = submitDispatch; };
     } else {
       throw new Error(data.error || 'Unknown error');
     }

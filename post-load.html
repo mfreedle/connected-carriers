@@ -172,10 +172,44 @@
 
 <script>
 const API = 'https://cc-mcp-server-production.up.railway.app';
+const FREE_LIMIT = 1;
+const USAGE_KEY = 'cc_load_creates';
 let currentUrl = '';
 let currentPostText = '';
 
+function getUsageCount() {
+  try { return parseInt(localStorage.getItem(USAGE_KEY) || '0'); } catch { return 0; }
+}
+function incrementUsage() {
+  try { localStorage.setItem(USAGE_KEY, String(getUsageCount() + 1)); } catch {}
+}
+function isOverLimit() {
+  return getUsageCount() >= FREE_LIMIT;
+}
+
+function showGate() {
+  const cards = document.querySelectorAll('.card');
+  const btn = document.getElementById('create-btn');
+  const msg = document.getElementById('status-msg');
+  cards.forEach(c => c.style.opacity = '0.3');
+  cards.forEach(c => c.style.pointerEvents = 'none');
+  if (btn) btn.style.display = 'none';
+  if (msg) msg.innerHTML = `
+    <div style="background:#fff;border:1px solid #E0DAD0;border-radius:3px;padding:24px;text-align:center;margin-top:16px">
+      <div style="font-size:24px;margin-bottom:10px">&#128274;</div>
+      <div style="font-size:16px;font-weight:500;color:#1C2B3A;margin-bottom:6px">Start a free trial to create more load links</div>
+      <div style="font-size:13px;color:#6B7A8A;margin-bottom:16px;line-height:1.6">Get unlimited load filtering, automated doc chasing, arrival signals, and full access to your load board and logs. 30 days free.</div>
+      <a href="https://connectedcarriers.org/pricing.html" style="display:inline-block;padding:12px 28px;background:#C8892A;color:#1C2B3A;font-family:var(--sans);font-size:14px;font-weight:500;border-radius:2px;text-decoration:none">Start Free Trial</a>
+      <div style="margin-top:10px"><a href="https://app.connectedcarriers.org/login" style="font-size:12px;color:#6B7A8A;text-decoration:none">Already have an account? Log in →</a></div>
+    </div>`;
+}
+
+// Check on page load
+if (isOverLimit()) { document.addEventListener('DOMContentLoaded', showGate); }
+
 async function createLoad() {
+  if (isOverLimit()) { showGate(); return; }
+
   const origin = document.getElementById('origin').value.trim();
   const destination = document.getElementById('destination').value.trim();
   const equipment = document.getElementById('equipment').value.trim();
@@ -202,6 +236,7 @@ async function createLoad() {
     });
     const data = await res.json();
     if (data.success) {
+      incrementUsage();
       currentUrl = data.apply_url;
       currentPostText = data.post_text;
       document.getElementById('apply-url').textContent = data.apply_url;
@@ -209,17 +244,25 @@ async function createLoad() {
       document.getElementById('board-url').textContent = data.board_url;
       document.getElementById('board-url').href = data.board_url;
       document.getElementById('result-card').style.display = 'block';
-      btn.textContent = 'Create Another Load';
-      btn.disabled = false;
-      btn.onclick = () => {
-        document.getElementById('result-card').style.display = 'none';
-        document.getElementById('origin').value = '';
-        document.getElementById('destination').value = '';
-        document.getElementById('pickup_date').value = '';
-        document.getElementById('rate_note').value = '';
-        btn.textContent = 'Create Load Link';
-        btn.onclick = createLoad;
-      };
+
+      const remaining = FREE_LIMIT - getUsageCount();
+      if (remaining <= 0) {
+        btn.textContent = 'Start Free Trial for More';
+        btn.disabled = false;
+        btn.onclick = () => { window.location.href = 'https://connectedcarriers.org/pricing.html'; };
+      } else {
+        btn.textContent = 'Create Another Load';
+        btn.disabled = false;
+        btn.onclick = () => {
+          document.getElementById('result-card').style.display = 'none';
+          document.getElementById('origin').value = '';
+          document.getElementById('destination').value = '';
+          document.getElementById('pickup_date').value = '';
+          document.getElementById('rate_note').value = '';
+          btn.textContent = 'Create Load Link';
+          btn.onclick = createLoad;
+        };
+      }
     } else {
       throw new Error(data.error || 'Unknown error');
     }
@@ -228,6 +271,7 @@ async function createLoad() {
     document.getElementById('status-msg').style.color = '#a32d2d';
     btn.disabled = false; btn.textContent = 'Create Load Link';
   }
+}
 }
 
 function copyLink() {
