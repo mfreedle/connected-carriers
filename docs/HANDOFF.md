@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
 **Last updated:** April 12, 2026
-**Status:** Functional MVP live. Directives 1-3 complete. Security hardening complete. Carrier setup packet + R2 storage live.
+**Status:** Functional MVP live. Full workflow operational: interest → setup packet → broker review → dispatch → clearance → SMS delivery.
 
 ---
 
@@ -9,7 +9,7 @@
 | Stage | Status |
 |-------|--------|
 | Internal demo ready | ✅ Yes |
-| Controlled pilot ready | ⚠ Nearly — requires custom domain + Twilio (SMS not wired) |
+| Controlled pilot ready | ✅ Yes — custom domain live, Twilio wired, SMS delivery active |
 | Production ready | ❌ No — SMS not wired, security not tightened, manual steps remain |
 
 The broker dashboard exists and the full qualification → dispatch workflow is functional. It is not hardened for daily real-world use yet. The description "full workflow" is aspirational — more accurately: **functional MVP workflow with known gaps documented below**.
@@ -209,11 +209,11 @@ all gates pass → Kate clicks "Clear to Roll"
 - Steps: GoDaddy → add CNAME pointing to `github-repo-production-2c39.up.railway.app` → Railway service Settings → Networking → add custom domain
 
 ### Twilio / SMS
-- **NOT configured — no SMS sends**
-- Env vars not set: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
-- Pickup code: generated in DB, shown in broker UI, not sent to driver
-- Tracking link: status tracked manually in dispatch UI, not sent to driver
-- To enable: add env vars in Railway → build send functions in `dispatch.ts`
+- **CONFIGURED ✅** — env vars set in Railway GitHub Repo service
+- Pickup code SMS: sent to driver on clearance when `pickup_code_required=true` and `driver_phone` present
+- Tracking link SMS: sent to driver when broker clicks "Send tracking link + SMS"
+- Failure handling: SMS failure never blocks dispatch workflow — broker UI shows delivery status
+- Public tracking page: `GET /track/:token` — driver accepts/rejects tracking from phone
 
 ---
 
@@ -244,9 +244,18 @@ all gates pass → Kate clicks "Clear to Roll"
 
 ## 11. NEXT STEPS (PRIORITY ORDER)
 
+### Completed this session ✅
+1. ~~Custom domain~~ — `app.connectedcarriers.org` live
+2. ~~R2 storage~~ — Cloudflare R2 configured
+3. ~~Twilio SMS~~ — pickup code + tracking link delivery wired
+4. ~~Carrier setup packet~~ — full compliance doc workflow
+5. ~~First-party interest forms~~ — `/interest/broker` + `/interest/carrier`
+6. ~~Landing page footer~~ — all dead links fixed, 6 anchor sections added
+7. ~~Standalone pages~~ — `/about`, `/privacy`, `/terms`, `/contact`
+8. ~~Hero copy~~ — broker-first positioning
+9. ~~Private beta indicator~~ — hero + about page
+
 ### Immediate (before real broker use)
-1. ~~**Custom domain**~~ — configured ✅
-2. ~~**R2 storage**~~ — configured ✅
 2. **Run migrations on live DB** — `pickup_code_hash` column must be added to production (runs automatically on next deploy restart)
 
 ### Technical debt (resolved this session)
