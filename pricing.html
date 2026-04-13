@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pricing — Connected Carriers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate: #1C2B3A; --slate2: #243447; --slate3: #2E4058;
+    --amber: #C8892A; --amber2: #E09B35; --amber3: #F5B84A;
+    --cream: #F7F5F0; --cream2: #EDE9E1; --cream3: #E0DAD0;
+    --ink: #141414; --muted: #6B7A8A; --white: #FFFFFF;
+    --serif: 'Playfair Display', Georgia, serif;
+    --sans: 'DM Sans', system-ui, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: var(--sans); background: var(--cream); color: var(--ink); font-size: 16px; line-height: 1.6; overflow-x: hidden; }
+
+  /* ── NAV ── */
+  nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: var(--slate); height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 48px; border-bottom: 1px solid var(--slate3); }
+  .nav-logo { font-family: var(--serif); font-size: 20px; font-weight: 400; color: var(--cream); letter-spacing: 0.01em; text-decoration: none; }
+  .nav-logo span { color: var(--amber); }
+  .nav-links { display: flex; align-items: center; gap: 36px; list-style: none; }
+  .nav-links a { font-size: 13px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(247,245,240,0.6); text-decoration: none; transition: color 0.2s; }
+  .nav-links a:hover { color: var(--cream); }
+  .nav-cta { background: var(--amber); color: var(--slate) !important; padding: 9px 22px; border-radius: 2px; font-weight: 500; letter-spacing: 0.04em; transition: background 0.2s !important; }
+  .nav-cta:hover { background: var(--amber2) !important; }
+  .nav-active { color: var(--cream) !important; }
+
+  /* ── HERO ── */
+  .hero { background: var(--slate); padding: 140px 48px 80px; position: relative; overflow: hidden; text-align: center; }
+  .hero::before { content: ''; position: absolute; top: -20%; right: -10%; width: 60%; height: 130%; background: var(--slate2); transform: skewX(-8deg); z-index: 0; }
+  .hero::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: linear-gradient(to right, transparent, var(--amber), transparent); }
+  .hero-inner { position: relative; z-index: 1; max-width: 700px; margin: 0 auto; }
+  .hero-eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 28px; font-weight: 500; }
+  .hero-eyebrow::before { content: ''; display: block; width: 28px; height: 1px; background: var(--amber); }
+  .hero h1 { font-family: var(--serif); font-size: clamp(32px, 4vw, 48px); font-weight: 400; line-height: 1.15; color: var(--cream); margin-bottom: 20px; }
+  .hero-sub { font-size: 16px; font-weight: 300; color: rgba(247,245,240,0.6); max-width: 540px; margin: 0 auto 36px; line-height: 1.7; }
+  .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: center; }
+  .btn-primary { display: inline-flex; align-items: center; gap: 8px; background: var(--amber); color: var(--slate); font-family: var(--sans); font-size: 14px; font-weight: 500; letter-spacing: 0.04em; padding: 14px 32px; border-radius: 2px; text-decoration: none; transition: background 0.2s, transform 0.15s; }
+  .btn-primary:hover { background: var(--amber2); transform: translateY(-1px); }
+  .btn-ghost { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: var(--cream); font-family: var(--sans); font-size: 14px; font-weight: 400; letter-spacing: 0.04em; padding: 14px 32px; border-radius: 2px; border: 1px solid rgba(247,245,240,0.25); text-decoration: none; transition: border-color 0.2s, background 0.2s; }
+  .btn-ghost:hover { border-color: rgba(247,245,240,0.5); background: rgba(247,245,240,0.06); }
+  .micro { font-size: 12px; color: rgba(247,245,240,0.4); margin-top: 16px; }
+
+  /* ── SECTION COMMON ── */
+  .section-inner { max-width: 900px; margin: 0 auto; }
+  .section-eyebrow { font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+  .section-eyebrow::before { content: ''; display: block; width: 20px; height: 1px; background: currentColor; }
+  .section-h2 { font-family: var(--serif); font-size: clamp(28px, 2.8vw, 38px); font-weight: 400; line-height: 1.2; color: var(--cream); margin-bottom: 16px; }
+  .section-sub { font-size: 15px; font-weight: 300; color: rgba(247,245,240,0.5); max-width: 600px; line-height: 1.7; }
+
+  /* ── PRICING CARD ── */
+  .pricing-section { background: var(--cream2); padding: 80px 48px; border-bottom: 1px solid var(--cream3); }
+  .pricing-card { background: var(--white); border: 1px solid var(--cream3); border-radius: 3px; max-width: 440px; margin: 0 auto; padding: 40px 36px; text-align: center; position: relative; }
+  .pricing-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--amber); }
+  .plan-name { font-family: var(--serif); font-size: 22px; color: var(--slate); margin-bottom: 8px; }
+  .plan-trial { font-size: 14px; font-weight: 500; color: var(--amber); letter-spacing: 0.04em; margin-bottom: 20px; }
+
+  .toggle-wrap { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
+  .toggle-label { font-size: 13px; color: var(--muted); cursor: pointer; transition: color 0.2s; }
+  .toggle-label.active { color: var(--slate); font-weight: 500; }
+  .toggle-track { width: 44px; height: 24px; background: var(--cream3); border-radius: 12px; position: relative; cursor: pointer; transition: background 0.2s; }
+  .toggle-track.on { background: var(--amber); }
+  .toggle-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: var(--white); border-radius: 50%; transition: transform 0.2s; }
+  .toggle-track.on .toggle-knob { transform: translateX(20px); }
+
+  .price { margin-bottom: 8px; }
+  .price-amount { font-family: var(--serif); font-size: 48px; font-weight: 400; color: var(--slate); }
+  .price-period { font-size: 16px; color: var(--muted); }
+  .price-note { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+  .price-save { display: inline-block; background: rgba(200,137,42,0.12); color: var(--amber); font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 2px; margin-bottom: 24px; letter-spacing: 0.04em; }
+
+  .plan-cta { display: block; width: 100%; padding: 14px; background: var(--amber); color: var(--slate); font-family: var(--sans); font-size: 15px; font-weight: 500; border: none; border-radius: 2px; cursor: pointer; text-decoration: none; text-align: center; transition: background 0.2s; margin-bottom: 12px; }
+  .plan-cta:hover { background: var(--amber2); }
+  .plan-fine { font-size: 12px; color: var(--muted); }
+  .plan-desc { font-size: 13px; color: var(--muted); margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--cream2); line-height: 1.6; }
+
+  /* ── INCLUDED ── */
+  .included-section { background: var(--slate); padding: 80px 48px; }
+  .included-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 40px; }
+  .included-item { display: flex; align-items: flex-start; gap: 12px; }
+  .included-check { flex-shrink: 0; width: 18px; height: 18px; color: var(--amber); margin-top: 2px; }
+  .included-text { font-size: 14px; color: rgba(247,245,240,0.7); line-height: 1.6; }
+
+  /* ── VALUE / ROI ── */
+  .value-section { background: var(--cream2); padding: 80px 48px; border-bottom: 1px solid var(--cream3); }
+
+  /* ── HOW IT FITS ── */
+  .fits-section { background: var(--slate); padding: 80px 48px; }
+  .fits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 40px; }
+  .fits-card { background: var(--slate2); border-radius: 3px; padding: 24px; border-top: 3px solid var(--amber); }
+  .fits-num { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 8px; }
+  .fits-title { font-size: 15px; font-weight: 500; color: var(--cream); margin-bottom: 8px; }
+  .fits-desc { font-size: 13px; color: rgba(247,245,240,0.5); line-height: 1.6; }
+
+  /* ── TRUST ── */
+  .trust-section { background: var(--cream2); padding: 80px 48px; border-bottom: 1px solid var(--cream3); }
+  .trust-list { list-style: none; margin-top: 28px; }
+  .trust-list li { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--muted); padding: 8px 0; }
+  .trust-list svg { width: 18px; height: 18px; color: var(--amber); flex-shrink: 0; }
+
+  /* ── FAQ ── */
+  .faq-section { background: var(--slate); padding: 80px 48px; }
+  .faq-item { border-bottom: 1px solid var(--slate3); padding: 20px 0; }
+  .faq-q { font-size: 15px; font-weight: 500; color: var(--cream); margin-bottom: 6px; }
+  .faq-a { font-size: 14px; color: rgba(247,245,240,0.55); line-height: 1.7; }
+
+  /* ── CTA BAND ── */
+  .cta-section { background: var(--cream); padding: 80px 48px; text-align: center; }
+  .cta-inner { max-width: 600px; margin: 0 auto; }
+  .cta-inner h2 { font-family: var(--serif); font-size: clamp(28px, 3vw, 40px); color: var(--slate); margin-bottom: 12px; }
+  .cta-inner p { font-size: 15px; color: var(--muted); margin-bottom: 28px; line-height: 1.7; }
+  .btn-cta { display: inline-flex; align-items: center; gap: 8px; background: var(--amber); color: var(--slate); font-family: var(--sans); font-size: 14px; font-weight: 500; letter-spacing: 0.04em; padding: 14px 36px; border-radius: 2px; text-decoration: none; transition: background 0.2s; }
+  .btn-cta:hover { background: var(--amber2); }
+
+  /* ── FOOTER ── */
+  footer { background: var(--slate); padding: 64px 48px 40px; border-top: 1px solid var(--slate3); }
+  .footer-grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 48px; margin-bottom: 48px; }
+  .footer-brand .logo { font-family: var(--serif); font-size: 18px; color: var(--cream); display: block; margin-bottom: 12px; }
+  .footer-brand .logo span { color: var(--amber); }
+  .footer-brand p { font-size: 13px; color: rgba(247,245,240,0.4); line-height: 1.7; }
+  .footer-col h4 { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 16px; }
+  .footer-col ul { list-style: none; }
+  .footer-col li { margin-bottom: 8px; }
+  .footer-col a { font-size: 13px; color: rgba(247,245,240,0.5); text-decoration: none; }
+  .footer-col a:hover { color: var(--cream); }
+  .footer-bottom { border-top: 1px solid var(--slate3); padding-top: 24px; display: flex; justify-content: space-between; max-width: 1000px; margin: 0 auto; }
+  .footer-bottom p { font-size: 12px; color: rgba(247,245,240,0.25); }
+  .footer-bottom a { color: var(--amber); text-decoration: none; }
+
+  @media (max-width: 768px) {
+    nav { padding: 0 20px; }
+    .nav-links { gap: 16px; }
+    .hero { padding: 100px 24px 60px; }
+    .pricing-section, .included-section, .value-section, .fits-section, .trust-section, .faq-section, .cta-section { padding: 60px 24px; }
+    .footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+    .fits-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="https://connectedcarriers.org" class="nav-logo">Connected<span>Carriers</span></a>
+  <ul class="nav-links">
+    <li><a href="https://connectedcarriers.org">Home</a></li>
+    <li><a href="https://connectedcarriers.org/pricing.html" class="nav-active">Pricing</a></li>
+    <li><a href="https://app.connectedcarriers.org/login" style="color:rgba(247,245,240,0.45);font-size:12px;letter-spacing:0.05em">Broker Login</a></li>
+    <li><a href="https://connectedcarriers.org/dispatch.html" class="nav-cta">Try Dispatch Verification</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Pricing</div>
+    <h1>Stop chasing carriers. For less than the cost of one bad load.</h1>
+    <p class="hero-sub">Filter carriers, automate the doc chase, and get a pickup signal — without changing your workflow.</p>
+    <div class="hero-actions">
+      <a href="https://app.connectedcarriers.org/interest/broker" class="btn-primary">Start Free Trial</a>
+      <a href="https://connectedcarriers.org/dispatch.html" class="btn-ghost">Try Dispatch Verification</a>
+    </div>
+    <div class="micro">30 days free. No credit card required.</div>
+  </div>
+</section>
+
+<!-- PRICING CARD -->
+<section class="pricing-section">
+  <div class="section-inner">
+    <div class="pricing-card">
+      <div class="plan-name">Connected Carriers</div>
+      <div class="plan-trial">Free for 30 days</div>
+
+      <div class="toggle-wrap">
+        <span class="toggle-label active" id="monthly-label">Monthly</span>
+        <div class="toggle-track" id="billing-toggle" onclick="toggleBilling()">
+          <div class="toggle-knob"></div>
+        </div>
+        <span class="toggle-label" id="annual-label">Annual</span>
+      </div>
+
+      <div class="price" id="price-monthly">
+        <span class="price-amount">$99</span><span class="price-period">/month</span>
+      </div>
+      <div class="price" id="price-annual" style="display:none">
+        <span class="price-amount">$999</span><span class="price-period">/year</span>
+      </div>
+      <div class="price-note" id="price-note-monthly">Billed monthly after trial</div>
+      <div id="price-save" style="display:none" class="price-save">Save 2 months — $189/year</div>
+      <div class="price-note" id="price-note-annual" style="display:none">Billed annually after trial</div>
+
+      <a href="https://app.connectedcarriers.org/interest/broker" class="plan-cta" id="plan-cta">Start Free Trial</a>
+      <div class="plan-fine">Cancel anytime. Manage billing through your account.</div>
+      <div class="plan-desc">Best for brokers who want fewer junk calls, less chasing, and more clarity before pickup.</div>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT'S INCLUDED -->
+<section class="included-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">What's included</div>
+    <h2 class="section-h2">Everything you need between booking and pickup.</h2>
+    <div class="included-grid">
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">Filter inbound carriers instantly with FMCSA qualification checks</span>
+      </div>
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">Automatically chase missing docs and dispatch info</span>
+      </div>
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">Get a signal if anything changes at pickup before the load is released</span>
+      </div>
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">Works alongside your existing TMS and workflow</span>
+      </div>
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">No apps required for carriers or drivers</span>
+      </div>
+      <div class="included-item">
+        <svg class="included-check" viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="included-text">Shareable load links for DAT, Truckstop, and any load board</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VALUE / ROI -->
+<section class="value-section">
+  <div class="section-inner" style="max-width:680px">
+    <div class="section-eyebrow" style="color:var(--amber)">What this saves you</div>
+    <h2 class="section-h2" style="color:var(--slate)">Less time qualifying. More time moving loads.</h2>
+    <div style="margin-top:24px;font-size:15px;color:var(--muted);line-height:1.8">
+      <p style="margin-bottom:16px">Replace repeated follow-up calls with one automated message. Spend less time figuring out if a carrier is worth your time and more time dispatching freight.</p>
+      <p style="margin-bottom:16px">Catch changes before the load is gone — not after your shipper calls asking where the truck is.</p>
+      <p style="font-weight:500;color:var(--slate)">If this saves you a few hours a week — or one bad load — it pays for itself.</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT FITS YOUR DAY -->
+<section class="fits-section">
+  <div class="section-inner">
+    <div class="section-eyebrow">How Connected Carriers fits your day</div>
+    <h2 class="section-h2">Filter. Chase. Signal.</h2>
+    <p class="section-sub">In the order your day actually happens.</p>
+    <div class="fits-grid">
+      <div class="fits-card">
+        <div class="fits-num">Filter</div>
+        <div class="fits-title">Check carriers before you call</div>
+        <div class="fits-desc">Know whether a carrier is worth your time before you pick up the phone. Authority, safety, and basic context — in seconds.</div>
+      </div>
+      <div class="fits-card">
+        <div class="fits-num">Chase</div>
+        <div class="fits-title">Let the system follow up</div>
+        <div class="fits-desc">Missing CDL, VIN photo, or truck number? The system sends the request and follows up automatically so you don't have to.</div>
+      </div>
+      <div class="fits-card">
+        <div class="fits-num">Signal</div>
+        <div class="fits-title">Know what happened at pickup</div>
+        <div class="fits-desc">Get a signal when the driver confirms arrival — or a warning if something doesn't line up. Before the load moves.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST / REALITY -->
+<section class="trust-section">
+  <div class="section-inner" style="max-width:600px">
+    <div class="section-eyebrow" style="color:var(--amber)">Built for how brokers actually work</div>
+    <h2 class="section-h2" style="color:var(--slate)">No new system to learn.</h2>
+    <ul class="trust-list">
+      <li>
+        <svg viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Works on top of your current workflow
+      </li>
+      <li>
+        <svg viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        No new system for carriers to learn
+      </li>
+      <li>
+        <svg viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        No app required for drivers
+      </li>
+      <li>
+        <svg viewBox="0 0 18 18" fill="none"><path d="M3 9l4.5 4.5 7.5-7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Start with one load and expand from there
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq-section">
+  <div class="section-inner" style="max-width:640px">
+    <div class="section-eyebrow">Questions</div>
+    <h2 class="section-h2">Frequently asked</h2>
+    <div style="margin-top:32px">
+      <div class="faq-item">
+        <div class="faq-q">Do I need to replace my TMS?</div>
+        <div class="faq-a">No. Connected Carriers sits on top of your current workflow. Keep using Port, McLeod, or whatever you run today.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Do carriers need to install anything?</div>
+        <div class="faq-a">No. Carriers and drivers use simple links and texts. Nothing to download.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">What happens after the free trial?</div>
+        <div class="faq-a">You can continue for $99/month or $999/year. If you don't want to continue, you don't get charged.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Can I cancel anytime?</div>
+        <div class="faq-a">Yes.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Is this a full compliance platform?</div>
+        <div class="faq-a">No. Connected Carriers is a lightweight broker workflow layer that helps you filter carriers, chase missing info, and catch changes at pickup. It is not a compliance management system.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="section-eyebrow" style="justify-content:center;color:var(--amber)">Get started</div>
+    <h2>Try it on your next load.</h2>
+    <p>We don't track the truck — we verify the moment it shows up. Send one arrival check. Get a signal before the load moves.</p>
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+      <a href="https://connectedcarriers.org/dispatch.html" class="btn-cta">
+        Try Dispatch Verification
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="https://app.connectedcarriers.org/interest/broker" style="display:inline-flex;align-items:center;gap:8px;background:var(--slate);color:var(--cream);font-family:var(--sans);font-size:14px;font-weight:500;letter-spacing:0.04em;padding:14px 32px;border-radius:2px;text-decoration:none">Start Free Trial</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <span class="logo">Connected<span>Carriers</span></span>
+      <p>Filter faster. Chase less. Catch changes before pickup.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <ul>
+        <li><a href="https://connectedcarriers.org">Home</a></li>
+        <li><a href="https://connectedcarriers.org/pricing.html">Pricing</a></li>
+        <li><a href="https://connectedcarriers.org/dispatch.html">Dispatch Verification</a></li>
+        <li><a href="https://connectedcarriers.org/post-load.html">Post a Load</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Platform</h4>
+      <ul>
+        <li><a href="https://app.connectedcarriers.org/login">Broker Login</a></li>
+        <li><a href="https://app.connectedcarriers.org/interest/broker">Request Broker Access</a></li>
+        <li><a href="https://app.connectedcarriers.org/profile/carrier">Carrier Profile</a></li>
+        <li><a href="https://app.connectedcarriers.org/interest/carrier">Carrier Interest</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/privacy.html">Privacy Policy</a></li>
+        <li><a href="/terms.html">Terms of Service</a></li>
+        <li><a href="/contact.html">Contact</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>&copy; 2026 Connected Carriers — connectedcarriers.org. A <a href="https://honexai.com">HoneXAI</a> product.</p>
+    <p>Built for the freight community.</p>
+  </div>
+</footer>
+
+<script>
+let isAnnual = false;
+function toggleBilling() {
+  isAnnual = !isAnnual;
+  document.getElementById('billing-toggle').classList.toggle('on', isAnnual);
+  document.getElementById('monthly-label').classList.toggle('active', !isAnnual);
+  document.getElementById('annual-label').classList.toggle('active', isAnnual);
+  document.getElementById('price-monthly').style.display = isAnnual ? 'none' : 'block';
+  document.getElementById('price-annual').style.display = isAnnual ? 'block' : 'none';
+  document.getElementById('price-note-monthly').style.display = isAnnual ? 'none' : 'block';
+  document.getElementById('price-note-annual').style.display = isAnnual ? 'block' : 'none';
+  document.getElementById('price-save').style.display = isAnnual ? 'block' : 'none';
+}
+</script>
+</body>
+</html>
