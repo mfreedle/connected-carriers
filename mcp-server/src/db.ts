@@ -85,6 +85,11 @@ export async function initDb() {
     )
   `);
 
+  // Add reminder tracking columns (safe to run multiple times)
+  await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS no_confirm_alert_sent BOOLEAN DEFAULT FALSE`);
+
   console.error("Database initialized — tables ready");
 }
 

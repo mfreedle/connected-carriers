@@ -379,7 +379,7 @@ const httpServer = http.createServer(async (req, res) => {
       );
 
       const verifyUrl  = `${BASE_URL}/verify/${token}`;
-      const driverSms  = `Load ${load_id} — pickup at ${pickup_address.split(",")[0]}.\nTap to confirm arrival: ${verifyUrl}`;
+      const driverSms  = `${load_id} — pickup at ${pickup_address.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`;
       const smsSent    = await sendSms(normalizePhone(driver_phone), driverSms);
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -752,6 +752,84 @@ initDb().then(async () => {
     console.error(`Twilio: ${TWILIO_ACCOUNT_SID ? "configured" : "NOT configured — SMS disabled"}`);
     console.error(`Geocoding: ${GOOGLE_GEOCODE_KEY ? "Google Maps" : "Nominatim (fallback)"}`);
   });
+
+  // ── REMINDER / NUDGE TIMER ─────────────────────────────────────
+  // Runs every 2 minutes. Two jobs:
+  // 1. Driver nudge: if pending + no confirmation after 10 min, send reminder (max 2)
+  // 2. Broker "no confirmation" alert: if pending + pickup window approaching, alert broker
+  setInterval(async () => {
+    try {
+      const now = new Date();
+
+      // ── JOB 1: DRIVER NUDGE (10 min cadence, max 2 reminders) ──
+      const nudgeable = await query(`
+        SELECT * FROM dispatch_verifications
+        WHERE status = 'pending'
+          AND reminder_count < 2
+          AND sent_at < NOW() - INTERVAL '10 minutes'
+          AND (last_reminder_at IS NULL OR last_reminder_at < NOW() - INTERVAL '10 minutes')
+      `);
+
+      for (const v of nudgeable.rows) {
+        const isSecond = v.reminder_count >= 1;
+        const verifyUrl = `${BASE_URL}/verify/${v.token}`;
+
+        const driverMsg = isSecond
+          ? `Still waiting on your arrival confirmation for ${v.load_id}. If we don't hear back shortly, this load may move to another carrier. Confirm here: ${verifyUrl}`
+          : `Reminder: ${v.load_id} — please confirm arrival at ${v.pickup_address.split(",")[0]} when you get there. Tap here: ${verifyUrl}`;
+
+        const sent = await sendSms(v.driver_phone, driverMsg);
+        if (sent) {
+          await query(
+            `UPDATE dispatch_verifications SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = $1`,
+            [v.id]
+          );
+          console.error(`[NUDGE] Reminder ${v.reminder_count + 1} sent to ${v.driver_phone} for ${v.load_id}`);
+
+          // On the second nudge, also alert the broker that the driver hasn't responded
+          if (isSecond) {
+            await sendSms(v.broker_phone, `⚠ No response from driver on ${v.load_id}. Two reminders sent — no arrival confirmation received.`);
+            console.error(`[NUDGE] Broker alert sent for ${v.load_id} — driver unresponsive after 2 nudges`);
+          }
+        }
+      }
+
+      // ── JOB 2: NO-CONFIRMATION ALERT (before pickup window) ────
+      // If there's a pickup window and we're within 15 min of it opening,
+      // alert the broker if no confirmation has come in
+      const preWindow = await query(`
+        SELECT * FROM dispatch_verifications
+        WHERE status = 'pending'
+          AND no_confirm_alert_sent = FALSE
+          AND pickup_window_start IS NOT NULL
+      `);
+
+      for (const v of preWindow.rows) {
+        const windowStr = String(v.pickup_window_start).trim();
+        const today = now.toISOString().split("T")[0];
+        const windowDate = new Date(`${today} ${windowStr}`);
+        if (isNaN(windowDate.getTime())) continue;
+
+        const minsUntilWindow = (windowDate.getTime() - now.getTime()) / (1000 * 60);
+
+        // Alert broker if pickup window opens within 15 minutes and no confirmation
+        if (minsUntilWindow <= 15 && minsUntilWindow > -30) {
+          const sent = await sendSms(
+            v.broker_phone,
+            `⛔ No arrival confirmation for ${v.load_id}. Pickup window ${minsUntilWindow > 0 ? `opens in ${Math.round(minsUntilWindow)} min` : "is now open"}. Driver has not confirmed — HOLD / CALL DRIVER.`
+          );
+          if (sent) {
+            await query("UPDATE dispatch_verifications SET no_confirm_alert_sent = TRUE WHERE id = $1", [v.id]);
+            console.error(`[NO-CONFIRM] Broker alert sent for ${v.load_id} — window approaching, no confirmation`);
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error("[REMINDER TIMER ERROR]", err);
+    }
+  }, 2 * 60 * 1000); // Every 2 minutes
+
 }).catch(err => {
   console.error("DB init failed:", err);
   process.exit(1);
