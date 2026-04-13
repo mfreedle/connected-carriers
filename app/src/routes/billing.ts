@@ -9,7 +9,16 @@ const STRIPE_PRICE_MONTHLY = process.env.STRIPE_PRICE_MONTHLY || "";
 const STRIPE_PRICE_ANNUAL = process.env.STRIPE_PRICE_ANNUAL || "";
 const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
 
+// Pilot users get full access without billing — comma-separated emails
+const PILOT_EMAILS = (process.env.PILOT_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
+
 const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
+
+// ── Helper: check if a user is a pilot user ───────────────────
+function isPilotUser(email?: string): boolean {
+  if (!email) return false;
+  return PILOT_EMAILS.includes(email.toLowerCase());
+}
 
 // ── POST /api/billing/checkout-session ─────────────────────────
 // Creates a Stripe Checkout session for subscription with 30-day trial
@@ -124,6 +133,31 @@ router.get("/billing", async (req: Request, res: Response) => {
   const user = (req.session as any)?.user;
   if (!user) return res.redirect("/login");
 
+  const userIsPilot = isPilotUser(user.email);
+
+  // Auto-provision pilot users with permanent active status
+  if (userIsPilot) {
+    try {
+      const existing = await query(
+        "SELECT * FROM broker_billing WHERE broker_account_id = $1",
+        [user.broker_account_id]
+      );
+      if (!existing.rows.length) {
+        await query(
+          `INSERT INTO broker_billing (broker_account_id, stripe_customer_id, subscription_status, billing_interval)
+           VALUES ($1, $2, 'active', 'pilot')
+           ON CONFLICT (stripe_customer_id) DO NOTHING`,
+          [user.broker_account_id, `pilot_${user.broker_account_id}`]
+        );
+      } else if (existing.rows[0].subscription_status !== 'active') {
+        await query(
+          "UPDATE broker_billing SET subscription_status = 'active', billing_interval = 'pilot', updated_at = NOW() WHERE broker_account_id = $1",
+          [user.broker_account_id]
+        );
+      }
+    } catch { /* ignore if table doesn't exist yet */ }
+  }
+
   let billing: any = null;
   try {
     const result = await query(
@@ -140,7 +174,11 @@ router.get("/billing", async (req: Request, res: Response) => {
   let statusColor = "#6B7A8A";
   let trialInfo = "";
 
-  if (billing) {
+  if (userIsPilot) {
+    statusLabel = "Pilot Partner";
+    statusColor = "#C8892A";
+    trialInfo = "Full access — no charge";
+  } else if (billing) {
     switch (billing.subscription_status) {
       case "trialing":
         statusLabel = "Free Trial";
@@ -206,10 +244,14 @@ ${canceled ? '<div class="cancel-msg">Checkout was canceled. No charges were mad
   ${trialInfo ? `<div class="row"><div><div class="card-label">Trial</div><div class="card-value">${trialInfo}</div></div></div>` : ''}
   ${renewDate ? `<div class="row"><div><div class="card-label">${billing?.subscription_status === 'canceled' ? 'Access until' : 'Renews'}</div><div class="card-value">${renewDate}</div></div></div>` : ''}
 </div>
-${billing?.stripe_customer_id ? `
+${billing?.stripe_customer_id && !userIsPilot ? `
 <form action="/api/billing/portal-session" method="POST" style="display:inline">
   <button type="submit" class="btn btn-outline">Manage Billing</button>
-</form>` : `
+</form>` : userIsPilot ? `
+<div class="card" style="text-align:center;padding:24px">
+  <p style="font-size:15px;color:var(--slate);font-weight:500;margin-bottom:6px">You're a pilot partner</p>
+  <p style="font-size:13px;color:var(--muted)">Full access to Connected Carriers at no cost. Thank you for helping us build this.</p>
+</div>` : `
 <div class="card" style="text-align:center;padding:32px">
   <p style="font-size:15px;color:var(--slate);margin-bottom:6px;font-weight:500">Start your free trial</p>
   <p style="font-size:13px;color:var(--muted);margin-bottom:20px">30 days free. Cancel anytime.</p>
