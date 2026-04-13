@@ -417,3 +417,24 @@ export async function migrateCarrierProfiles() {
   await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_status ON carrier_profiles(completion_status)`);
   console.log("Carrier profiles migration complete.");
 }
+
+export async function migrateBilling() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS broker_billing (
+      id SERIAL PRIMARY KEY,
+      broker_account_id INTEGER REFERENCES broker_accounts(id),
+      stripe_customer_id TEXT UNIQUE,
+      stripe_subscription_id TEXT,
+      stripe_price_id TEXT,
+      subscription_status TEXT DEFAULT 'none',
+      billing_interval TEXT,
+      trial_ends_at TIMESTAMPTZ,
+      current_period_end TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_broker_billing_account ON broker_billing(broker_account_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_broker_billing_customer ON broker_billing(stripe_customer_id)`);
+  console.log("Billing migration complete.");
+}

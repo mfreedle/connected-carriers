@@ -195,7 +195,7 @@
       <div id="price-save" style="display:none" class="price-save">Save 2 months — $189/year</div>
       <div class="price-note" id="price-note-annual" style="display:none">Billed annually after trial</div>
 
-      <a href="https://app.connectedcarriers.org/interest/broker" class="plan-cta" id="plan-cta">Start Free Trial</a>
+      <a href="#" class="plan-cta" id="plan-cta" onclick="startTrial(); return false;">Start Free Trial</a>
       <div class="plan-fine">Cancel anytime. Manage billing through your account.</div>
       <div class="plan-desc">Best for brokers who want fewer junk calls, less chasing, and more clarity before pickup.</div>
     </div>
@@ -400,6 +400,32 @@ function toggleBilling() {
   document.getElementById('price-note-monthly').style.display = isAnnual ? 'none' : 'block';
   document.getElementById('price-note-annual').style.display = isAnnual ? 'block' : 'none';
   document.getElementById('price-save').style.display = isAnnual ? 'block' : 'none';
+}
+
+async function startTrial() {
+  const btn = document.getElementById('plan-cta');
+  btn.textContent = 'Loading...';
+  btn.style.pointerEvents = 'none';
+  try {
+    const res = await fetch('https://app.connectedcarriers.org/api/billing/checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval: isAnnual ? 'annual' : 'monthly' }),
+      credentials: 'include'
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      btn.textContent = 'Start Free Trial';
+      btn.style.pointerEvents = 'auto';
+      alert(data.error || 'Something went wrong. Please try again.');
+    }
+  } catch (e) {
+    btn.textContent = 'Start Free Trial';
+    btn.style.pointerEvents = 'auto';
+    alert('Could not connect to billing. Please try again.');
+  }
 }
 </script>
 </body>

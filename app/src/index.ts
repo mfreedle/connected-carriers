@@ -1,7 +1,7 @@
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio, migrateTeam, migrateCarrierProfiles } from "./db";
+import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio, migrateTeam, migrateCarrierProfiles, migrateBilling } from "./db";
 import authRoutes from "./routes/auth";
 import dashboardRoutes from "./routes/dashboard";
 import carrierRoutes from "./routes/carriers";
@@ -14,6 +14,8 @@ import setupRoutes from "./routes/setup";
 import trackingRoutes from "./routes/tracking";
 import teamRoutes from "./routes/team";
 import profileRoutes from "./routes/profile";
+import billingRoutes from "./routes/billing";
+import stripeWebhookRoutes from "./routes/stripe-webhook";
 import { verifyCsrf } from "./middleware/security";
 
 const app = express();
@@ -27,6 +29,9 @@ if (IS_PRODUCTION && !SESSION_SECRET) {
   console.error("FATAL: SESSION_SECRET environment variable is required in production. Exiting.");
   process.exit(1);
 }
+
+// Stripe webhook needs raw body — must come BEFORE express.json()
+app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }));
 
 // Body parsing
 app.use(express.urlencoded({ extended: true }));
@@ -54,12 +59,14 @@ app.use(session({
 app.get("/", (req, res) => res.redirect("/dashboard"));
 app.use("/", authRoutes);
 app.use("/", intakeRoutes);
+app.use("/", stripeWebhookRoutes);  // Stripe webhook — raw body, no CSRF
 
 app.use("/", interestRoutes);
 app.use("/", setupRoutes);  // public /setup/:token routes
 app.use("/", trackingRoutes); // public /track/:token routes
 app.use("/", teamRoutes);      // team management + public invite acceptance
 app.use("/", profileRoutes);   // public /profile/carrier route
+app.use("/", billingRoutes);   // /billing page + /api/billing/* endpoints
 
 // Broker routes — CSRF verification on all POSTs
 app.use(verifyCsrf);
@@ -96,7 +103,7 @@ app.use((req, res) => {
 });
 
 // Auto-run migrations on startup
-migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio()).then(() => migrateTeam()).then(() => migrateCarrierProfiles())
+migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio()).then(() => migrateTeam()).then(() => migrateCarrierProfiles()).then(() => migrateBilling())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);
