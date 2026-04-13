@@ -455,6 +455,241 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── POST /load/create — broker creates a load with a shareable apply link
+  if (req.method === "POST" && url === "/load/create") {
+    setCors(res);
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email } = body;
+
+      if (!origin || !destination || !equipment) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "origin, destination, and equipment are required" }));
+        return;
+      }
+
+      const load_id = `HX-${new Date().toISOString().slice(0,10).replace(/-/g,"").slice(4)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+      const slug = crypto.randomBytes(4).toString("hex").toUpperCase();
+
+      await query(
+        `INSERT INTO loads (load_id, slug, broker_phone, broker_email, origin, destination, equipment, pickup_date, rate_note, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [load_id, slug, normalizePhone(broker_phone || ""), broker_email || null,
+         origin, destination, equipment, pickup_date || null, rate_note || null, notes || null]
+      );
+
+      const applyUrl = `${BASE_URL}/load/${slug}`;
+      const postText = `${equipment} — ${origin} → ${destination}${pickup_date ? `\nPickup: ${pickup_date}` : ""}\n\nSubmit MC to get qualified:\n${applyUrl}`;
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        load_id,
+        slug,
+        apply_url: applyUrl,
+        post_text: postText
+      }));
+    } catch (err) {
+      console.error("[POST /load/create error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    }
+    return;
+  }
+
+  // ── GET /load/:slug — public load apply page (one field, one button)
+  if (req.method === "GET" && url.match(/^\/load\/[A-Z0-9]+$/)) {
+    const slug = url.replace("/load/", "");
+    try {
+      const result = await query("SELECT * FROM loads WHERE slug = $1", [slug]);
+      if (!result.rows.length) {
+        res.writeHead(404, { "Content-Type": "text/html" });
+        res.end(loadNotFoundPage());
+        return;
+      }
+      const load = result.rows[0];
+      if (load.status !== "open") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(loadClosedPage(load));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(loadApplyPage(load, slug));
+    } catch (err) {
+      console.error("[GET /load error]", err);
+      res.writeHead(500); res.end("Server error");
+    }
+    return;
+  }
+
+  // ── POST /load/:slug/check — MC qualification check (instant)
+  if (req.method === "POST" && url.match(/^\/load\/[A-Z0-9]+\/check$/)) {
+    setCors(res);
+    const slug = url.split("/")[2];
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const { mc_number } = body;
+
+      if (!mc_number) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "MC number is required" }));
+        return;
+      }
+
+      const loadResult = await query("SELECT * FROM loads WHERE slug = $1 AND status = 'open'", [slug]);
+      if (!loadResult.rows.length) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Load not found or closed" }));
+        return;
+      }
+      const load = loadResult.rows[0];
+
+      // Rate limit: max 10 checks per MC per hour
+      const recentChecks = await query(
+        "SELECT COUNT(*) as count FROM load_applications WHERE mc_number = $1 AND created_at > NOW() - INTERVAL '1 hour'",
+        [mc_number.replace(/\D/g, "")]
+      );
+      if (parseInt(recentChecks.rows[0].count) >= 10) {
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Too many checks. Please try again later." }));
+        return;
+      }
+
+      // FMCSA lookup
+      let fmcsa_authority = "unknown";
+      let fmcsa_safety = "unknown";
+      let fmcsa_company = "unknown";
+      let qualification = "not_qualified";
+      let details: Record<string, unknown> = {};
+
+      try {
+        const fmcsa = await lookupFMCSA(mc_number);
+        fmcsa_authority = fmcsa.active ? "Active" : "Inactive";
+        fmcsa_safety = (fmcsa.safety_rating as string) || "None";
+        fmcsa_company = (fmcsa.entity_name as string) || "Unknown";
+        details = fmcsa;
+
+        if (!fmcsa.active) {
+          qualification = "not_qualified";
+        } else if (fmcsa_safety === "Unsatisfactory") {
+          qualification = "not_qualified";
+        } else if (fmcsa_safety === "Conditional") {
+          qualification = "review";
+        } else {
+          qualification = "qualified";
+        }
+      } catch {
+        qualification = "review";
+        details = { error: "FMCSA lookup failed — manual review needed" };
+      }
+
+      // Check if carrier has a completed profile
+      let hasProfile = false;
+      try {
+        // Check MCP server's own carriers table
+        const profileCheck = await query(
+          "SELECT id FROM carriers WHERE mc_number = $1", [mc_number.replace(/\D/g, "")]
+        );
+        hasProfile = profileCheck.rows.length > 0;
+      } catch { /* ignore */ }
+
+      // Save the application
+      await query(
+        `INSERT INTO load_applications
+         (load_id, mc_number, company_name, fmcsa_authority, fmcsa_safety, fmcsa_company,
+          qualification_result, qualification_details, has_profile)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [load.id, mc_number.replace(/\D/g, ""), fmcsa_company, fmcsa_authority, fmcsa_safety, fmcsa_company,
+         qualification, JSON.stringify(details), hasProfile]
+      );
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        qualification,
+        company_name: fmcsa_company,
+        authority: fmcsa_authority,
+        safety: fmcsa_safety,
+        has_profile: hasProfile,
+        profile_url: `${BASE_URL.replace("cc-mcp-server-production.up.railway.app", "app.connectedcarriers.org")}/profile/carrier`
+      }));
+
+    } catch (err) {
+      console.error("[POST /load/check error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
+  // ── POST /load/:slug/interest — carrier submits contact info after qualification
+  if (req.method === "POST" && url.match(/^\/load\/[A-Z0-9]+\/interest$/)) {
+    setCors(res);
+    const slug = url.split("/")[2];
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const { mc_number, contact_name, contact_phone, contact_email } = body;
+
+      // Update the most recent application for this MC on this load
+      const loadResult = await query("SELECT id FROM loads WHERE slug = $1", [slug]);
+      if (!loadResult.rows.length) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Load not found" }));
+        return;
+      }
+
+      await query(
+        `UPDATE load_applications SET contact_name = $1, contact_phone = $2, contact_email = $3
+         WHERE load_id = $4 AND mc_number = $5
+         AND id = (SELECT MAX(id) FROM load_applications WHERE load_id = $4 AND mc_number = $5)`,
+        [contact_name || null, contact_phone || null, contact_email || null,
+         loadResult.rows[0].id, mc_number.replace(/\D/g, "")]
+      );
+
+      // Notify broker via SMS if phone is set
+      const load = (await query("SELECT * FROM loads WHERE slug = $1", [slug])).rows[0];
+      if (load?.broker_phone) {
+        await sendSms(load.broker_phone,
+          `New qualified carrier for ${load.load_id}:\n${body.contact_name || "Unknown"} — MC ${mc_number}\n${contact_phone || ""}\nCheck your load board.`
+        );
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      console.error("[POST /load/interest error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
+  // ── GET /loads/:load_id/applicants — broker views qualified carriers for a load
+  if (req.method === "GET" && url.match(/^\/loads\/[A-Z0-9-]+\/applicants$/)) {
+    setCors(res);
+    const load_id = url.split("/")[2];
+    try {
+      const load = (await query("SELECT * FROM loads WHERE load_id = $1", [load_id])).rows[0];
+      if (!load) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Load not found" }));
+        return;
+      }
+      const apps = await query(
+        `SELECT mc_number, company_name, contact_name, contact_phone, contact_email,
+                fmcsa_authority, fmcsa_safety, qualification_result, has_profile, created_at
+         FROM load_applications WHERE load_id = $1 ORDER BY created_at DESC`,
+        [load.id]
+      );
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ load_id, origin: load.origin, destination: load.destination, applicants: apps.rows }));
+    } catch (err) {
+      console.error("[GET /loads/applicants error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
   // ── GET /verify/:token
   if (req.method === "GET" && url.startsWith("/verify/")) {
     const token = url.replace("/verify/", "").split("?")[0];
@@ -823,6 +1058,183 @@ function verifySupersededPage(v: Record<string, unknown>): string {
   .icon{font-size:48px;margin-bottom:12px}h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px;margin-bottom:8px}
   .btn{display:inline-block;margin-top:16px;padding:12px 24px;background:#C8892A;color:#1C2B3A;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px}</style></head>
   <body><div class="card"><div class="icon">↩</div><h2>Load reassigned</h2><p>Load ${v.load_id} has been assigned to another carrier. No action needed on this load.</p><p>Want to get cleared faster next time?</p><a href="${BASE_URL}/carrier-profile" class="btn">Complete your carrier profile</a></div></body></html>`;
+}
+
+// ── LOAD APPLY PAGES ─────────────────────────────────────────────
+
+function loadApplyPage(load: Record<string, unknown>, slug: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>${load.equipment} — ${load.origin} → ${load.destination}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1C2B3A; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .card { background: #fff; border-radius: 12px; padding: 28px 24px; max-width: 400px; width: 100%; }
+  .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #C8892A; margin-bottom: 12px; }
+  .route { font-size: 20px; font-weight: 600; color: #1C2B3A; margin-bottom: 6px; }
+  .detail { font-size: 13px; color: #6b7a8a; margin-bottom: 4px; }
+  .divider { height: 1px; background: #e8e4de; margin: 18px 0; }
+  .label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7a8a; margin-bottom: 6px; }
+  .mc-input { width: 100%; padding: 14px 16px; border: 2px solid #e8e4de; border-radius: 8px; font-size: 18px; font-weight: 600; color: #1C2B3A; text-align: center; letter-spacing: 0.05em; outline: none; }
+  .mc-input:focus { border-color: #C8892A; }
+  .mc-input::placeholder { color: #c0c0c0; font-weight: 400; }
+  .btn { width: 100%; padding: 14px; background: #C8892A; border: none; border-radius: 8px; color: #1C2B3A; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 12px; }
+  .btn:active { opacity: 0.85; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result { display: none; margin-top: 16px; padding: 16px; border-radius: 8px; text-align: center; }
+  .result.qualified { background: #EAF3DE; border: 1px solid #c5e0a0; }
+  .result.review { background: #FFF8ED; border: 1px solid #F0DFC0; }
+  .result.not_qualified { background: #FCEBEB; border: 1px solid #f0c0c0; }
+  .result h3 { font-size: 16px; margin-bottom: 6px; }
+  .result p { font-size: 13px; color: #6b7a8a; }
+  .result.qualified h3 { color: #3b6d11; }
+  .result.review h3 { color: #8B6914; }
+  .result.not_qualified h3 { color: #a32d2d; }
+  .interest-form { display: none; margin-top: 16px; }
+  .interest-form input { width: 100%; padding: 10px 12px; border: 1px solid #e8e4de; border-radius: 6px; font-size: 14px; margin-bottom: 8px; outline: none; }
+  .interest-form input:focus { border-color: #C8892A; }
+  .interest-btn { width: 100%; padding: 12px; background: #1C2B3A; border: none; border-radius: 6px; color: #F7F5F0; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .profile-link { display: block; margin-top: 12px; text-align: center; font-size: 12px; color: #C8892A; text-decoration: none; }
+  .submitted-msg { display: none; text-align: center; margin-top: 16px; }
+  .submitted-msg .check { font-size: 36px; margin-bottom: 8px; }
+  .submitted-msg p { font-size: 14px; color: #6b7a8a; }
+  .powered { text-align: center; font-size: 11px; color: #6b7a8a; margin-top: 20px; }
+  .powered a { color: #C8892A; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="tag">Load Available</div>
+  <div class="route">${load.origin} → ${load.destination}</div>
+  <div class="detail">${load.equipment}${load.pickup_date ? ` · Pickup: ${load.pickup_date}` : ""}</div>
+  ${load.rate_note ? `<div class="detail">${load.rate_note}</div>` : ""}
+
+  <div class="divider"></div>
+
+  <div id="check-view">
+    <div class="label">Enter your MC number</div>
+    <input type="text" class="mc-input" id="mc-input" placeholder="1234567" inputmode="numeric" maxlength="10" autocomplete="off">
+    <button class="btn" id="check-btn" onclick="checkMC()">Check Qualification</button>
+  </div>
+
+  <div class="result" id="result-box">
+    <h3 id="result-title"></h3>
+    <p id="result-detail"></p>
+  </div>
+
+  <div class="interest-form" id="interest-form">
+    <div class="label" style="margin-bottom:8px">Submit your interest</div>
+    <input type="text" id="int-name" placeholder="Your name">
+    <input type="tel" id="int-phone" placeholder="Phone number" inputmode="tel">
+    <input type="email" id="int-email" placeholder="Email (optional)">
+    <button class="interest-btn" id="interest-btn" onclick="submitInterest()">I'm Interested in This Load</button>
+    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link">Complete your carrier profile for faster qualification →</a>
+  </div>
+
+  <div class="submitted-msg" id="submitted-msg">
+    <div class="check">✓</div>
+    <p>Your interest has been submitted. The broker will be in touch if they'd like to move forward.</p>
+    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link" style="margin-top:16px">Complete your carrier profile to get cleared faster next time →</a>
+  </div>
+
+  <div class="powered">Powered by <a href="https://connectedcarriers.org">Connected Carriers</a></div>
+</div>
+
+<script>
+let mcChecked = '';
+
+function checkMC() {
+  const mc = document.getElementById('mc-input').value.replace(/\\D/g, '').trim();
+  if (!mc) return;
+  mcChecked = mc;
+  const btn = document.getElementById('check-btn');
+  btn.disabled = true; btn.textContent = 'Checking...';
+  document.getElementById('result-box').style.display = 'none';
+  document.getElementById('interest-form').style.display = 'none';
+
+  fetch('/load/${slug}/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mc_number: mc })
+  })
+  .then(r => r.json())
+  .then(data => {
+    const box = document.getElementById('result-box');
+    const title = document.getElementById('result-title');
+    const detail = document.getElementById('result-detail');
+    box.className = 'result ' + data.qualification;
+
+    if (data.qualification === 'qualified') {
+      title.textContent = '✓ Qualified — ' + (data.company_name || 'MC ' + mc);
+      detail.textContent = 'Authority: ' + data.authority + ' · Safety: ' + data.safety;
+      document.getElementById('interest-form').style.display = 'block';
+    } else if (data.qualification === 'review') {
+      title.textContent = '⚠ Needs Review — ' + (data.company_name || 'MC ' + mc);
+      detail.textContent = 'Authority: ' + data.authority + ' · Safety: ' + data.safety + '. The broker may follow up.';
+      document.getElementById('interest-form').style.display = 'block';
+    } else {
+      title.textContent = '✗ Does Not Qualify';
+      detail.textContent = data.authority === 'Inactive' ? 'FMCSA authority is not active for this MC number.' : 'This carrier does not meet the requirements for this load.';
+    }
+    box.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Check Another MC';
+  })
+  .catch(() => {
+    btn.disabled = false; btn.textContent = 'Check Qualification';
+    alert('Something went wrong. Please try again.');
+  });
+}
+
+function submitInterest() {
+  const btn = document.getElementById('interest-btn');
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  fetch('/load/${slug}/interest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mc_number: mcChecked,
+      contact_name: document.getElementById('int-name').value,
+      contact_phone: document.getElementById('int-phone').value,
+      contact_email: document.getElementById('int-email').value
+    })
+  })
+  .then(r => r.json())
+  .then(() => {
+    document.getElementById('interest-form').style.display = 'none';
+    document.getElementById('submitted-msg').style.display = 'block';
+  })
+  .catch(() => {
+    btn.disabled = false; btn.textContent = "I'm Interested in This Load";
+    alert('Something went wrong. Please try again.');
+  });
+}
+
+document.getElementById('mc-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') checkMC();
+});
+</script>
+</body>
+</html>`;
+}
+
+function loadNotFoundPage(): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Load Not Found</title>
+  <style>body{font-family:-apple-system,sans-serif;background:#1C2B3A;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .card{background:#fff;border-radius:12px;padding:28px 24px;max-width:360px;width:100%;text-align:center}
+  h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px}</style></head>
+  <body><div class="card"><h2>Load not found</h2><p>This load link is invalid or has expired. Contact the broker for an updated link.</p></div></body></html>`;
+}
+
+function loadClosedPage(load: Record<string, unknown>): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Load Covered</title>
+  <style>body{font-family:-apple-system,sans-serif;background:#1C2B3A;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .card{background:#fff;border-radius:12px;padding:28px 24px;max-width:360px;width:100%;text-align:center}
+  h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px}
+  .btn{display:inline-block;margin-top:16px;padding:12px 24px;background:#C8892A;color:#1C2B3A;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px}</style></head>
+  <body><div class="card"><h2>Load covered</h2><p>${load.origin} → ${load.destination} has been assigned to a carrier.</p><a href="https://app.connectedcarriers.org/profile/carrier" class="btn">Complete your carrier profile</a></div></body></html>`;
 }
 
 // ── STARTUP ───────────────────────────────────────────────────────

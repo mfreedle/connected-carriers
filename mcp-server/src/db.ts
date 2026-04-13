@@ -90,6 +90,46 @@ export async function initDb() {
   await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ`);
   await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS no_confirm_alert_sent BOOLEAN DEFAULT FALSE`);
 
+  // ── LOADS (for inbound filter / load apply page) ──
+  await query(`
+    CREATE TABLE IF NOT EXISTS loads (
+      id SERIAL PRIMARY KEY,
+      load_id VARCHAR(30) UNIQUE NOT NULL,
+      slug VARCHAR(20) UNIQUE NOT NULL,
+      broker_phone VARCHAR(20),
+      broker_email TEXT,
+      origin TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      equipment TEXT NOT NULL,
+      pickup_date TEXT,
+      rate_note TEXT,
+      notes TEXT,
+      status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open','covered','cancelled')),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS load_applications (
+      id SERIAL PRIMARY KEY,
+      load_id INTEGER NOT NULL REFERENCES loads(id),
+      mc_number TEXT NOT NULL,
+      company_name TEXT,
+      contact_name TEXT,
+      contact_phone TEXT,
+      contact_email TEXT,
+      fmcsa_authority TEXT,
+      fmcsa_safety TEXT,
+      fmcsa_company TEXT,
+      qualification_result TEXT NOT NULL CHECK (qualification_result IN ('qualified','review','not_qualified')),
+      qualification_details JSONB,
+      has_profile BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_load_applications_load ON load_applications(load_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_load_applications_mc ON load_applications(mc_number)`);
+
   console.error("Database initialized — tables ready");
 }
 
