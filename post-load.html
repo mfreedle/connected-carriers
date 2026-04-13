@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Post a Load — Connected Carriers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate: #1C2B3A; --slate2: #243447; --slate3: #2E4058;
+    --amber: #C8892A; --amber2: #E09B35;
+    --cream: #F7F5F0; --cream2: #EDE9E1; --cream3: #E0DAD0;
+    --ink: #141414; --muted: #6B7A8A; --white: #FFFFFF; --green: #4A8C1C;
+    --serif: 'Playfair Display', Georgia, serif;
+    --sans: 'DM Sans', system-ui, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: var(--cream); color: var(--ink); font-size: 16px; line-height: 1.6; }
+
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: var(--slate); height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 48px; border-bottom: 1px solid var(--slate3);
+  }
+  .nav-logo { font-family: var(--serif); font-size: 20px; font-weight: 400; color: var(--cream); text-decoration: none; }
+  .nav-logo span { color: var(--amber); }
+  .nav-tag { font-size: 12px; color: rgba(247,245,240,0.4); letter-spacing: 0.08em; text-transform: uppercase; }
+  .nav-back { font-size: 13px; color: rgba(247,245,240,0.5); text-decoration: none; display: flex; align-items: center; gap: 6px; }
+  .nav-back:hover { color: var(--cream); }
+
+  .page { max-width: 520px; margin: 0 auto; padding: 100px 24px 64px; }
+  .page-eyebrow { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+  .page-eyebrow::before { content: ''; display: block; width: 20px; height: 1px; background: var(--amber); }
+  .page-title { font-family: var(--serif); font-size: 28px; font-weight: 400; color: var(--slate); line-height: 1.2; margin-bottom: 10px; }
+  .page-sub { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 32px; }
+
+  .card { background: var(--white); border: 1px solid var(--cream3); border-radius: 3px; padding: 24px; margin-bottom: 16px; }
+  .section-label { font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--cream2); }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .field input, .field textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--cream3); border-radius: 2px;
+    font-family: var(--sans); font-size: 14px; color: var(--ink); background: var(--white); outline: none;
+  }
+  .field input:focus, .field textarea:focus { border-color: var(--amber); }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .required { color: #ef4444; }
+  .field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .send-btn {
+    width: 100%; padding: 14px; background: var(--amber); border: none; border-radius: 2px;
+    color: var(--slate); font-family: var(--sans); font-size: 15px; font-weight: 500;
+    cursor: pointer; margin-top: 8px; letter-spacing: 0.02em;
+  }
+  .send-btn:hover { background: var(--amber2); }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .microcopy { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+  .result-card { display: none; background: var(--slate); border-radius: 3px; padding: 24px; margin-top: 20px; }
+  .result-label { font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 8px; }
+  .result-link { font-family: var(--sans); font-size: 16px; font-weight: 500; color: var(--cream); word-break: break-all; display: block; margin-bottom: 16px; }
+  .copy-btn {
+    width: 100%; padding: 12px; background: var(--amber); border: none; border-radius: 2px;
+    color: var(--slate); font-family: var(--sans); font-size: 14px; font-weight: 500;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .copy-btn:hover { background: var(--amber2); }
+  .post-text { background: var(--slate2); border-radius: 2px; padding: 16px; margin-top: 16px; }
+  .post-text-label { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(247,245,240,0.4); margin-bottom: 8px; }
+  .post-text pre { font-family: var(--sans); font-size: 13px; color: var(--cream); white-space: pre-wrap; line-height: 1.6; }
+  .copy-post-btn {
+    width: 100%; padding: 10px; background: transparent; border: 1px solid rgba(247,245,240,0.2); border-radius: 2px;
+    color: rgba(247,245,240,0.6); font-family: var(--sans); font-size: 12px; cursor: pointer; margin-top: 10px;
+  }
+  .copy-post-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+  .powered { text-align: center; font-size: 11px; color: var(--muted); margin-top: 28px; }
+  .powered a { color: var(--amber); text-decoration: none; }
+
+  @media (max-width: 480px) { .two-col { grid-template-columns: 1fr; } nav { padding: 0 20px; } .page { padding: 80px 20px 48px; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="https://connectedcarriers.org" class="nav-logo">Connected<span>Carriers</span></a>
+  <span class="nav-tag">Post a Load</span>
+  <a href="https://connectedcarriers.org" class="nav-back">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7H2M6 3L2 7l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Back to home
+  </a>
+</nav>
+
+<div class="page">
+  <div class="page-eyebrow">Inbound carrier filter</div>
+  <h1 class="page-title">Post a load. Filter the junk.</h1>
+  <p class="page-sub">Create a shareable link for your load board posting. Carriers enter their MC, get an instant qualification check, and you see who's worth a call — without picking up the phone.</p>
+
+  <div class="card">
+    <div class="section-label">Load details</div>
+    <div class="two-col">
+      <div class="field">
+        <label>Origin <span class="required">*</span></label>
+        <input type="text" id="origin" placeholder="e.g. Tacoma, WA">
+      </div>
+      <div class="field">
+        <label>Destination <span class="required">*</span></label>
+        <input type="text" id="destination" placeholder="e.g. Dallas, TX">
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field">
+        <label>Equipment <span class="required">*</span></label>
+        <input type="text" id="equipment" placeholder="e.g. 53' Dry Van">
+      </div>
+      <div class="field">
+        <label>Pickup date</label>
+        <input type="text" id="pickup_date" placeholder="e.g. April 18">
+      </div>
+    </div>
+    <div class="field">
+      <label>Rate note <span style="color:#b0bac4;font-weight:400;text-transform:none">(optional)</span></label>
+      <input type="text" id="rate_note" placeholder="e.g. Call for rate, $2.50/mi, or Quick pay available">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-label">Your contact (for carrier notifications)</div>
+    <div class="two-col">
+      <div class="field">
+        <label>Your phone</label>
+        <input type="tel" id="broker_phone" placeholder="509-555-1212" inputmode="tel">
+        <div class="field-hint">You'll get a text when qualified carriers apply.</div>
+      </div>
+      <div class="field">
+        <label>Your email</label>
+        <input type="email" id="broker_email" placeholder="you@yourbrokerage.com">
+      </div>
+    </div>
+  </div>
+
+  <button class="send-btn" id="create-btn" onclick="createLoad()">Create Load Link</button>
+  <p class="microcopy" id="status-msg">No signup required. Link is shareable anywhere.</p>
+
+  <div class="result-card" id="result-card">
+    <div class="result-label">Your load link</div>
+    <span class="result-link" id="apply-url"></span>
+    <button class="copy-btn" id="copy-link-btn" onclick="copyLink()">Copy Link</button>
+
+    <div class="post-text">
+      <div class="post-text-label">Ready-to-paste load board text</div>
+      <pre id="post-text"></pre>
+      <button class="copy-post-btn" id="copy-post-btn" onclick="copyPost()">Copy Post Text</button>
+    </div>
+  </div>
+
+  <div class="powered">Powered by <a href="https://connectedcarriers.org">Connected Carriers</a></div>
+</div>
+
+<script>
+const API = 'https://cc-mcp-server-production.up.railway.app';
+let currentUrl = '';
+let currentPostText = '';
+
+async function createLoad() {
+  const origin = document.getElementById('origin').value.trim();
+  const destination = document.getElementById('destination').value.trim();
+  const equipment = document.getElementById('equipment').value.trim();
+  const pickup_date = document.getElementById('pickup_date').value.trim();
+  const rate_note = document.getElementById('rate_note').value.trim();
+  const broker_phone = document.getElementById('broker_phone').value.trim();
+  const broker_email = document.getElementById('broker_email').value.trim();
+
+  if (!origin || !destination || !equipment) {
+    document.getElementById('status-msg').textContent = 'Origin, destination, and equipment are required.';
+    document.getElementById('status-msg').style.color = '#a32d2d';
+    return;
+  }
+
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true; btn.textContent = 'Creating...';
+  document.getElementById('status-msg').textContent = '';
+
+  try {
+    const res = await fetch(API + '/load/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, destination, equipment, pickup_date, rate_note, broker_phone, broker_email })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentUrl = data.apply_url;
+      currentPostText = data.post_text;
+      document.getElementById('apply-url').textContent = data.apply_url;
+      document.getElementById('post-text').textContent = data.post_text;
+      document.getElementById('result-card').style.display = 'block';
+      btn.textContent = 'Create Another Load';
+      btn.disabled = false;
+      btn.onclick = () => {
+        document.getElementById('result-card').style.display = 'none';
+        document.getElementById('origin').value = '';
+        document.getElementById('destination').value = '';
+        document.getElementById('pickup_date').value = '';
+        document.getElementById('rate_note').value = '';
+        btn.textContent = 'Create Load Link';
+        btn.onclick = createLoad;
+      };
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch (e) {
+    document.getElementById('status-msg').textContent = 'Error: ' + e.message;
+    document.getElementById('status-msg').style.color = '#a32d2d';
+    btn.disabled = false; btn.textContent = 'Create Load Link';
+  }
+}
+
+function copyLink() {
+  navigator.clipboard.writeText(currentUrl).then(() => {
+    document.getElementById('copy-link-btn').textContent = 'Copied!';
+    setTimeout(() => { document.getElementById('copy-link-btn').textContent = 'Copy Link'; }, 2000);
+  });
+}
+
+function copyPost() {
+  navigator.clipboard.writeText(currentPostText).then(() => {
+    document.getElementById('copy-post-btn').textContent = 'Copied!';
+    setTimeout(() => { document.getElementById('copy-post-btn').textContent = 'Copy Post Text'; }, 2000);
+  });
+}
+</script>
+</body>
+</html>
