@@ -52,6 +52,13 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
       LIMIT 50
     `, [carrierId]);
 
+    // Fetch existing setup packets for this carrier
+    const setupPacketsRes = await query(`
+      SELECT * FROM carrier_setup_packets
+      WHERE carrier_id = $1 AND broker_account_id = $2
+      ORDER BY created_at DESC LIMIT 5
+    `, [carrierId, accountId]);
+
     const csrf = csrfToken(req);
     const html = layout({
       title: String(carrier.legal_name || carrier.company_name || "Carrier Detail"),
@@ -63,6 +70,7 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
         docsRes.rows,
         notesRes.rows,
         activityRes.rows,
+        setupPacketsRes.rows,
         req.query.success as string,
         csrf
       ),
@@ -199,6 +207,7 @@ function carrierDetailContent(
   docs: Record<string, unknown>[],
   notes: Record<string, unknown>[],
   activity: Record<string, unknown>[],
+  setupPackets: Record<string, unknown>[] = [],
   success?: string,
   csrf?: string
 ): string {
@@ -335,10 +344,35 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
     ${carrier.onboarding_status !== 'rejected' ? `
     <div class="card" style="border-left:3px solid #3b82f6">
       <div class="card-title">Compliance Setup</div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Send carrier a setup link to collect COI, W-9, and signed agreement before dispatch.</p>
-      <form method="POST" action="/carriers/${String(carrier.id)}/setup/create">
+      ${setupPackets.length === 0 ? `
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Send carrier a setup link to collect COI, W-9, and signed agreement before dispatch.</p>
+        <form method="POST" action="/carriers/${String(carrier.id)}/setup/create">
+          <input type="hidden" name="_csrf" value="${h(csrf)}">
+          <button type="submit" class="btn-primary" style="width:100%">Send Setup Packet →</button>
+        </form>
+      ` : setupPackets.map((sp: Record<string,unknown>) => {
+        const BASE_URL = "https://app.connectedcarriers.org";
+        const setupUrl = BASE_URL + "/setup/" + String(sp.token);
+        const isActive = sp.broker_status === "under_review" && new Date(String(sp.expires_at)) > new Date();
+        const statusColor: Record<string,string> = { under_review: "#f59e0b", complete: "#10b981", cancelled: "#6b7a8a", expired: "#6b7a8a", rejected: "#ef4444" };
+        const color = statusColor[String(sp.broker_status)] || "#6b7a8a";
+        return `
+        <div style="margin-bottom:12px;padding:10px 12px;background:var(--cream);border-radius:2px;border:1px solid var(--cream3)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}40">${h(sp.broker_status)}</span>
+            <span style="font-size:11px;color:var(--muted)">Expires ${new Date(String(sp.expires_at)).toLocaleDateString()}</span>
+          </div>
+          ${isActive ? `
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+            <code style="font-size:10px;background:white;border:1px solid var(--cream3);padding:4px 6px;border-radius:2px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(setupUrl)}</code>
+            <button onclick="navigator.clipboard.writeText('${setupUrl}').then(()=>this.textContent='Copied!').catch(()=>{})" class="btn-sm" style="font-size:11px;white-space:nowrap">Copy link</button>
+          </div>` : ""}
+          <a href="/carriers/${String(carrier.id)}/setup/${h(sp.id)}" class="btn-link" style="font-size:12px">View packet →</a>
+        </div>`;
+      }).join("") }
+      <form method="POST" action="/carriers/${String(carrier.id)}/setup/create" style="margin-top:8px">
         <input type="hidden" name="_csrf" value="${h(csrf)}">
-        <button type="submit" class="btn-primary" style="width:100%">Send Setup Packet →</button>
+        <button type="submit" class="btn-sm" style="width:100%">+ New Setup Packet</button>
       </form>
     </div>
     ` : ''}
