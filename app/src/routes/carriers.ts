@@ -353,7 +353,7 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
       ` : setupPackets.map((sp: Record<string,unknown>) => {
         const BASE_URL = "https://app.connectedcarriers.org";
         const setupUrl = BASE_URL + "/setup/" + String(sp.token);
-        const isActive = sp.broker_status === "under_review" && new Date(String(sp.expires_at)) > new Date();
+        const isActive = !["cancelled", "expired"].includes(String(sp.broker_status)) && new Date(String(sp.expires_at)) > new Date();
         const statusColor: Record<string,string> = { under_review: "#f59e0b", complete: "#10b981", cancelled: "#6b7a8a", expired: "#6b7a8a", rejected: "#ef4444" };
         const color = statusColor[String(sp.broker_status)] || "#6b7a8a";
         return `
