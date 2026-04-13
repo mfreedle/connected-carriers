@@ -9,18 +9,16 @@ const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
 const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
-// ── POST /api/webhooks/stripe ──────────────────────────────────
 router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
   if (!stripe) return res.status(503).send("Billing not configured");
 
   const sig = req.headers["stripe-signature"] as string;
-  let event: Stripe.Event;
+  let event: any;
 
   try {
     if (WEBHOOK_SECRET) {
       event = stripe.webhooks.constructEvent(req.body, sig, WEBHOOK_SECRET);
     } else {
-      // Development: parse without verification
       event = JSON.parse(req.body.toString());
     }
   } catch (err: any) {
@@ -33,9 +31,9 @@ router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+        const session = event.data.object as any;
         if (session.mode === "subscription" && session.subscription) {
-          const sub = await stripe.subscriptions.retrieve(session.subscription as string);
+          const sub = await stripe.subscriptions.retrieve(session.subscription as string) as any;
           await upsertBilling(sub, session.metadata?.broker_account_id || sub.metadata?.broker_account_id);
         }
         break;
@@ -43,13 +41,13 @@ router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
 
       case "customer.subscription.created":
       case "customer.subscription.updated": {
-        const sub = event.data.object as Stripe.Subscription;
+        const sub = event.data.object as any;
         await upsertBilling(sub, sub.metadata?.broker_account_id);
         break;
       }
 
       case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
+        const sub = event.data.object as any;
         await query(
           `UPDATE broker_billing SET subscription_status = 'canceled', updated_at = NOW()
            WHERE stripe_subscription_id = $1`,
@@ -59,7 +57,7 @@ router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
       }
 
       case "invoice.paid": {
-        const invoice = event.data.object as Stripe.Invoice;
+        const invoice = event.data.object as any;
         if (invoice.subscription) {
           await query(
             `UPDATE broker_billing SET subscription_status = 'active', updated_at = NOW()
@@ -71,7 +69,7 @@ router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
       }
 
       case "invoice.payment_failed": {
-        const invoice = event.data.object as Stripe.Invoice;
+        const invoice = event.data.object as any;
         if (invoice.subscription) {
           await query(
             `UPDATE broker_billing SET subscription_status = 'past_due', updated_at = NOW()
@@ -90,15 +88,13 @@ router.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
   res.json({ received: true });
 });
 
-// ── Helper: upsert billing record from a Stripe Subscription ──
-async function upsertBilling(sub: Stripe.Subscription, brokerAccountId?: string) {
+async function upsertBilling(sub: any, brokerAccountId?: string) {
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.toString();
   const priceId = sub.items.data[0]?.price?.id || "";
   const interval = sub.items.data[0]?.price?.recurring?.interval || "month";
   const trialEnd = sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null;
   const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
 
-  // Try to find broker account by metadata or existing customer ID
   let brokerAccId = brokerAccountId ? parseInt(brokerAccountId) : null;
 
   if (!brokerAccId) {
@@ -111,11 +107,10 @@ async function upsertBilling(sub: Stripe.Subscription, brokerAccountId?: string)
     }
   }
 
-  // If still no broker account, try to match by email
   if (!brokerAccId) {
     try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
-      const customer = await stripe.customers.retrieve(customerId);
+      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+      const customer = await stripeClient.customers.retrieve(customerId) as any;
       if (customer && !customer.deleted && customer.email) {
         const match = await query(
           "SELECT ba.id FROM broker_accounts ba JOIN broker_users bu ON bu.broker_account_id = ba.id WHERE bu.email = $1 LIMIT 1",

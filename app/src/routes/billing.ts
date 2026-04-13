@@ -61,7 +61,7 @@ router.post("/api/billing/checkout-session", async (req: Request, res: Response)
       }
     }
 
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    const sessionParams: any = {
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
