@@ -286,9 +286,9 @@
 
 <!-- NAV -->
 <nav>
-  <a href="index.html" class="nav-logo">Connected<span>Carriers</span></a>
+  <a href="https://connectedcarriers.org" class="nav-logo">Connected<span>Carriers</span></a>
   <span class="nav-tag">Dispatch Verification</span>
-  <a href="index.html" class="nav-back">
+  <a href="https://connectedcarriers.org" class="nav-back">
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7H2M6 3L2 7l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Back to home
   </a>
@@ -299,7 +299,7 @@
   <div class="hero-inner">
     <div class="hero-eyebrow">Dispatch Verification</div>
     <h1>Make sure the truck that shows up is the one you <em>booked.</em></h1>
-    <p class="hero-sub">Send a verification text to the driver. Get a timestamp and GPS location when they arrive — and a flag if anything doesn't match.</p>
+    <p class="hero-sub">We alert you if something changed at pickup — before the load is released.</p>
     <div class="form-card">
       <div class="form-row">
         <div class="field">
@@ -307,7 +307,7 @@
           <input type="tel" id="driver_phone" placeholder="509-555-1212" />
         </div>
         <div class="field">
-          <label>Notify me at</label>
+          <label>Your phone (for alerts)</label>
           <input type="tel" id="broker_phone" placeholder="Your cell number" />
         </div>
       </div>
@@ -351,18 +351,18 @@
     <div class="steps-grid">
       <div class="step">
         <div class="step-num">1</div>
-        <div class="step-title">Broker submits</div>
-        <p class="step-text">Enter the driver's phone number, pickup address, and pickup window. The system geocodes the address and generates a unique verification token. Takes under 10 seconds.</p>
+        <div class="step-title">You send the check</div>
+        <p class="step-text">Enter the driver's phone and pickup details. The system geocodes the address and sets the geofence automatically.</p>
       </div>
       <div class="step">
         <div class="step-num">2</div>
-        <div class="step-title">Driver gets a text</div>
-        <p class="step-text">One SMS with a link and the load ID. Driver taps it when they arrive. The browser requests location permission. One tap to confirm. No account, no app, no extra steps.</p>
+        <div class="step-title">Driver confirms at pickup</div>
+        <p class="step-text">One tap. No app. No login. Works on any phone. The browser captures location and timestamp behind the scenes.</p>
       </div>
       <div class="step">
         <div class="step-num">3</div>
-        <div class="step-title">You see the result</div>
-        <p class="step-text">Timestamp, GPS distance from pickup point, and geofence status — green, yellow, or red. If an MC number was provided, FMCSA authority is checked automatically.</p>
+        <div class="step-title">You get the signal</div>
+        <p class="step-text">You get a text if everything matches — or if something changed. Distance, timing, and geofence status in one alert.</p>
       </div>
     </div>
   </div>
@@ -373,28 +373,28 @@
   <div class="section-inner">
     <div class="section-eyebrow">Verification results</div>
     <h2 class="section-h2">Green, yellow, or red.</h2>
-    <p class="section-sub">Three zones. One default radius. No manual setup required — the geofence is calculated automatically from the pickup address you enter.</p>
+    <p class="section-sub">We don't track the truck — we verify the moment it shows up. The geofence is set automatically from the pickup address.</p>
     <div class="results-grid">
       <div class="result-card green">
         <div class="result-bar"></div>
-        <div class="result-badge">Inside geofence</div>
-        <h3>Confirmed on site</h3>
-        <p>Driver's GPS location is within 0.5 miles of the pickup address. Timestamp falls within the pickup window.</p>
-        <div class="result-detail">Distance from pickup: <span>0.12 mi</span> &nbsp;|&nbsp; Confirmed at: <span>1:04 PM</span></div>
+        <div class="result-badge">Confirmed near pickup</div>
+        <h3>Arrival confirmed</h3>
+        <p>Driver confirmed within 1 mile of the pickup address, inside the expected window. No action needed.</p>
+        <div class="result-detail">Distance: <span>0.12 mi</span> &nbsp;|&nbsp; Confirmed: <span>1:04 PM</span></div>
       </div>
       <div class="result-card yellow">
         <div class="result-bar"></div>
-        <div class="result-badge">Near geofence</div>
-        <h3>Review recommended</h3>
-        <p>Driver is between 0.5 and 2 miles from the pickup point. May be in a staging area, truck lot, or traffic queue nearby.</p>
-        <div class="result-detail">Distance from pickup: <span>0.8 mi</span> &nbsp;|&nbsp; Suggested action: <span>Call to confirm</span></div>
+        <div class="result-badge">Confirmed, but review recommended</div>
+        <h3>Something looks different</h3>
+        <p>Driver confirmed between 1 and 2 miles from pickup, or outside the expected time window. Could be a staging area — or something changed.</p>
+        <div class="result-detail">Distance: <span>1.4 mi</span> &nbsp;|&nbsp; Action: <span>Call to confirm before release</span></div>
       </div>
       <div class="result-card red">
         <div class="result-bar"></div>
-        <div class="result-badge">Outside geofence</div>
-        <h3>Flag for follow-up</h3>
-        <p>Driver's confirmed location is more than 2 miles from the pickup address. Do not release freight until you've spoken with the carrier directly.</p>
-        <div class="result-detail">Distance from pickup: <span>4.2 mi</span> &nbsp;|&nbsp; Suggested action: <span>Call before freight moves</span></div>
+        <div class="result-badge">Something changed — call before freight moves</div>
+        <h3>Review before loading</h3>
+        <p>Driver confirmed more than 2 miles from the pickup address. Do not release freight until you've spoken with the carrier directly.</p>
+        <div class="result-detail">Distance: <span>4.2 mi</span> &nbsp;|&nbsp; Action: <span>Do not release — call carrier</span></div>
       </div>
     </div>
   </div>
@@ -430,9 +430,8 @@
       </div>
       <div class="driver-copy">
         <div class="section-eyebrow">What the driver sees</div>
-        <h3>One tap. That's it.</h3>
-        <p>The driver receives a single SMS with a link. They tap it when they arrive. One button confirms their location. The whole interaction takes under 10 seconds on their end.</p>
-        <p>No app download. No login. No account. Just a link that works on any phone.</p>
+        <h3>No app. No login. Works on any phone.</h3>
+        <p>The driver receives a single SMS with a link. They tap it when they arrive. One button confirms their location. The whole interaction takes under 10 seconds.</p>
         <p class="invisible">The geofence is invisible to the driver. The distance check happens behind the scenes — they never see the radius or the result.</p>
       </div>
     </div>
@@ -443,8 +442,8 @@
 <section class="record-section">
   <div class="section-inner">
     <div class="section-eyebrow">The record</div>
-    <h2 class="section-h2">Everything stored. Nothing left to memory.</h2>
-    <p class="section-sub">Every verification creates a timestamped record you can reference for any load, any dispute, any audit.</p>
+    <h2 class="section-h2">See exactly what happened at pickup.</h2>
+    <p class="section-sub">Every arrival check creates a timestamped record — location, distance, timing, and FMCSA context if you provided an MC.</p>
     <div class="record-grid">
       <div class="record-item">
         <div class="record-label">Load ID</div>
@@ -468,7 +467,7 @@
       </div>
       <div class="record-item">
         <div class="record-label">Geofence radius</div>
-        <div class="record-value">0.5 mi green / 2.0 mi yellow</div>
+        <div class="record-value">1.0 mi green / 2.0 mi yellow</div>
       </div>
       <div class="record-item">
         <div class="record-label">Verification sent</div>
@@ -504,9 +503,9 @@
     <div class="pain-grid">
       <div class="pain-copy">
         <div class="section-eyebrow">Why it matters</div>
-        <h2>Cargo theft up 1,500% since 2021.</h2>
-        <p>The most common attack vector isn't a hijacking — it's a carrier who looks legitimate but isn't. A cloned MC number. A driver showing up to a load they were never dispatched for. Freight that disappears before anyone realizes something was wrong.</p>
-        <p>Dispatch verification doesn't stop sophisticated fraud on its own. But it creates a timestamped, GPS-confirmed record that a specific driver, at a specific phone number, was physically at your pickup location before freight moved. That's a paper trail that didn't exist before.</p>
+        <h2>A phone confirms from 40 miles away. The timing doesn't match the window. The load moves before anyone notices.</h2>
+        <p>The most common freight theft isn't a hijacking — it's a carrier who looks legitimate but isn't. A cloned MC. A different truck. A load that disappears before the broker knows something was off.</p>
+        <p>This gives you a signal before it's too late. A timestamped, location-verified record that the driver was — or wasn't — where they said they'd be.</p>
       </div>
       <div>
         <div class="pain-stat">
@@ -529,11 +528,11 @@
 <!-- CTA -->
 <section class="cta-section">
   <div class="cta-inner">
-    <div class="cta-eyebrow">Send your first verification</div>
+    <div class="cta-eyebrow">Send your first arrival check</div>
     <h2>Takes 10 seconds.<br>No signup required.</h2>
-    <p>Scroll up and enter a driver's phone number. That's the whole onboarding process.</p>
+    <p>Try it on your next load. Scroll up and enter a driver's phone number. That's the whole onboarding process.</p>
     <a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;" class="btn-cta">
-      Send a verification now
+      Send an arrival check now
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2l5 5-5 5M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
   </div>
@@ -542,10 +541,10 @@
 <!-- FOOTER -->
 <footer>
   <div class="footer-inner">
-    <a href="index.html" class="footer-logo">Connected<span>Carriers</span></a>
+    <a href="https://connectedcarriers.org" class="footer-logo">Connected<span>Carriers</span></a>
     <div class="footer-links">
-      <a href="index.html">Home</a>
-      <a href="https://docs.google.com/forms/d/1NF5Aj785sYcd8UOdaPifw8NthLGPLu9iJMWdzSbAPxM/viewform">Apply as a Carrier</a>
+      <a href="https://connectedcarriers.org">Home</a>
+      <a href="https://app.connectedcarriers.org/interest/carrier">Apply as a Carrier</a>
       <a href="https://honexai.com">HoneXAI</a>
     </div>
   </div>
@@ -599,7 +598,7 @@ async function submitDispatch() {
     document.getElementById('form-status').textContent = 'Error: ' + e.message + '. Try again.';
     document.getElementById('form-status').style.color = '#a32d2d';
     btn.disabled = false;
-    btn.innerHTML = 'Send verification text <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    btn.innerHTML = 'Send Arrival Check <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
 }
 </script>
