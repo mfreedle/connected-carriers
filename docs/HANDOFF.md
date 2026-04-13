@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
-**Last updated:** April 12, 2026
-**Status:** Functional MVP live. Full workflow operational: interest → setup packet → broker review → dispatch → clearance → SMS delivery.
+**Last updated:** April 13, 2026
+**Status:** Functional MVP live. Dispatch verification wedge deployed — arrival check via SMS + geofence is the primary broker-facing action. Full qualification workflow also operational.
 
 ---
 
@@ -31,7 +31,7 @@ The broker dashboard exists and the full qualification → dispatch workflow is 
 ### Railway Services
 | Service | URL | Status |
 |---------|-----|--------|
-| Landing page | connected-carriers-production.up.railway.app | Online |
+| Landing page | connected-carriers-production.up.railway.app | Online — dispatch verification wedge live |
 | Postgres | internal / public: crossover.proxy.rlwy.net:22571 | Online |
 | MCP server | cc-mcp-server-production.up.railway.app | Online — v1.2.0 |
 | Broker dashboard | github-repo-production-2c39.up.railway.app | Online — MVP |
@@ -95,6 +95,69 @@ Current pickup code implementation (post-hardening):
 If/when SMS is wired: send the plaintext at generation time, then rely on the hash for verification. At that point, evaluate whether to drop the plaintext column.
 
 The `pickup_codes` table in the MCP server schema is inert. It should be marked deprecated in a future MCP server migration.
+
+---
+
+## 4B. DISPATCH VERIFICATION — ARRIVAL CHECK MVP
+
+### Product positioning (decided April 13, 2026)
+The primary broker-facing wedge is **Dispatch Verification / Arrival Check** — not the full qualification platform. The homepage hero and all primary CTAs route to `dispatch.html`. The qualification workflow (setup packets, carrier review, dispatch packets) remains as the deeper platform, but the arrival check is what brokers try first.
+
+**Copy principles (locked in):**
+- We say: "flags change at pickup" / "gives broker a signal before release"
+- We do NOT say: "prevents fraud" / "verifies identity" / "guarantees correct driver"
+- Product line: "We don't track the truck — we verify the moment it shows up."
+
+### Geofence design (decided)
+The geofence is a **classification signal**, not an enforcement boundary. It answers: "Did the driver confirm arrival near the expected place, at the expected time?"
+
+**Zones:**
+| Zone | Distance | Meaning |
+|------|----------|---------|
+| Green | Within 1 mile | Arrival confirmed near pickup. No action needed. |
+| Yellow | 1–2 miles | Something looks different. Review before release. |
+| Red | 2+ miles | Something changed. Do not release — call carrier. |
+
+**Signals evaluated:**
+1. **Distance from pickup** — GPS at confirmation vs geocoded pickup address
+2. **Timing vs pickup window** — confirmation timestamp vs expected window
+
+**What the geofence does NOT do:**
+- Prove driver identity
+- Prevent fraud
+- Enforce anything — it surfaces inconsistency at the moment of risk
+
+### Pickup code + geofence interaction (future)
+The pickup code should only unlock when the driver's phone is within the geofence (1–2 mile radius). This is a V2 feature — not part of the current arrival check MVP. The arrival check is the low-friction wedge; the pickup code is a higher-commitment workflow that requires shipper/dock participation.
+
+### Internal phone-flow logging (decided — do not surface yet)
+When the driver taps the SMS confirmation link, the system should quietly log session metadata (user agent, IP, device fingerprint) alongside the confirmation record. This creates a technical distinction between:
+- **Direct flow** — confirmation came from the same device/session that received the SMS
+- **Indirect flow** — link was forwarded to a different device before confirmation
+
+**This is logged internally only. It is NOT surfaced in the broker UI or marketing copy for MVP.** Reasons:
+- Carriers share phones, dispatch offices forward links, drivers use tablets — legitimate indirect flows are common
+- Surfacing it prematurely creates false flags that erode broker trust in the signal
+- After ~50 verifications, review the data to see if indirect flow correlates with actual problems before deciding whether to surface it
+
+When ready (V2+), this data supports an identity consistency signal without requiring any additional driver input.
+
+### Dispatch verification flow (current)
+```
+Broker fills form on dispatch.html (driver phone, broker phone, pickup address, window, optional MC)
+    ↓
+System geocodes address, generates token, stores pickup lat/lng + window
+    ↓
+SMS sent to driver with confirmation link
+    ↓
+Driver taps link at pickup → browser captures GPS + timestamp
+    ↓
+System evaluates: distance from pickup + timing vs window
+    ↓
+Broker receives SMS alert: green / yellow / red signal
+    ↓
+Record stored: timestamp, GPS, distance, geofence status, FMCSA context if MC provided
+```
 
 ---
 
@@ -308,15 +371,20 @@ all gates pass → Kate clicks "Clear to Roll"
 - Broker dashboard root directory in Railway is `app/` not repo root
 - `railway run` must be executed from `app/` directory with public DATABASE_URL
 - `dispatch_verifications` and `pickup_codes` are MCP-layer tables — do not confuse with broker-layer `dispatch_packets`
+- `connectedcarriers.org` root domain DNS points to GoDaddy forwarding (AWS Global Accelerator IPs), NOT directly to Railway — all cross-page links from index.html must use absolute URLs to the Railway service or `app.connectedcarriers.org`; relative links break because the forwarding layer doesn't serve the files directly
+- `app.connectedcarriers.org` is correctly CNAME'd to Railway — no forwarding issues there
+- All primary broker CTAs on index.html now route to `dispatch.html` (dispatch verification wedge); interest forms preserved as secondary links
 
 ---
 
 ## 14. PRODUCT ROADMAP
 
 ```
-Layer 1 (NOW):  Carrier qualification + dispatch clearance — functional MVP complete
-Layer 2 (NEXT): SMS wiring, schema cleanup, security hardening → pilot ready
-Layer 3:        Performance memory per carrier per load
-Layer 4:        Network intelligence across multiple brokers
-Layer 5:        Load marketplace for pre-screened carriers
+Layer 1 (NOW):  Dispatch verification / arrival check — broker-facing MVP wedge live
+Layer 1B:       Carrier qualification + dispatch clearance — functional MVP complete
+Layer 2 (NEXT): Geofence backend hardening, pickup code unlock at geofence, phone-flow logging
+Layer 3:        Pickup code as dock-side authorization (requires shipper participation)
+Layer 4:        Performance memory per carrier per load
+Layer 5:        Network intelligence across multiple brokers
+Layer 6:        Load marketplace for pre-screened carriers
 ```
