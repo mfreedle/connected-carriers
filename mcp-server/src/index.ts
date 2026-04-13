@@ -448,9 +448,9 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── GET /carrier-profile — redirect to carrier interest form
+  // ── GET /carrier-profile — redirect to carrier profile form
   if (req.method === "GET" && url === "/carrier-profile") {
-    res.writeHead(302, { "Location": "https://app.connectedcarriers.org/interest/carrier" });
+    res.writeHead(302, { "Location": "https://app.connectedcarriers.org/profile/carrier?source=superseded_nudge" });
     res.end();
     return;
   }

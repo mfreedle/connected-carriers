@@ -382,3 +382,38 @@ export async function migrateTeam() {
   await query(`CREATE INDEX IF NOT EXISTS idx_broker_invites_token ON broker_invites(token)`);
   console.log("Team migration complete.");
 }
+
+export async function migrateCarrierProfiles() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_profiles (
+      id SERIAL PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      mc_number TEXT,
+      contact_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      driver_name TEXT,
+      driver_phone TEXT,
+      truck_number TEXT,
+      trailer_number TEXT,
+      equipment_types JSONB DEFAULT '[]',
+      lanes_or_regions TEXT,
+      cdl_photo_url TEXT,
+      cdl_photo_r2_key TEXT,
+      vin_photo_url TEXT,
+      vin_photo_r2_key TEXT,
+      insurance_doc_url TEXT,
+      insurance_doc_r2_key TEXT,
+      completion_status TEXT NOT NULL DEFAULT 'partial'
+        CHECK (completion_status IN ('partial','complete','dispatch_ready')),
+      source TEXT DEFAULT 'direct'
+        CHECK (source IN ('direct','superseded_nudge','broker_invite','interest_upgrade')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_mc ON carrier_profiles(mc_number)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_email ON carrier_profiles(email)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_status ON carrier_profiles(completion_status)`);
+  console.log("Carrier profiles migration complete.");
+}
