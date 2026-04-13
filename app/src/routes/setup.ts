@@ -5,7 +5,7 @@ import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { h, csrfToken } from "../middleware/security";
 import { layout } from "../views/layout";
-import { uploadToR2, getPresignedDownloadUrl, validateUpload, isR2Configured } from "../lib/storage";
+import { uploadToR2, deleteFromR2, getPresignedDownloadUrl, validateUpload, isR2Configured } from "../lib/storage";
 
 const router = Router();
 
@@ -200,12 +200,18 @@ router.post("/carriers/:id/setup/:packetId/complete", requireAuth, async (req: A
   const userId = req.session.userId!;
   const packetId = parseInt(req.params.packetId);
   const carrierId = parseInt(req.params.id);
+  const { override_reason } = req.body;
+
+  // Require an explicit reason for manual override
+  if (!override_reason?.trim()) {
+    return res.redirect(`/carriers/${carrierId}/setup/${packetId}?error=override_reason_required`);
+  }
 
   try {
     await query(`UPDATE carrier_setup_packets SET broker_status='complete', updated_at=NOW() WHERE id=$1 AND broker_account_id=$2`, [packetId, accountId]);
     await query(`UPDATE carriers SET onboarding_status='approved', updated_at=NOW() WHERE id=$1 AND broker_account_id=$2`, [carrierId, accountId]);
-    await query(`INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata) VALUES ('carrier_setup_packet', $1, 'broker_user', $2, 'setup_complete', $3)`,
-      [packetId, userId, JSON.stringify({ manual: true })]);
+    await query(`INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata) VALUES ('carrier_setup_packet', $1, 'broker_user', $2, 'setup_override_approved', $3)`,
+      [packetId, userId, JSON.stringify({ manual_override: true, reason: override_reason.trim() })]);
 
     res.redirect(`/carriers/${carrierId}?setup_complete=1`);
   } catch (err) {
@@ -232,9 +238,10 @@ router.get("/setup/:token", async (req: Request, res: Response) => {
 
   try {
     const packetRes = await query(`
-      SELECT csp.*, ba.company_name as broker_company
+      SELECT csp.*, ba.company_name as broker_company, c.mc_number
       FROM carrier_setup_packets csp
       JOIN broker_accounts ba ON ba.id = csp.broker_account_id
+      LEFT JOIN carriers c ON c.id = csp.carrier_id
       WHERE csp.token=$1
     `, [token]);
 
@@ -270,10 +277,14 @@ router.post("/setup/:token/company", async (req: Request, res: Response) => {
     const packetRes = await query(`SELECT * FROM carrier_setup_packets WHERE token=$1 AND broker_status IN ('under_review')`, [token]);
     if (!packetRes.rows.length) return res.send(setupErrorPage("This link is invalid or expired."));
 
+    const pkt = packetRes.rows[0];
     await query(`UPDATE carrier_setup_packets SET carrier_name=$1, carrier_email=$2, carrier_phone=$3, updated_at=NOW() WHERE token=$4`,
       [carrier_name?.trim() || null, carrier_email?.trim() || null, carrier_phone?.trim() || null, token]);
 
-    await updatePacketCarrierStatus(packetRes.rows[0].id);
+    await query(`INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata) VALUES ('carrier_setup_packet', $1, 'carrier', NULL, 'carrier_company_info_saved', $2)`,
+      [pkt.id, JSON.stringify({ carrier_name: carrier_name?.trim() || null })]);
+
+    await updatePacketCarrierStatus(pkt.id);
     res.redirect(`/setup/${token}?saved=company`);
   } catch (err) {
     console.error(err);
@@ -334,9 +345,20 @@ router.post("/setup/:token/doc/:type", upload.single("file"), async (req: Reques
     }
 
     // Upsert document — one row per doc type per packet
-    const existing = await query(`SELECT id FROM carrier_documents WHERE carrier_setup_packet_id=$1 AND document_type=$2`, [packet.id, type]);
+    const existing = await query(`SELECT id, r2_object_key FROM carrier_documents WHERE carrier_setup_packet_id=$1 AND document_type=$2`, [packet.id, type]);
 
     if (existing.rows.length) {
+      // Delete old R2 object if this is a file replacement
+      const oldKey = existing.rows[0].r2_object_key;
+      if (oldKey && r2ObjectKey && oldKey !== r2ObjectKey) {
+        try {
+          await deleteFromR2(oldKey);
+        } catch (cleanupErr) {
+          console.error("R2 cleanup failed for old object:", oldKey, cleanupErr);
+          // Non-blocking — log and continue
+        }
+      }
+
       await query(`
         UPDATE carrier_documents SET
           file_url=$1, r2_object_key=$2, file_name=$3, file_size=$4, mime_type=$5,
@@ -356,6 +378,9 @@ router.post("/setup/:token/doc/:type", upload.single("file"), async (req: Reques
       `, [packet.carrier_id, packet.id, type, fileUrl, r2ObjectKey,
           fileName, fileSize, mimeType, expires_at_doc || null, insurer_name?.trim() || null]);
     }
+
+    await query(`INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata) VALUES ('carrier_setup_packet', $1, 'carrier', NULL, 'carrier_document_uploaded', $2)`,
+      [packet.id, JSON.stringify({ document_type: type, file_name: fileName, replaced: existing.rows.length > 0 })]);
 
     await updatePacketCarrierStatus(packet.id);
     res.redirect(`/setup/${token}?saved=${type}`);
@@ -727,7 +752,7 @@ function brokerSetupContent(
 </div>
 
 ${qs.saved ? `<div class="alert alert-success">Document action saved.</div>` : ""}
-${qs.error ? `<div class="alert alert-error">Error: ${h(String(qs.error)).replace(/_/g," ")}.</div>` : ""}
+${qs.error === "override_reason_required" ? `<div class="alert alert-error">A reason is required to override and approve manually.</div>` : qs.error ? `<div class="alert alert-error">Error: ${h(String(qs.error)).replace(/_/g," ")}.</div>` : ""}
 
 <div class="detail-grid">
 <div class="detail-left">
@@ -744,6 +769,7 @@ ${qs.error ? `<div class="alert alert-error">Error: ${h(String(qs.error)).replac
   <div class="card">
     <div class="card-title">Carrier info</div>
     <div class="info-grid">
+      ${packet.mc_number ? `<div class="info-row"><span class="info-label">MC Number</span><span><code>MC${h(packet.mc_number)}</code></span></div>` : ""}
       <div class="info-row"><span class="info-label">Name</span><span>${h(packet.carrier_name || "—")}</span></div>
       <div class="info-row"><span class="info-label">Email</span><span>${h(packet.carrier_email || "—")}</span></div>
       <div class="info-row"><span class="info-label">Phone</span><span>${h(packet.carrier_phone || "—")}</span></div>
@@ -768,6 +794,10 @@ ${qs.error ? `<div class="alert alert-error">Error: ${h(String(qs.error)).replac
     </p>
     <form method="POST" action="/carriers/${packet.carrier_id}/setup/${packet.id}/complete">
       <input type="hidden" name="_csrf" value="${h(csrf)}">
+      <div style="margin-bottom:8px">
+        <label style="display:block;font-size:11px;font-weight:500;letter-spacing:0.07em;text-transform:uppercase;color:#9a3412;margin-bottom:4px">Reason for override <span style="color:#ef4444">*</span></label>
+        <input type="text" name="override_reason" required placeholder="e.g. Verified docs via phone with insurer" style="width:100%;padding:8px 10px;border:1px solid #fed7aa;border-radius:2px;font-size:13px;font-family:var(--sans);background:white;color:var(--ink)">
+      </div>
       <button type="submit" style="width:100%;padding:10px;background:#f97316;color:white;border:none;border-radius:2px;font-family:var(--sans);font-size:13px;cursor:pointer">Override &amp; Approve Carrier</button>
     </form>
   </div>` : `
