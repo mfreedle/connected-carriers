@@ -111,6 +111,7 @@ router.get("/carriers/:id/setup/:packetId", requireAuth, async (req: Authenticat
     const html = layout({
       title: `Setup Packet — ${packet.legal_name || packet.company_name || "Carrier"}`,
       userName: req.session.userName || "",
+      userRole: req.session.userRole,
       csrfToken: csrf,
       content: brokerSetupContent(packet, docsRes.rows, activityRes.rows, setupUrl, csrf, req.query),
     });

@@ -61,6 +61,7 @@ router.get("/intake/links", requireAuth, async (req: AuthenticatedRequest, res: 
   const html = layout({
     title: "Intake Links",
     userName: req.session.userName || "",
+    userRole: req.session.userRole,
     csrfToken: csrf,
     content: intakeLinksContent(links.rows, BASE_URL, csrf),
   });

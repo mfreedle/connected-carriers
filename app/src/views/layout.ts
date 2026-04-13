@@ -1,11 +1,12 @@
 interface LayoutOptions {
   title: string;
   userName: string;
+  userRole?: string;
   content: string;
   csrfToken?: string;
 }
 
-export function layout({ title, userName, content, csrfToken }: LayoutOptions): string {
+export function layout({ title, userName, content, csrfToken, userRole }: LayoutOptions): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -272,6 +273,7 @@ ${csrfToken ? `<meta name="csrf-token" content="${csrfToken}">` : ""}
     <a href="/leads" class="nav-link">Leads</a>
     <a href="/intake/links" class="nav-link" style="display:none">Intake</a>
     <a href="/settings" class="nav-link">Settings</a>
+    ${userRole === "owner" ? `<a href="/team" class="nav-link">Team</a>` : ""}
   </div>
   <div class="nav-user">
     <span>${userName}</span>

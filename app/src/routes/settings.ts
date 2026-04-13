@@ -20,6 +20,7 @@ router.get("/settings", requireAuth, async (req: AuthenticatedRequest, res: Resp
     const html = layout({
       title: "Settings",
       userName: req.session.userName || "",
+      userRole: req.session.userRole,
       csrfToken: csrf,
       content: settingsContent(account, policy, req.query.saved as string, csrf),
     });

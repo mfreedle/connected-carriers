@@ -365,3 +365,20 @@ export async function migrateTwilio() {
   await query(`ALTER TABLE dispatch_packets ADD COLUMN IF NOT EXISTS tracking_sms_sent_at TIMESTAMPTZ`);
   console.log("Twilio migration complete.");
 }
+
+export async function migrateTeam() {
+  // Invite tokens for adding team members
+  await query(`CREATE TABLE IF NOT EXISTS broker_invites (
+    id SERIAL PRIMARY KEY,
+    broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'reviewer' CHECK (role IN ('owner', 'ops', 'reviewer')),
+    token VARCHAR(64) UNIQUE NOT NULL,
+    invited_by INTEGER NOT NULL REFERENCES broker_users(id),
+    accepted_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_broker_invites_token ON broker_invites(token)`);
+  console.log("Team migration complete.");
+}

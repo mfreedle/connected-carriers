@@ -32,6 +32,7 @@ router.get("/leads", requireAuth, async (req: AuthenticatedRequest, res: Respons
   const html = layout({
     title: "Leads",
     userName: req.session.userName || "",
+    userRole: req.session.userRole,
     csrfToken: csrf,
     content: leadsContent(brokerRes.rows, carrierRes.rows, tab, brokerNew, carrierNew, csrf, req.query),
   });

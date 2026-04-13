@@ -107,6 +107,7 @@ router.get("/dispatch/:id", requireAuth, async (req: AuthenticatedRequest, res: 
     const html = layout({
       title: `Dispatch — ${packet.load_reference}`,
       userName: req.session.userName || "",
+      userRole: req.session.userRole,
       csrfToken: csrf,
       content: dispatchContent(packet, policy, activityRes.rows, blocking, complete, req.query, csrf, BASE_URL),
     });
@@ -559,6 +560,7 @@ router.get("/carriers/:id/dispatch", requireAuth, async (req: AuthenticatedReque
     const html = layout({
       title: `Dispatch History — ${carrier?.legal_name || "Carrier"}`,
       userName: req.session.userName || "",
+      userRole: req.session.userRole,
       csrfToken: csrf,
       content: dispatchHistoryContent(carrier, packets.rows, csrf),
     });

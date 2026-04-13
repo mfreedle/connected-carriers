@@ -1,7 +1,7 @@
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio } from "./db";
+import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio, migrateTeam } from "./db";
 import authRoutes from "./routes/auth";
 import dashboardRoutes from "./routes/dashboard";
 import carrierRoutes from "./routes/carriers";
@@ -12,6 +12,7 @@ import interestRoutes from "./routes/interest";
 import leadsRoutes from "./routes/leads";
 import setupRoutes from "./routes/setup";
 import trackingRoutes from "./routes/tracking";
+import teamRoutes from "./routes/team";
 import { verifyCsrf } from "./middleware/security";
 
 const app = express();
@@ -56,6 +57,7 @@ app.use("/", intakeRoutes);
 app.use("/", interestRoutes);
 app.use("/", setupRoutes);  // public /setup/:token routes
 app.use("/", trackingRoutes); // public /track/:token routes
+app.use("/", teamRoutes);      // team management + public invite acceptance
 
 // Broker routes — CSRF verification on all POSTs
 app.use(verifyCsrf);
@@ -92,7 +94,7 @@ app.use((req, res) => {
 });
 
 // Auto-run migrations on startup
-migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio())
+migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio()).then(() => migrateTeam())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);

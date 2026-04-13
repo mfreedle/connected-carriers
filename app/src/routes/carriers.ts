@@ -63,6 +63,7 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
     const html = layout({
       title: String(carrier.legal_name || carrier.company_name || "Carrier Detail"),
       userName: req.session.userName || "",
+      userRole: req.session.userRole,
       csrfToken: csrf,
       content: carrierDetailContent(
         carrier,
