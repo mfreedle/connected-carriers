@@ -339,12 +339,58 @@ const httpServer = http.createServer(async (req, res) => {
     setCors(res);
     try {
       const body = JSON.parse((await readBody(req)).toString());
-      const { driver_phone, broker_phone, mc_number, pickup_address, pickup_window_start, pickup_window_end } = body;
+      const { driver_phone, broker_phone, mc_number, pickup_address, pickup_window_start, pickup_window_end, replaces_load_id } = body;
 
       if (!driver_phone || !broker_phone || !pickup_address) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "driver_phone, broker_phone, and pickup_address are required" }));
         return;
+      }
+
+      // ── SUPERSEDE: if this replaces an existing load, mark the old one ──
+      let superseded_load: string | null = null;
+      let superseded_driver_phone: string | null = null;
+
+      if (replaces_load_id) {
+        // Explicit reassignment — broker told us which load this replaces
+        const old = await query(
+          "SELECT * FROM dispatch_verifications WHERE load_id = $1 AND status = 'pending'",
+          [replaces_load_id]
+        );
+        if (old.rows.length) {
+          superseded_load = old.rows[0].load_id;
+          superseded_driver_phone = old.rows[0].driver_phone;
+          await query(
+            "UPDATE dispatch_verifications SET status = 'superseded' WHERE load_id = $1",
+            [replaces_load_id]
+          );
+        }
+      } else {
+        // Auto-detect: if same broker + same pickup address has a pending verification, supersede it
+        const existing = await query(
+          `SELECT * FROM dispatch_verifications
+           WHERE broker_phone = $1 AND pickup_address = $2 AND status = 'pending'
+           ORDER BY created_at DESC LIMIT 1`,
+          [normalizePhone(broker_phone), pickup_address]
+        );
+        if (existing.rows.length) {
+          superseded_load = existing.rows[0].load_id;
+          superseded_driver_phone = existing.rows[0].driver_phone;
+          await query(
+            "UPDATE dispatch_verifications SET status = 'superseded' WHERE id = $1",
+            [existing.rows[0].id]
+          );
+        }
+      }
+
+      // Notify the superseded driver — let them know, and nudge them to complete their profile
+      if (superseded_driver_phone && superseded_driver_phone !== normalizePhone(driver_phone)) {
+        const profileUrl = `${BASE_URL}/carrier-profile`;
+        await sendSms(
+          superseded_driver_phone,
+          `Load ${superseded_load} has been assigned to another carrier. No action needed on this load.\nWant to get cleared faster next time? Complete your carrier profile: ${profileUrl}`
+        );
+        console.error(`[SUPERSEDE] ${superseded_load} superseded — old driver ${superseded_driver_phone} notified`);
       }
 
       const load_id = `CC-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
@@ -386,6 +432,7 @@ const httpServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({
         success: true,
         load_id,
+        superseded: superseded_load,
         geocoded: Boolean(coords),
         fmcsa_authority,
         fmcsa_company,
@@ -398,6 +445,13 @@ const httpServer = http.createServer(async (req, res) => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Internal server error" }));
     }
+    return;
+  }
+
+  // ── GET /carrier-profile — redirect to carrier interest form
+  if (req.method === "GET" && url === "/carrier-profile") {
+    res.writeHead(302, { "Location": "https://app.connectedcarriers.org/interest/carrier" });
+    res.end();
     return;
   }
 
@@ -415,6 +469,11 @@ const httpServer = http.createServer(async (req, res) => {
       if (v.status === "confirmed") {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(verifyAlreadyConfirmedPage(v));
+        return;
+      }
+      if (v.status === "superseded") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(verifySupersededPage(v));
         return;
       }
       res.writeHead(200, { "Content-Type": "text/html" });
@@ -445,6 +504,16 @@ const httpServer = http.createServer(async (req, res) => {
       if (v.status === "confirmed") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ already_confirmed: true }));
+        return;
+      }
+
+      if (v.status === "superseded") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          confirmed: false,
+          superseded: true,
+          message: "This load has been reassigned to another carrier. No action needed."
+        }));
         return;
       }
 
@@ -710,6 +779,10 @@ async function postConfirm(lat, lng) {
       showErr(data.message);
       document.getElementById('confirm-btn').disabled = false;
       document.getElementById('confirm-btn').textContent = 'Confirm arrival';
+    } else if (data.superseded) {
+      document.getElementById('confirm-view').style.display = 'none';
+      document.getElementById('success-view').innerHTML = '<div style="font-size:48px;margin-bottom:12px">↩</div><h2>Load reassigned</h2><p>This load has been assigned to another carrier. No action needed.</p>';
+      document.getElementById('success-view').style.display = 'block';
     } else { showErr('Something went wrong. Please try again.'); }
   } catch(e) {
     showErr('Network error. Please try again.');
@@ -741,6 +814,15 @@ function verifyAlreadyConfirmedPage(v: Record<string, unknown>): string {
   .card{background:#fff;border-radius:12px;padding:28px 24px;max-width:360px;width:100%;text-align:center}
   .check{font-size:48px;margin-bottom:12px}h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px}</style></head>
   <body><div class="card"><div class="check">✓</div><h2>Already confirmed</h2><p>Load ${v.load_id} was already confirmed. Your broker has been notified.</p></div></body></html>`;
+}
+
+function verifySupersededPage(v: Record<string, unknown>): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Load Reassigned</title>
+  <style>body{font-family:-apple-system,sans-serif;background:#1C2B3A;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .card{background:#fff;border-radius:12px;padding:28px 24px;max-width:360px;width:100%;text-align:center}
+  .icon{font-size:48px;margin-bottom:12px}h2{color:#1C2B3A;margin-bottom:8px}p{color:#6b7a8a;font-size:14px;margin-bottom:8px}
+  .btn{display:inline-block;margin-top:16px;padding:12px 24px;background:#C8892A;color:#1C2B3A;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px}</style></head>
+  <body><div class="card"><div class="icon">↩</div><h2>Load reassigned</h2><p>Load ${v.load_id} has been assigned to another carrier. No action needed on this load.</p><p>Want to get cleared faster next time?</p><a href="${BASE_URL}/carrier-profile" class="btn">Complete your carrier profile</a></div></body></html>`;
 }
 
 // ── STARTUP ───────────────────────────────────────────────────────
