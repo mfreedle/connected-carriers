@@ -273,7 +273,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 }
 
 function geofenceResult(miles: number): string {
-  if (miles <= 0.5)  return "green";
+  if (miles <= 1.0)  return "green";
   if (miles <= 2.0)  return "yellow";
   return "red";
 }
@@ -455,6 +455,22 @@ const httpServer = http.createServer(async (req, res) => {
         fence_result   = geofenceResult(distance_miles);
       }
 
+      // ── GEOFENCE BOUNCE: if driver is outside the geofence, don't confirm ──
+      // Token stays active so they can try again when closer
+      if (fence_result === "red" && distance_miles !== null) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          confirmed: false,
+          too_far: true,
+          distance_miles: Math.round(distance_miles * 100) / 100,
+          message: "You're not close enough to the pickup location yet. This link will work when you arrive."
+        }));
+        return;
+      }
+
+      // If no GPS available, allow confirmation but flag it
+      // (driver denied location — broker gets "unknown" status and can follow up)
+
       const confirmed_at = new Date();
 
       await query(
@@ -593,6 +609,9 @@ function verifyPage(v: Record<string, unknown>, token: string): string {
   .success h2 { font-size: 20px; color: #1C2B3A; margin-bottom: 8px; }
   .success p { font-size: 14px; color: #6b7a8a; }
   .error-msg { color: #a32d2d; font-size: 13px; text-align: center; margin-top: 10px; display: none; }
+  .too-far { display: none; text-align: center; margin-top: 14px; padding: 14px; background: #FFF8ED; border: 1px solid #F0DFC0; border-radius: 6px; }
+  .too-far p { font-size: 14px; color: #8B6914; margin-bottom: 4px; }
+  .too-far .dist { font-size: 12px; color: #a08040; }
 </style>
 </head>
 <body>
@@ -609,6 +628,11 @@ function verifyPage(v: Record<string, unknown>, token: string): string {
     <button class="btn" id="confirm-btn" onclick="confirmArrival()">Confirm arrival</button>
     <p class="geo-note">Your location will be shared to verify you're on site.</p>
     <p class="error-msg" id="err-msg"></p>
+    <div class="too-far" id="too-far-msg">
+      <p>You're not close enough to the pickup yet.</p>
+      <p class="dist" id="too-far-dist"></p>
+      <p class="dist">Try again when you arrive.</p>
+    </div>
   </div>
   <div class="success" id="success-view">
     <div class="check">✓</div>
@@ -621,6 +645,8 @@ function confirmArrival() {
   const btn = document.getElementById('confirm-btn');
   btn.textContent = 'Getting location...';
   btn.disabled = true;
+  document.getElementById('too-far-msg').style.display = 'none';
+  document.getElementById('err-msg').style.display = 'none';
   if (!navigator.geolocation) { postConfirm(null, null); return; }
   navigator.geolocation.getCurrentPosition(
     pos => postConfirm(pos.coords.latitude, pos.coords.longitude),
@@ -639,6 +665,11 @@ async function postConfirm(lat, lng) {
     if (data.confirmed || data.already_confirmed) {
       document.getElementById('confirm-view').style.display = 'none';
       document.getElementById('success-view').style.display = 'block';
+    } else if (data.too_far) {
+      document.getElementById('too-far-msg').style.display = 'block';
+      document.getElementById('too-far-dist').textContent = 'About ' + data.distance_miles + ' miles away.';
+      document.getElementById('confirm-btn').disabled = false;
+      document.getElementById('confirm-btn').textContent = 'Confirm arrival';
     } else { showErr('Something went wrong. Please try again.'); }
   } catch(e) {
     showErr('Network error. Please try again.');
