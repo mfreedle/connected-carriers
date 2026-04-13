@@ -455,6 +455,17 @@ const httpServer = http.createServer(async (req, res) => {
         fence_result   = geofenceResult(distance_miles);
       }
 
+      // ── REQUIRE LOCATION: if driver denied GPS, bounce them ──
+      if (!lat || !lng) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          confirmed: false,
+          no_location: true,
+          message: "We need your location to confirm you're at the pickup. Please allow location access and try again."
+        }));
+        return;
+      }
+
       // ── GEOFENCE BOUNCE: if driver is outside the geofence, don't confirm ──
       // Token stays active so they can try again when closer
       if (fence_result === "red" && distance_miles !== null) {
@@ -463,13 +474,26 @@ const httpServer = http.createServer(async (req, res) => {
           confirmed: false,
           too_far: true,
           distance_miles: Math.round(distance_miles * 100) / 100,
-          message: "You're not close enough to the pickup location yet. This link will work when you arrive."
+          message: "You're not at the pickup yet. Tap this link again when you arrive."
         }));
         return;
       }
 
-      // If no GPS available, allow confirmation but flag it
-      // (driver denied location — broker gets "unknown" status and can follow up)
+      // ── EARLY ARRIVAL CHECK ──
+      let timing_flag = "on_time";
+      if (v.pickup_window_start) {
+        const now = new Date();
+        // Parse pickup window start — expected format like "1:00 PM"
+        const windowStr = String(v.pickup_window_start).trim();
+        const today = now.toISOString().split("T")[0];
+        const windowDate = new Date(`${today} ${windowStr}`);
+        if (!isNaN(windowDate.getTime())) {
+          const msBefore = windowDate.getTime() - now.getTime();
+          const hoursBefore = msBefore / (1000 * 60 * 60);
+          if (hoursBefore > 2) timing_flag = "very_early";
+          else if (hoursBefore > 0.5) timing_flag = "early";
+        }
+      }
 
       const confirmed_at = new Date();
 
@@ -482,7 +506,7 @@ const httpServer = http.createServer(async (req, res) => {
         [confirmed_at, lat || null, lng || null, distance_miles, fence_result, token]
       );
 
-      const brokerSms = buildBrokerSms(v.load_id, distance_miles, fence_result, confirmed_at);
+      const brokerSms = buildBrokerSms(v.load_id, distance_miles, fence_result, confirmed_at, timing_flag);
       const notified  = await sendSms(v.broker_phone, brokerSms);
 
       if (notified) {
@@ -495,6 +519,7 @@ const httpServer = http.createServer(async (req, res) => {
         load_id: v.load_id,
         distance_miles: distance_miles ? Math.round(distance_miles * 100) / 100 : null,
         geofence_result: fence_result,
+        timing_flag,
         broker_notified: notified
       }));
 
@@ -559,14 +584,16 @@ function buildBrokerSms(
   load_id: string,
   distance: number | null,
   fence: string,
-  confirmed_at: Date
+  confirmed_at: Date,
+  timing: string = "on_time"
 ): string {
   const time = confirmed_at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
   const dist = distance !== null ? `${Math.round(distance * 100) / 100} mi` : "location unavailable";
+  const earlyWarning = timing === "very_early" ? "\n⚠ EARLY — confirmed well before pickup window" :
+                       timing === "early" ? "\nNote: confirmed before pickup window" : "";
 
-  if (fence === "green") return `CC ${load_id} confirmed ✓\n${dist} from pickup — ${time}\nStatus: ON SITE`;
-  if (fence === "yellow") return `CC ${load_id} — nearby\n${dist} from pickup — ${time}\nStatus: NEAR — confirm before loading`;
-  if (fence === "red") return `CC ${load_id} ⚠ MISMATCH\n${dist} from pickup — ${time}\nCall before freight moves`;
+  if (fence === "green") return `CC ${load_id} confirmed ✓\n${dist} from pickup — ${time}${earlyWarning}\nStatus: ON SITE`;
+  if (fence === "yellow") return `CC ${load_id} — nearby\n${dist} from pickup — ${time}${earlyWarning}\nStatus: NEAR — confirm before loading`;
   return `CC ${load_id} confirmed — ${time}\nLocation check unavailable`;
 }
 
@@ -626,12 +653,12 @@ function verifyPage(v: Record<string, unknown>, token: string): string {
     ${window_str ? `<div class="row"><label>Pickup window</label><p>${window_str}</p></div>` : ""}
     <div class="divider"></div>
     <button class="btn" id="confirm-btn" onclick="confirmArrival()">Confirm arrival</button>
-    <p class="geo-note">Your location will be shared to verify you're on site.</p>
+    <p class="geo-note">Location is required to confirm you're at the pickup.</p>
     <p class="error-msg" id="err-msg"></p>
     <div class="too-far" id="too-far-msg">
-      <p>You're not close enough to the pickup yet.</p>
+      <p>You're not at the pickup yet.</p>
       <p class="dist" id="too-far-dist"></p>
-      <p class="dist">Try again when you arrive.</p>
+      <p class="dist">Tap "Confirm arrival" again when you get there.</p>
     </div>
   </div>
   <div class="success" id="success-view">
@@ -647,10 +674,19 @@ function confirmArrival() {
   btn.disabled = true;
   document.getElementById('too-far-msg').style.display = 'none';
   document.getElementById('err-msg').style.display = 'none';
-  if (!navigator.geolocation) { postConfirm(null, null); return; }
+  if (!navigator.geolocation) {
+    showErr('Location is required to confirm arrival. Please enable location services and try again.');
+    btn.disabled = false;
+    btn.textContent = 'Confirm arrival';
+    return;
+  }
   navigator.geolocation.getCurrentPosition(
     pos => postConfirm(pos.coords.latitude, pos.coords.longitude),
-    ()  => postConfirm(null, null),
+    ()  => {
+      showErr('Location access was denied. Please allow location and try again.');
+      btn.disabled = false;
+      btn.textContent = 'Confirm arrival';
+    },
     { timeout: 8000, maximumAge: 0 }
   );
 }
@@ -668,6 +704,10 @@ async function postConfirm(lat, lng) {
     } else if (data.too_far) {
       document.getElementById('too-far-msg').style.display = 'block';
       document.getElementById('too-far-dist').textContent = 'About ' + data.distance_miles + ' miles away.';
+      document.getElementById('confirm-btn').disabled = false;
+      document.getElementById('confirm-btn').textContent = 'Confirm arrival';
+    } else if (data.no_location) {
+      showErr(data.message);
       document.getElementById('confirm-btn').disabled = false;
       document.getElementById('confirm-btn').textContent = 'Confirm arrival';
     } else { showErr('Something went wrong. Please try again.'); }
