@@ -60,7 +60,7 @@ router.post("/api/billing/checkout-session", async (req: Request, res: Response)
       },
       success_url: `${BASE_URL}/billing?session_id={CHECKOUT_SESSION_ID}&success=true`,
       cancel_url: `${BASE_URL}/billing?canceled=true`,
-      allow_promotion_codes: false,
+      allow_promotion_codes: true,
     };
 
     if (customerId) {
