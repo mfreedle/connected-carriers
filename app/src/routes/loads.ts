@@ -31,6 +31,14 @@ function loadsPageContent(mcpUrl: string): string {
   <a href="https://connectedcarriers.org/post-load.html" class="btn-primary" style="text-decoration:none;padding:9px 18px;font-size:13px" target="_blank">+ Create Load</a>
 </div>
 
+<div id="attention-card" class="card" style="border-left:3px solid var(--amber);display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="card-title" style="margin:0;padding:0;border:0;color:var(--amber)">What needs attention</div>
+    <button onclick="refreshAttention()" style="background:none;border:1px solid var(--cream3);padding:4px 10px;border-radius:2px;font-family:var(--sans);font-size:11px;color:var(--muted);cursor:pointer">Refresh</button>
+  </div>
+  <div id="attention-list"></div>
+</div>
+
 <div class="card" style="padding:0">
   <div style="padding:16px 22px;border-bottom:1px solid var(--cream2);display:flex;justify-content:space-between;align-items:center">
     <div class="card-title" style="margin:0;padding:0;border:0">Your loads</div>
@@ -129,6 +137,38 @@ function copyText(t) {
   setTimeout(function(){ event.target.textContent = 'Copy Link'; }, 2000);
 }
 
+async function refreshAttention() {
+  var card = document.getElementById('attention-card');
+  var list = document.getElementById('attention-list');
+  try {
+    var res = await fetch(MCP + '/loads/attention');
+    if (!res.ok) throw new Error('Failed');
+    var data = await res.json();
+    if (!data.items || data.items.length === 0) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    list.innerHTML = data.items.map(function(item) {
+      var urgencyColor = item.priority <= 1 ? '#a32d2d' : item.priority <= 2 ? '#BA7517' : '#6B7A8A';
+      return '<div style="display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--cream2)">' +
+        '<span style="font-size:16px;flex-shrink:0;margin-top:1px">' + item.icon + '</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + item.load_id + ' <span style="font-weight:400;color:var(--muted)">— ' + item.route + '</span></div>' +
+          '<div style="font-size:13px;color:' + urgencyColor + ';margin-top:2px">' + item.message + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + item.action + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    // remove last border
+    var children = list.children;
+    if (children.length > 0) children[children.length - 1].style.borderBottom = 'none';
+  } catch(e) {
+    card.style.display = 'none';
+  }
+}
+
+refreshAttention();
 refreshLoads();
 </script>`;
 }

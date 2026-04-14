@@ -664,6 +664,88 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /loads/attention — prioritized action items across all loads
+  if (req.method === "GET" && url === "/loads/attention") {
+    setCors(res);
+    try {
+      // Get all recent loads with applicant counts
+      const loads = await query(`
+        SELECT l.id, l.load_id, l.slug, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
+               COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count,
+               COUNT(la.id) FILTER (WHERE la.qualification_result = 'qualified' AND la.contact_phone IS NOT NULL) as interested_count
+        FROM loads l
+        LEFT JOIN load_applications la ON la.load_id = l.id
+        GROUP BY l.id
+        ORDER BY l.created_at DESC
+        LIMIT 30
+      `);
+
+      // Get dispatch verifications with pending/confirmed status
+      const verifications = await query(`
+        SELECT load_id, status, geofence_result, distance_miles, confirmed_at, reminder_count, no_confirm_alert_sent,
+               driver_phone, mc_number, fmcsa_company, pickup_address
+        FROM dispatch_verifications
+        WHERE created_at > NOW() - INTERVAL '7 days'
+        ORDER BY created_at DESC
+      `);
+
+      const verifyMap: Record<string, any> = {};
+      for (const v of verifications.rows) {
+        verifyMap[v.load_id] = v;
+      }
+
+      const items: { priority: number; icon: string; load_id: string; route: string; message: string; action: string }[] = [];
+
+      for (const load of loads.rows) {
+        const route = `${load.origin} → ${load.destination}`;
+        const appCount = parseInt(load.applicant_count) || 0;
+        const intCount = parseInt(load.interested_count) || 0;
+
+        if (load.status === "open") {
+          if (appCount === 0) {
+            // No applicants — needs reposting
+            items.push({ priority: 3, icon: "📭", load_id: load.load_id, route, message: "No applicants yet", action: "Repost or share the load link" });
+          } else if (intCount > 0) {
+            // Has interested carriers — ready to assign
+            items.push({ priority: 1, icon: "👤", load_id: load.load_id, route, message: `${intCount} carrier${intCount !== 1 ? "s" : ""} interested — ready to assign`, action: "Review applicants and assign" });
+          } else if (appCount > 0) {
+            // Has qualified but no one submitted interest yet
+            items.push({ priority: 4, icon: "🔍", load_id: load.load_id, route, message: `${appCount} qualified — waiting for interest`, action: "Check back soon" });
+          }
+        }
+
+        // Check verifications
+        const v = verifyMap[load.load_id];
+        if (v) {
+          if (v.status === "pending" && v.reminder_count >= 2) {
+            items.push({ priority: 1, icon: "⚠️", load_id: load.load_id, route, message: "No arrival confirmation — 2 reminders sent", action: "Call driver or reassign" });
+          } else if (v.status === "pending" && v.reminder_count > 0) {
+            items.push({ priority: 2, icon: "⏳", load_id: load.load_id, route, message: `Waiting on arrival — ${v.reminder_count} reminder sent`, action: "Check back or call driver" });
+          } else if (v.status === "pending") {
+            items.push({ priority: 3, icon: "📤", load_id: load.load_id, route, message: "Arrival check sent — waiting for confirmation", action: "Driver has the link" });
+          } else if (v.status === "confirmed" && v.geofence_result === "yellow") {
+            items.push({ priority: 1, icon: "🟡", load_id: load.load_id, route, message: `Confirmed ${v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "nearby"} — review before loading`, action: "Call to confirm before release" });
+          } else if (v.status === "confirmed" && v.geofence_result === "red") {
+            items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: `Confirmed ${v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "far"} from pickup — something changed`, action: "Do not release — call carrier" });
+          } else if (v.status === "confirmed" && v.geofence_result === "green") {
+            items.push({ priority: 5, icon: "✅", load_id: load.load_id, route, message: "Arrival confirmed — on site", action: "Clear to load" });
+          }
+        }
+      }
+
+      // Sort by priority (0 = most urgent)
+      items.sort((a, b) => a.priority - b.priority);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ items, total_loads: loads.rows.length }));
+    } catch (err) {
+      console.error("[GET /loads/attention error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
   // ── GET /loads/recent — list recent loads with applicant counts
   if (req.method === "GET" && url === "/loads/recent") {
     setCors(res);
