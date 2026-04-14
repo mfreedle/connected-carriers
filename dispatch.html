@@ -280,6 +280,17 @@
     .record-grid { grid-template-columns: 1fr; }
     .footer-inner { flex-direction: column; align-items: flex-start; gap: 20px; }
   }
+
+  /* Tooltips */
+  .tip-wrap { position: relative; display: inline-block; }
+  .tip-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(247,245,240,0.15); color: rgba(247,245,240,0.5); font-size: 10px; font-weight: 600; cursor: help; margin-left: 6px; vertical-align: middle; }
+  .tip-wrap:hover .tip-text { display: block; }
+  .tip-text { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--slate); color: var(--cream); font-size: 12px; font-weight: 400; line-height: 1.5; padding: 8px 12px; border-radius: 4px; width: 240px; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.2); pointer-events: none; }
+  .tip-text::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--slate); }
+  /* Light bg tooltips */
+  .tip-light .tip-icon { background: rgba(28,43,58,0.1); color: var(--muted); }
+  .tip-light .tip-text { background: var(--white); color: var(--slate); border: 1px solid var(--cream3); }
+  .tip-light .tip-text::after { border-top-color: var(--white); }
 </style>
 </head>
 <body>
@@ -304,30 +315,30 @@
     <div class="form-card">
       <div class="form-row">
         <div class="field">
-          <label>Driver phone</label>
+          <label>Driver phone <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">The driver's cell number. They'll get a text with a one-tap link to confirm arrival.</span></span></label>
           <input type="tel" id="driver_phone" placeholder="509-555-1212" />
         </div>
         <div class="field">
-          <label>Your phone (for alerts)</label>
+          <label>Your phone (for alerts) <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">You'll get a text when the driver confirms — green, yellow, or red based on location and timing.</span></span></label>
           <input type="tel" id="broker_phone" placeholder="Your cell number" />
         </div>
       </div>
       <div class="form-row-full field">
-        <label>Pickup address</label>
+        <label>Pickup address <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">The geofence is set automatically from this address. We check the driver's location against it.</span></span></label>
         <input type="text" id="pickup_address" placeholder="420 Industrial Rd, Tacoma, WA" />
       </div>
       <div class="form-row">
         <div class="field">
-          <label>Window opens</label>
+          <label>Window opens <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">Optional. If the driver confirms before this time, you'll get an early arrival flag.</span></span></label>
           <input type="text" id="window_start" placeholder="1:00 PM" />
         </div>
         <div class="field">
-          <label>Window closes</label>
+          <label>Window closes <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">Optional. Helps identify whether the driver arrived during the expected window.</span></span></label>
           <input type="text" id="window_end" placeholder="3:00 PM" />
         </div>
       </div>
       <div class="form-row-full field">
-        <label>Carrier MC <span class="opt">(optional — triggers FMCSA check)</span></label>
+        <label>Carrier MC <span class="opt">(optional)</span> <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">If you include the MC number, we'll check FMCSA authority and safety rating and add it to your signal.</span></span></label>
         <input type="text" id="mc_number" placeholder="MC-123456" />
       </div>
       <button class="send-btn" id="send-btn" onclick="submitDispatch()">
@@ -378,21 +389,21 @@
     <div class="results-grid">
       <div class="result-card green">
         <div class="result-bar"></div>
-        <div class="result-badge">Confirmed near pickup</div>
+        <div class="result-badge">Confirmed near pickup <span class="tip-wrap tip-light"><span class="tip-icon">?</span><span class="tip-text">Driver confirmed within 1 mile of the pickup address, inside the expected window. You're clear to proceed.</span></span></div>
         <h3>Arrival confirmed</h3>
         <p>Arrival confirmed near pickup. No action needed.</p>
         <div class="result-detail">Distance: <span>0.12 mi</span> &nbsp;|&nbsp; Confirmed: <span>1:04 PM</span></div>
       </div>
       <div class="result-card yellow">
         <div class="result-bar"></div>
-        <div class="result-badge">Review recommended</div>
+        <div class="result-badge">Review recommended <span class="tip-wrap tip-light"><span class="tip-icon">?</span><span class="tip-text">Driver confirmed 1–2 miles from pickup, or outside the time window. Could be a staging area — call to confirm before releasing freight.</span></span></div>
         <h3>Something looks different</h3>
         <p>Something looks different. Review recommended.</p>
         <div class="result-detail">Distance: <span>1.4 mi</span> &nbsp;|&nbsp; Action: <span>Call to confirm before release</span></div>
       </div>
       <div class="result-card red">
         <div class="result-bar"></div>
-        <div class="result-badge">Call before loading</div>
+        <div class="result-badge">Call before loading <span class="tip-wrap tip-light"><span class="tip-icon">?</span><span class="tip-text">Driver confirmed more than 2 miles from pickup. Do not release freight. Call the carrier directly before anything moves.</span></span></div>
         <h3>Something changed</h3>
         <p>Something changed. Call before loading.</p>
         <div class="result-detail">Distance: <span>4.2 mi</span> &nbsp;|&nbsp; Action: <span>Do not release — call carrier</span></div>

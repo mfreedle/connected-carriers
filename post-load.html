@@ -81,6 +81,12 @@
   .powered { text-align: center; font-size: 11px; color: var(--muted); margin-top: 28px; }
   .powered a { color: var(--amber); text-decoration: none; }
 
+  .tip-wrap { position: relative; display: inline-block; }
+  .tip-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(28,43,58,0.08); color: var(--muted); font-size: 10px; font-weight: 600; cursor: help; margin-left: 4px; vertical-align: middle; }
+  .tip-wrap:hover .tip-text { display: block; }
+  .tip-text { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--slate); color: var(--cream); font-size: 12px; font-weight: 400; line-height: 1.5; padding: 8px 12px; border-radius: 4px; width: 220px; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; text-transform: none; letter-spacing: 0; }
+  .tip-text::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--slate); }
+
   @media (max-width: 480px) { .two-col { grid-template-columns: 1fr; } nav { padding: 0 20px; } .page { padding: 80px 20px 48px; } }
 </style>
 </head>
@@ -115,7 +121,7 @@
     </div>
     <div class="two-col">
       <div class="field">
-        <label>Equipment <span class="required">*</span></label>
+        <label>Equipment <span class="required">*</span> <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">e.g. 53' Dry Van, Reefer, Flatbed, Step Deck</span></span></label>
         <input type="text" id="equipment" placeholder="e.g. 53' Dry Van">
       </div>
       <div class="field">
@@ -124,7 +130,7 @@
       </div>
     </div>
     <div class="field">
-      <label>Rate note <span style="color:#b0bac4;font-weight:400;text-transform:none">(optional)</span></label>
+      <label>Rate note <span style="color:#b0bac4;font-weight:400;text-transform:none">(optional)</span> <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">Shows on the carrier-facing page. Use "Call for rate" if you don't want to post publicly.</span></span></label>
       <input type="text" id="rate_note" placeholder="e.g. Call for rate, $2.50/mi, or Quick pay available">
     </div>
   </div>
@@ -133,9 +139,8 @@
     <div class="section-label">Your contact (for carrier notifications)</div>
     <div class="two-col">
       <div class="field">
-        <label>Your phone</label>
+        <label>Your phone <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-text">You'll get a text when a qualified carrier submits interest in this load.</span></span></label>
         <input type="tel" id="broker_phone" placeholder="509-555-1212" inputmode="tel">
-        <div class="field-hint">You'll get a text when qualified carriers apply.</div>
       </div>
       <div class="field">
         <label>Your email</label>
