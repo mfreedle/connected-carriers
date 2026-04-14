@@ -230,40 +230,6 @@ function carrierDetailContent(
   const fmcsa = latestSubmission?.fmcsa_result as Record<string, unknown> | null;
   const flags = (latestSubmission?.internal_flags as Record<string, unknown>) || {};
 
-  // Build carrier profile docs section
-  let profileDocsHtml = "";
-  if (carrierProfile) {
-    const p = carrierProfile;
-    const today = new Date();
-    const insExp = p.insurance_expiration ? new Date(p.insurance_expiration) : null;
-    const cdlExp = p.cdl_expiration ? new Date(p.cdl_expiration) : null;
-    const insExpired = insExp && insExp < today;
-    const cdlExpired = cdlExp && cdlExp < today;
-    const vinMismatch = p.doc_flags && JSON.stringify(p.doc_flags).includes("VIN_NOT_ON_INSURANCE");
-
-    profileDocsHtml = `
-    <div class="card">
-      <div class="card-title">Carrier Profile — Uploaded Documents</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Completion: <strong style="color:${p.completion_status === "dispatch_ready" ? "#10b981" : "#f59e0b"}">${p.completion_status === "dispatch_ready" ? "Dispatch Ready" : "Partial"}</strong></div>
-      <div class="info-grid">
-        ${p.driver_name ? `<div class="info-row"><span class="info-label">Driver</span><span>${h(p.driver_name)} ${p.driver_phone ? "· " + h(p.driver_phone) : ""}</span></div>` : ""}
-        ${p.truck_number ? `<div class="info-row"><span class="info-label">Truck</span><span>#${h(p.truck_number)} ${p.trailer_number ? "/ Trailer #" + h(p.trailer_number) : ""}</span></div>` : ""}
-        ${p.vin_number ? `<div class="info-row"><span class="info-label">VIN</span><span style="font-family:monospace;letter-spacing:0.05em">${h(p.vin_number)} ${vinMismatch ? '<span style="color:#a32d2d;font-weight:500"> ⚠ NOT ON INSURANCE</span>' : ""}</span></div>` : ""}
-        ${p.cdl_number ? `<div class="info-row"><span class="info-label">CDL</span><span>${h(p.cdl_number)} ${p.cdl_state ? "(" + h(p.cdl_state) + ")" : ""}</span></div>` : ""}
-        ${cdlExp ? `<div class="info-row"><span class="info-label">CDL expires</span><span style="color:${cdlExpired ? "#a32d2d;font-weight:500" : "inherit"}">${cdlExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${cdlExpired ? " — EXPIRED" : ""}</span></div>` : ""}
-        ${p.insurance_company ? `<div class="info-row"><span class="info-label">Insurer</span><span>${h(p.insurance_company)} ${p.insurance_policy_number ? "· #" + h(p.insurance_policy_number) : ""}</span></div>` : ""}
-        ${insExp ? `<div class="info-row"><span class="info-label">Insurance expires</span><span style="color:${insExpired ? "#a32d2d;font-weight:500" : "inherit"}">${insExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${insExpired ? " — EXPIRED" : ""}</span></div>` : ""}
-        ${p.insurance_auto_liability ? `<div class="info-row"><span class="info-label">Auto liability</span><span>$${(p.insurance_auto_liability / 1000000).toFixed(1)}M</span></div>` : ""}
-        ${p.insurance_cargo ? `<div class="info-row"><span class="info-label">Cargo</span><span>$${(p.insurance_cargo / 1000).toFixed(0)}K</span></div>` : ""}
-      </div>
-      <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">
-        ${p.cdl_photo_url ? `<a href="${p.cdl_photo_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 CDL Photo</a>` : '<span style="font-size:11px;color:#a32d2d">Missing CDL</span>'}
-        ${p.vin_photo_url ? `<a href="${p.vin_photo_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 VIN Photo</a>` : '<span style="font-size:11px;color:#a32d2d">Missing VIN photo</span>'}
-        ${p.insurance_doc_url ? `<a href="${p.insurance_doc_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 Insurance Cert</a>` : '<span style="font-size:11px;color:#a32d2d">Missing insurance</span>'}
-      </div>
-    </div>`;
-  }
-
   const successMessages: Record<string, string> = {
     approve: "Carrier approved.",
     conditional: "Carrier conditionally approved.",
@@ -333,10 +299,70 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
       ${flags.auto_rejected ? `<div class="flag-item flag-auto">Auto-rejected by system rules</div>` : ""}
     </div>` : ""}
 
-    <!-- Documents -->
+    <!-- Documents & Carrier Profile -->
     <div class="card">
       <div class="card-title">Documents</div>
-      ${docs.length === 0 ? `<p class="muted" style="font-size:13px">No documents on file.</p>` : `
+      ${carrierProfile ? (() => {
+        const p = carrierProfile;
+        const today = new Date();
+        const insExp = p.insurance_expiration ? new Date(p.insurance_expiration) : null;
+        const cdlExp = p.cdl_expiration ? new Date(p.cdl_expiration) : null;
+        const insExpired = insExp && insExp < today;
+        const cdlExpired = cdlExp && cdlExp < today;
+        const vinMismatch = p.doc_flags && JSON.stringify(p.doc_flags).includes("VIN_NOT_ON_INSURANCE");
+        return `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Profile: <strong style="color:${p.completion_status === "dispatch_ready" ? "#10b981" : "#f59e0b"}">${p.completion_status === "dispatch_ready" ? "Dispatch Ready" : "Partial"}</strong></div>
+
+        <div class="doc-list">
+          <div class="doc-item">
+            <div>
+              <div class="doc-type">CDL</div>
+              ${p.cdl_number ? `<div class="muted" style="font-size:11px">${h(p.cdl_number)}${p.cdl_state ? " (" + h(p.cdl_state) + ")" : ""}</div>` : ""}
+              ${cdlExp ? `<div class="doc-expiry ${cdlExpired ? "" : "muted"}" style="${cdlExpired ? "color:#a32d2d;font-weight:500" : ""}">Expires ${cdlExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${cdlExpired ? " — EXPIRED" : ""}</div>` : ""}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${p.cdl_photo_url
+                ? `<a href="${p.cdl_photo_url}" target="_blank" style="font-size:11px;color:var(--amber);text-decoration:none">View →</a><span class="doc-status verified">✓ On file</span>`
+                : `<span class="doc-status pending">Missing</span>`}
+            </div>
+          </div>
+          <div class="doc-item">
+            <div>
+              <div class="doc-type">VIN (Truck)</div>
+              ${p.vin_number ? `<div class="muted" style="font-size:11px;font-family:monospace;letter-spacing:0.04em">${h(p.vin_number)}</div>` : ""}
+              ${vinMismatch ? `<div style="font-size:11px;color:#a32d2d;font-weight:500">⚠ VIN not found on insurance policy</div>` : ""}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${p.vin_photo_url
+                ? `<a href="${p.vin_photo_url}" target="_blank" style="font-size:11px;color:var(--amber);text-decoration:none">View →</a><span class="doc-status verified">✓ On file</span>`
+                : `<span class="doc-status pending">Missing</span>`}
+            </div>
+          </div>
+          <div class="doc-item">
+            <div>
+              <div class="doc-type">Insurance Certificate</div>
+              ${p.insurance_company ? `<div class="muted" style="font-size:11px">${h(p.insurance_company)}${p.insurance_policy_number ? " · #" + h(p.insurance_policy_number) : ""}</div>` : ""}
+              ${insExp ? `<div class="doc-expiry ${insExpired ? "" : "muted"}" style="${insExpired ? "color:#a32d2d;font-weight:500" : ""}">Expires ${insExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${insExpired ? " — EXPIRED" : ""}</div>` : ""}
+              ${p.insurance_auto_liability ? `<div class="muted" style="font-size:11px">Auto $${(p.insurance_auto_liability / 1000000).toFixed(1)}M · Cargo $${(p.insurance_cargo || 0) / 1000}K · GL $${((p.insurance_general_liability || 0) / 1000000).toFixed(1)}M</div>` : ""}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${p.insurance_doc_url
+                ? `<a href="${p.insurance_doc_url}" target="_blank" style="font-size:11px;color:var(--amber);text-decoration:none">View →</a><span class="doc-status verified">✓ On file</span>`
+                : `<span class="doc-status pending">Missing</span>`}
+            </div>
+          </div>
+        </div>
+
+        ${p.driver_name || p.truck_number ? `
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--cream2)">
+          <div style="font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Driver & Equipment</div>
+          <div class="info-grid">
+            ${p.driver_name ? `<div class="info-row"><span class="info-label">Driver</span><span>${h(p.driver_name)}${p.driver_phone ? " · " + h(p.driver_phone) : ""}</span></div>` : ""}
+            ${p.truck_number ? `<div class="info-row"><span class="info-label">Truck</span><span>#${h(p.truck_number)}${p.trailer_number ? " / Trailer #" + h(p.trailer_number) : ""}</span></div>` : ""}
+          </div>
+        </div>` : ""}
+      `;
+      })() : docs.length > 0 ? `
         <div class="doc-list">
           ${docs.map((d: Record<string, unknown>) => `
             <div class="doc-item">
@@ -350,10 +376,8 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
             </div>
           `).join("")}
         </div>
-      `}
+      ` : `<p class="muted" style="font-size:13px">No documents on file. Carrier hasn't submitted a profile yet.</p>`}
     </div>
-
-    ${profileDocsHtml}
 
   </div>
 
