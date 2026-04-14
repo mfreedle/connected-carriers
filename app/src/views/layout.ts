@@ -79,6 +79,29 @@ export function layout({ title, userName, content, csrfToken, userRole }: Layout
     display: flex; align-items: center; gap: 12px;
   }
   .nav-user span { color: rgba(247,245,240,0.65); }
+  .user-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--slate2);
+    border: 1px solid var(--slate3);
+    border-radius: 4px;
+    min-width: 160px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    z-index: 200;
+    padding: 4px 0;
+  }
+  .user-dropdown.open { display: block; }
+  .dropdown-item {
+    display: block;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: rgba(247,245,240,0.7);
+    text-decoration: none;
+    transition: background 0.1s;
+  }
+  .dropdown-item:hover { background: rgba(255,255,255,0.06); color: var(--cream); }
   .logout-btn {
     background: none; border: 1px solid rgba(255,255,255,0.15);
     color: rgba(247,245,240,0.55); padding: 4px 10px;
@@ -266,24 +289,31 @@ ${csrfToken ? `<meta name="csrf-token" content="${csrfToken}">` : ""}
 </head>
 <body>
 <nav class="nav">
-  <a href="/dashboard" class="nav-brand">Connected<span>Carriers</span></a>
+  <a href="/loads" class="nav-brand">Connected<span>Carriers</span></a>
   <div class="nav-links">
     <a href="/loads" class="nav-link">Loads</a>
     <a href="/dashboard" class="nav-link">Carrier Queue</a>
-    <a href="/billing" class="nav-link">Billing</a>
-    <a href="/settings" class="nav-link">Settings</a>
-    ${userRole === "owner" ? `<a href="/team" class="nav-link">Team</a>` : ""}
   </div>
-  <div class="nav-user">
-    <span>${userName}</span>
-    <form method="POST" action="/logout" style="display:inline">
-      <button type="submit" class="logout-btn">Sign out</button>
-    </form>
+  <div class="nav-user" style="position:relative">
+    <div class="user-menu-trigger" onclick="document.getElementById('user-menu').classList.toggle('open')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+      <span>${userName}</span>
+      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style="opacity:0.5"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:rgba(247,245,240,0.5)"/></svg>
+    </div>
+    <div id="user-menu" class="user-dropdown">
+      <a href="/billing" class="dropdown-item">Billing</a>
+      <a href="/settings" class="dropdown-item">Settings</a>
+      ${userRole === "owner" ? `<a href="/team" class="dropdown-item">Team</a>` : ""}
+      <div style="border-top:1px solid var(--slate3);margin:4px 0"></div>
+      <form method="POST" action="/logout" style="margin:0">
+        <button type="submit" class="dropdown-item" style="width:100%;text-align:left;background:none;border:none;font-family:var(--sans);cursor:pointer;color:rgba(247,245,240,0.55);font-size:13px;padding:8px 14px">Sign out</button>
+      </form>
+    </div>
   </div>
 </nav>
 <main class="main">
   ${content}
 </main>
+<script>document.addEventListener('click',function(e){var m=document.getElementById('user-menu');if(m&&!e.target.closest('.nav-user'))m.classList.remove('open')});</script>
 </body>
 </html>`;
 }
