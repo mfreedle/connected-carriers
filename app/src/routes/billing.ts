@@ -233,7 +233,14 @@ router.get("/billing", async (req: Request, res: Response) => {
 <div class="nav"><a href="/dashboard">← Back to dashboard</a></div>
 <h1>Billing</h1>
 <p class="subtitle">Manage your Connected Carriers subscription</p>
-${success ? '<div class="success-msg">Your free trial has started. Welcome to Connected Carriers.</div>' : ''}
+${success ? `<div class="success-msg" style="padding:20px">
+  <div style="font-weight:500;margin-bottom:8px">Welcome to Connected Carriers. Your free trial is active.</div>
+  <div style="font-size:13px;line-height:1.6;opacity:0.85">Here's what to do next:</div>
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+    <a href="/loads" style="display:inline-block;padding:8px 16px;background:#3b6d11;color:#fff;border-radius:2px;font-size:13px;font-weight:500;text-decoration:none">Create a Load Link</a>
+    <a href="https://connectedcarriers.org/dispatch.html" target="_blank" style="display:inline-block;padding:8px 16px;background:var(--slate);color:var(--cream);border-radius:2px;font-size:13px;font-weight:500;text-decoration:none">Try Arrival Check</a>
+  </div>
+</div>` : ''}
 ${canceled ? '<div class="cancel-msg">Checkout was canceled. No charges were made.</div>' : ''}
 <div class="card">
   <div class="row">

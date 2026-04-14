@@ -269,9 +269,10 @@ ${csrfToken ? `<meta name="csrf-token" content="${csrfToken}">` : ""}
   <a href="/dashboard" class="nav-brand">Connected<span>Carriers</span></a>
   <div class="nav-links">
     <a href="/dashboard" class="nav-link">Queue</a>
+    <a href="/loads" class="nav-link">Loads</a>
     <a href="/intake/links" class="nav-link">Intake</a>
     <a href="/leads" class="nav-link">Leads</a>
-    <a href="/intake/links" class="nav-link" style="display:none">Intake</a>
+    <a href="/billing" class="nav-link">Billing</a>
     <a href="/settings" class="nav-link">Settings</a>
     ${userRole === "owner" ? `<a href="/team" class="nav-link">Team</a>` : ""}
   </div>

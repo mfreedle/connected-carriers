@@ -664,6 +664,29 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /loads/recent — list recent loads with applicant counts
+  if (req.method === "GET" && url === "/loads/recent") {
+    setCors(res);
+    try {
+      const loads = await query(`
+        SELECT l.load_id, l.slug, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
+               COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count
+        FROM loads l
+        LEFT JOIN load_applications la ON la.load_id = l.id
+        GROUP BY l.id
+        ORDER BY l.created_at DESC
+        LIMIT 50
+      `);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ loads: loads.rows }));
+    } catch (err) {
+      console.error("[GET /loads/recent error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
   // ── GET /loads/:load_id/applicants — broker views qualified carriers for a load
   if (req.method === "GET" && url.match(/^\/loads\/[A-Z0-9-]+\/applicants$/)) {
     setCors(res);

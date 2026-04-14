@@ -15,6 +15,7 @@ import trackingRoutes from "./routes/tracking";
 import teamRoutes from "./routes/team";
 import profileRoutes from "./routes/profile";
 import billingRoutes from "./routes/billing";
+import loadsRoutes from "./routes/loads";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
 import { verifyCsrf } from "./middleware/security";
 
@@ -67,6 +68,7 @@ app.use("/", trackingRoutes); // public /track/:token routes
 app.use("/", teamRoutes);      // team management + public invite acceptance
 app.use("/", profileRoutes);   // public /profile/carrier route
 app.use("/", billingRoutes);   // /billing page + /api/billing/* endpoints
+app.use("/", loadsRoutes);    // /loads page (My Loads dashboard)
 
 // Broker routes — CSRF verification on all POSTs
 app.use(verifyCsrf);
