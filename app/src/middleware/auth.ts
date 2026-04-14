@@ -6,6 +6,7 @@ export interface AuthenticatedRequest extends Request {
     brokerAccountId?: number;
     userRole?: string;
     userName?: string;
+    userEmail?: string;
   };
 }
 

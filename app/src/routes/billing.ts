@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import { query } from "../db";
+import { layout } from "../views/layout";
 
 const router = Router();
 
@@ -254,7 +255,6 @@ ${billing?.stripe_customer_id && !userIsPilot ? `
   <p style="font-size:12px;color:var(--muted);margin-top:12px">Save 2 months with annual billing</p>
 </div>`}`;
 
-  const { layout } = require("../views/layout");
   res.send(layout({
     title: "Billing",
     userName: session.userName || "",
