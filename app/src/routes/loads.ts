@@ -108,32 +108,15 @@ ${alertsHtml}
     </div>
   </div>
 
-  <!-- SEND ARRIVAL CHECK -->
-  <div class="card" id="arrival-card">
-    <div class="card-title">Send arrival check</div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Send a text to the driver. When they arrive, you get a signal — green, yellow, or red — based on time and location.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="form-field"><label class="field-label">Driver phone</label><input class="field-input" id="ac-driver" placeholder="509-555-1212"></div>
-      <div class="form-field"><label class="field-label">Your phone</label><input class="field-input" id="ac-broker" placeholder="Your cell"></div>
+  <!-- WHAT NEEDS ATTENTION (moved from below) -->
+  <div id="attention-card" class="card" style="border-left:3px solid var(--amber)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="card-title" style="margin:0;padding:0;border:0;color:var(--amber)">What needs attention</div>
+      <button onclick="refreshAttention()" style="background:none;border:1px solid var(--cream3);padding:4px 10px;border-radius:2px;font-family:var(--sans);font-size:11px;color:var(--muted);cursor:pointer">Refresh</button>
     </div>
-    <div class="form-field"><label class="field-label">Pickup address</label><input class="field-input" id="ac-address" placeholder="420 Industrial Rd, Tacoma, WA"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="form-field"><label class="field-label">Window opens</label><input class="field-input" id="ac-start" placeholder="1:00 PM"></div>
-      <div class="form-field"><label class="field-label">MC (optional)</label><input class="field-input" id="ac-mc" placeholder="MC-123456"></div>
-    </div>
-    <button class="btn-primary" onclick="sendArrival()" id="ac-btn" style="width:100%;background:var(--slate);color:var(--cream)">Send Arrival Check</button>
-    <div id="ac-status" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center"></div>
+    <div id="attention-list"><div style="padding:8px;font-size:12px;color:var(--muted)">Loading...</div></div>
   </div>
 
-</div>
-
-<!-- ATTENTION CARD -->
-<div id="attention-card" class="card" style="border-left:3px solid var(--amber);display:none">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="card-title" style="margin:0;padding:0;border:0;color:var(--amber)">What needs attention</div>
-    <button onclick="refreshAttention()" style="background:none;border:1px solid var(--cream3);padding:4px 10px;border-radius:2px;font-family:var(--sans);font-size:11px;color:var(--muted);cursor:pointer">Refresh</button>
-  </div>
-  <div id="attention-list"></div>
 </div>
 
 <!-- LOADS TABLE -->
@@ -179,38 +162,6 @@ async function quickCreate() {
     document.getElementById('qc-status').style.color = '#ef4444';
   }
   btn.disabled = false; btn.textContent = 'Create Load Link';
-}
-
-async function sendArrival() {
-  var driver = document.getElementById('ac-driver').value.trim();
-  var broker = document.getElementById('ac-broker').value.trim();
-  var address = document.getElementById('ac-address').value.trim();
-  var start = document.getElementById('ac-start').value.trim();
-  var mc = document.getElementById('ac-mc').value.trim();
-  if (!driver || !broker || !address) { document.getElementById('ac-status').textContent = 'Driver phone, your phone, and pickup address required.'; document.getElementById('ac-status').style.color='#ef4444'; return; }
-  var btn = document.getElementById('ac-btn');
-  btn.disabled = true; btn.textContent = 'Sending...';
-  document.getElementById('ac-status').textContent = '';
-  try {
-    var res = await fetch(MCP + '/dispatch', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({driver_phone: driver, broker_phone: broker, pickup_address: address, pickup_window_start: start, mc_number: mc || undefined})
-    });
-    var data = await res.json();
-    if (data.success) {
-      var msg = data.sms_sent ? 'Arrival check sent to driver.' : 'Created (SMS delivery pending — Twilio approval in progress).';
-      document.getElementById('ac-status').textContent = msg + ' Load: ' + data.load_id;
-      document.getElementById('ac-status').style.color = '#10b981';
-      document.getElementById('ac-driver').value = '';
-      document.getElementById('ac-address').value = '';
-      document.getElementById('ac-mc').value = '';
-      refreshAttention();
-    } else { throw new Error(data.error); }
-  } catch(e) {
-    document.getElementById('ac-status').textContent = 'Error: ' + e.message;
-    document.getElementById('ac-status').style.color = '#ef4444';
-  }
-  btn.disabled = false; btn.textContent = 'Send Arrival Check';
 }
 
 async function refreshLoads() {
