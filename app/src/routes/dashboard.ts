@@ -68,6 +68,7 @@ router.get("/dashboard", requireAuth, async (req: AuthenticatedRequest, res: Res
     const html = layout({
       title: "Submission Queue",
       userName: req.session.userName || "",
+      userRole: req.session.userRole || "",
       content: dashboardContent(result.rows, tab, countMap, totalCount),
     });
 
