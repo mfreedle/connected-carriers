@@ -1510,7 +1510,7 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
       <div class="app-actions">
         <div>
           <input type="tel" class="phone-input" id="phone-${a.id}" value="${a.contact_phone || ""}" placeholder="Driver phone" style="width:130px;padding:6px 8px;border:1px solid #e8e4de;border-radius:4px;font-size:12px;margin-bottom:6px;display:block">
-          <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, document.getElementById('phone-${a.id}').value, '${(a.company_name || "").replace(/'/g, "\\'")}')">
+          <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, document.getElementById('phone-${a.id}').value, '${String(a.company_name || "").replace(/'/g, "\\'")}')">
             ${a.has_profile ? "Assign → Arrival Check" : "Assign → Send Doc Request"}
           </button>
         </div>
