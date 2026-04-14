@@ -261,20 +261,70 @@ async function toggleApplicants(loadId, slug) {
         ? '<span style="background:#EAF3DE;color:#3b6d11;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">DISPATCH READY</span>'
         : '<span style="background:#F0EDE7;color:#6b7a8a;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">NEEDS DOCS</span>';
       var contactInfo = a.contact_name ? (a.contact_name + (a.contact_phone ? ' · ' + a.contact_phone : '')) : '';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--cream2)">' +
-        '<div>' +
-          '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
-          '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + '</div>' +
-          (contactInfo ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + contactInfo + '</div>' : '') +
+      return '<div style="border-bottom:1px solid var(--cream2);padding-bottom:8px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + '</div>' +
+            (contactInfo ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + contactInfo + '</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<button onclick="toggleProfile(\\'' + a.mc_number + '\\',this)" style="padding:4px 10px;background:none;border:1px solid var(--cream3);border-radius:2px;font-size:10px;font-family:var(--sans);color:var(--muted);cursor:pointer">Profile ▾</button>' +
+            '<input type="tel" id="aphone-' + a.id + '" value="' + (a.contact_phone || '') + '" placeholder="Driver phone" style="padding:4px 8px;border:1px solid var(--cream3);border-radius:2px;font-size:11px;width:110px">' +
+            '<button onclick="assignFromDashboard(\\'' + slug + '\\',' + a.id + ',document.getElementById(\\'aphone-' + a.id + '\\').value,\\'' + (a.company_name || '').replace(/'/g, '') + '\\')" style="padding:5px 12px;background:var(--amber);color:var(--slate);border:none;border-radius:2px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap">' + (a.has_profile ? 'Assign → Check' : 'Assign → Docs') + '</button>' +
+          '</div>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:6px">' +
-          '<input type="tel" id="aphone-' + a.id + '" value="' + (a.contact_phone || '') + '" placeholder="Driver phone" style="padding:4px 8px;border:1px solid var(--cream3);border-radius:2px;font-size:11px;width:110px">' +
-          '<button onclick="assignFromDashboard(\\'' + slug + '\\',' + a.id + ',document.getElementById(\\'aphone-' + a.id + '\\').value,\\'' + (a.company_name || '').replace(/'/g, '') + '\\')" style="padding:5px 12px;background:var(--amber);color:var(--slate);border:none;border-radius:2px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap">' + (a.has_profile ? 'Assign → Check' : 'Assign → Docs') + '</button>' +
-        '</div>' +
+        '<div id="profile-' + a.mc_number + '" style="display:none"></div>' +
       '</div>';
     }).join('');
   } catch(e) {
     content.innerHTML = '<div style="font-size:12px;color:#a32d2d">Error loading applicants.</div>';
+  }
+}
+
+async function toggleProfile(mc, btn) {
+  var el = document.getElementById('profile-' + mc);
+  if (el.style.display !== 'none') { el.style.display = 'none'; btn.textContent = 'Profile ▾'; return; }
+  el.style.display = 'block';
+  btn.textContent = 'Profile ▴';
+  el.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0">Loading profile...</div>';
+  try {
+    var res = await fetch(MCP + '/carrier/' + mc + '/profile');
+    if (!res.ok) throw new Error('Failed');
+    var data = await res.json();
+    if (!data.found) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0;background:#fff;border-radius:3px;padding:10px;margin-top:6px">No carrier profile on file. Carrier hasn\\'t submitted docs yet.</div>';
+      return;
+    }
+    var p = data.profile;
+    var insExp = p.insurance_expiration ? new Date(p.insurance_expiration) : null;
+    var cdlExp = p.cdl_expiration ? new Date(p.cdl_expiration) : null;
+    var now = new Date();
+    var insExpired = insExp && insExp < now;
+    var cdlExpired = cdlExp && cdlExp < now;
+    var vinFlag = p.doc_flags && JSON.stringify(p.doc_flags).includes('VIN_NOT_ON_INSURANCE');
+
+    el.innerHTML = '<div style="background:#fff;border:1px solid var(--cream3);border-radius:3px;padding:12px;margin-top:6px;font-size:12px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div>' +
+          (p.driver_name ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Driver</div><div style="font-weight:500">' + p.driver_name + (p.driver_phone ? ' · ' + p.driver_phone : '') + '</div>' : '') +
+          (p.truck_number ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-top:8px;margin-bottom:2px">Truck / Trailer</div><div>#' + p.truck_number + (p.trailer_number ? ' / #' + p.trailer_number : '') + '</div>' : '') +
+          (p.vin_number ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-top:8px;margin-bottom:2px">VIN</div><div style="font-family:monospace;letter-spacing:0.04em">' + p.vin_number + (vinFlag ? ' <span style="color:#a32d2d;font-weight:500">⚠ NOT ON INSURANCE</span>' : '') + '</div>' : '') +
+        '</div>' +
+        '<div>' +
+          (p.cdl_number ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">CDL</div><div>' + p.cdl_number + (p.cdl_state ? ' (' + p.cdl_state + ')' : '') + (cdlExp ? ' · Exp ' + cdlExp.toLocaleDateString() + (cdlExpired ? ' <span style="color:#a32d2d;font-weight:500">EXPIRED</span>' : '') : '') + '</div>' : '') +
+          (p.insurance_company ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-top:8px;margin-bottom:2px">Insurance</div><div>' + p.insurance_company + (p.insurance_policy_number ? ' · #' + p.insurance_policy_number : '') + (insExp ? ' · Exp ' + insExp.toLocaleDateString() + (insExpired ? ' <span style="color:#a32d2d;font-weight:500">EXPIRED</span>' : '') : '') + '</div>' : '') +
+          (p.insurance_auto_liability ? '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-top:8px;margin-bottom:2px">Coverage</div><div>Auto $' + (p.insurance_auto_liability/1000000).toFixed(1) + 'M · Cargo $' + ((p.insurance_cargo||0)/1000) + 'K · GL $' + ((p.insurance_general_liability||0)/1000000).toFixed(1) + 'M</div>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-top:10px;display:flex;gap:8px">' +
+        (p.cdl_photo_url ? '<a href="' + p.cdl_photo_url + '" target="_blank" style="padding:3px 8px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:10px;color:var(--slate);text-decoration:none">View CDL</a>' : '<span style="font-size:10px;color:#a32d2d">No CDL</span>') +
+        (p.vin_photo_url ? '<a href="' + p.vin_photo_url + '" target="_blank" style="padding:3px 8px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:10px;color:var(--slate);text-decoration:none">View VIN</a>' : '<span style="font-size:10px;color:#a32d2d">No VIN photo</span>') +
+        (p.insurance_doc_url ? '<a href="' + p.insurance_doc_url + '" target="_blank" style="padding:3px 8px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:10px;color:var(--slate);text-decoration:none">View Insurance</a>' : '<span style="font-size:10px;color:#a32d2d">No insurance</span>') +
+      '</div>' +
+    '</div>';
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:11px;color:#a32d2d;padding:6px 0">Error loading profile.</div>';
   }
 }
 

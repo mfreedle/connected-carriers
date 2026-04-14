@@ -637,19 +637,32 @@ const httpServer = http.createServer(async (req, res) => {
       if (qualification === "qualified" || qualification === "review") {
         try {
           const mcClean = mc_number.replace(/\D/g, "");
+          // Look up broker_account_id from load's broker_email
+          let brokerAccountId: number | null = null;
+          if (load.broker_email) {
+            const brokerLookup = await query(
+              "SELECT broker_account_id FROM broker_users WHERE email = $1",
+              [load.broker_email]
+            );
+            if (brokerLookup.rows.length) brokerAccountId = brokerLookup.rows[0].broker_account_id;
+          }
+
           const existing = await query("SELECT id FROM carriers WHERE mc_number = $1", [mcClean]);
           if (!existing.rows.length) {
             await query(
-              `INSERT INTO carriers (mc_number, company_name, dot_number, tier, fmcsa_status, verified_at)
-               VALUES ($1, $2, $3, $4, $5, NOW())`,
+              `INSERT INTO carriers (mc_number, company_name, dot_number, tier, fmcsa_status, verified_at, broker_account_id)
+               VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
               [mcClean, fmcsa_company, (details as any).dot_number || null,
                qualification === "qualified" ? "approved" : "manual_review",
-               JSON.stringify(details)]
+               JSON.stringify(details), brokerAccountId]
             );
           } else {
+            // Update FMCSA data, and set broker_account_id if not already set
             await query(
-              "UPDATE carriers SET fmcsa_status = $1, verified_at = NOW(), updated_at = NOW() WHERE mc_number = $2",
-              [JSON.stringify(details), mcClean]
+              `UPDATE carriers SET fmcsa_status = $1, company_name = $2, verified_at = NOW(), updated_at = NOW(),
+               broker_account_id = COALESCE(broker_account_id, $3)
+               WHERE mc_number = $4`,
+              [JSON.stringify(details), fmcsa_company, brokerAccountId, mcClean]
             );
           }
         } catch (err) { console.error("[Carrier roster upsert]", err); }
@@ -880,6 +893,37 @@ const httpServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ loads: enriched }));
     } catch (err) {
       console.error("[GET /loads/recent error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Server error" }));
+    }
+    return;
+  }
+
+  // ── GET /carrier/:mc/profile — get carrier profile data for inline display
+  if (req.method === "GET" && url.match(/^\/carrier\/\d+\/profile$/)) {
+    setCors(res);
+    const mc = url.split("/")[2];
+    try {
+      const profile = await query(
+        `SELECT company_name, mc_number, contact_name, email, phone,
+                driver_name, driver_phone, truck_number, trailer_number,
+                vin_number, cdl_number, cdl_state, cdl_expiration,
+                insurance_expiration, insurance_policy_number, insurance_company,
+                insurance_auto_liability, insurance_cargo, insurance_general_liability,
+                insurance_vins, completion_status, doc_flags,
+                cdl_photo_url, vin_photo_url, insurance_doc_url
+         FROM carrier_profiles WHERE mc_number = $1 ORDER BY created_at DESC LIMIT 1`,
+        [mc]
+      );
+      if (!profile.rows.length) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ found: false }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ found: true, profile: profile.rows[0] }));
+    } catch (err) {
+      console.error("[GET /carrier/profile error]", err);
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Server error" }));
     }
@@ -1267,12 +1311,14 @@ const httpServer = http.createServer(async (req, res) => {
           updated_at = NOW()
         WHERE mc_number = '1234567'
       `);
-      // Ensure carriers table has them as approved
+      // Ensure carriers table has them as approved with broker_account_id
+      const brokerLookup = await query("SELECT broker_account_id FROM broker_users WHERE email = 'kateloads@logisticsxpress.com'");
+      const kateAccountId = brokerLookup.rows.length ? brokerLookup.rows[0].broker_account_id : null;
       await query(`
         UPDATE carriers SET company_name = 'Direct Drive Transportation LLC', tier = 'approved',
-          verified_at = NOW(), updated_at = NOW()
+          verified_at = NOW(), updated_at = NOW(), broker_account_id = COALESCE(broker_account_id, $1)
         WHERE mc_number = '1234567'
-      `);
+      `, [kateAccountId]);
       // Update the load_application to show has_profile = true
       await query("UPDATE load_applications SET has_profile = true WHERE mc_number = '1234567'");
       // Delete Kate's self-application
