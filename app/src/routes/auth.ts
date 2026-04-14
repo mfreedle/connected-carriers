@@ -7,7 +7,7 @@ const router = Router();
 
 router.get("/login", (req: Request, res: Response) => {
   const session = (req as AuthenticatedRequest).session;
-  if (session?.userId) return res.redirect("/dashboard");
+  if (session?.userId) return res.redirect("/loads");
   res.send(loginPage());
 });
 
@@ -36,7 +36,8 @@ router.post("/login", async (req: Request, res: Response) => {
     session.brokerAccountId = user.broker_account_id;
     session.userRole = user.role;
     session.userName = user.name;
-    res.redirect("/dashboard");
+    session.userEmail = user.email;
+    res.redirect("/loads");
   } catch (err) {
     console.error(err);
     res.send(loginPage("Something went wrong. Try again."));
