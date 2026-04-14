@@ -1236,6 +1236,58 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /admin/seed-demo — one-time demo data seed (requires RESET_TOKEN env var)
+  if (req.method === "GET" && url.startsWith("/admin/seed-demo")) {
+    const params = new URL(req.url || "", `http://${req.headers.host}`).searchParams;
+    const token = params.get("token");
+    if (!process.env.RESET_TOKEN || token !== process.env.RESET_TOKEN) {
+      res.writeHead(403); res.end("Forbidden"); return;
+    }
+    setCors(res);
+    try {
+      // Update Direct Drive's carrier profile to dispatch-ready with simulated docs
+      await query(`
+        UPDATE carrier_profiles SET
+          cdl_photo_url = 'https://placehold.co/400x250/1C2B3A/F7F5F0?text=CDL+James+Mitchell',
+          vin_photo_url = 'https://placehold.co/400x250/1C2B3A/F7F5F0?text=VIN+1HGBH41JXMN109186',
+          insurance_doc_url = 'https://placehold.co/400x250/1C2B3A/F7F5F0?text=COI+Direct+Drive',
+          cdl_number = 'D4821-5577-9013',
+          cdl_state = 'AZ',
+          cdl_expiration = '2027-06-30',
+          insurance_expiration = '2027-01-15',
+          insurance_policy_number = 'TRK-2026-44821',
+          insurance_company = 'National Indemnity Company',
+          insurance_auto_liability = 1000000,
+          insurance_cargo = 100000,
+          insurance_general_liability = 1000000,
+          insurance_vins = '["1HGBH41JXMN109186"]'::jsonb,
+          vin_number = '1HGBH41JXMN109186',
+          completion_status = 'dispatch_ready',
+          doc_flags = '[]'::jsonb,
+          updated_at = NOW()
+        WHERE mc_number = '1234567'
+      `);
+      // Ensure carriers table has them as approved
+      await query(`
+        UPDATE carriers SET company_name = 'Direct Drive Transportation LLC', tier = 'approved',
+          verified_at = NOW(), updated_at = NOW()
+        WHERE mc_number = '1234567'
+      `);
+      // Update the load_application to show has_profile = true
+      await query("UPDATE load_applications SET has_profile = true WHERE mc_number = '1234567'");
+      // Delete Kate's self-application
+      await query("DELETE FROM load_applications WHERE mc_number = '064447'");
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, message: "Demo seeded: Direct Drive dispatch-ready, Kate self-app removed" }));
+    } catch (err) {
+      console.error("[admin/seed-demo error]", err);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return;
+  }
+
   // OPTIONS preflight
   if (req.method === "OPTIONS") {
     setCors(res);
