@@ -176,3 +176,21 @@ function loginPage(error?: string) {
 </body>
 </html>`;
 }
+
+// One-time password reset — requires RESET_TOKEN env var
+// Usage: POST /reset-password with { email, new_password, token }
+router.post("/reset-password", async (req: Request, res: Response) => {
+  const resetToken = process.env.RESET_TOKEN;
+  if (!resetToken) return res.status(404).send("Not found");
+  const { email, new_password, token } = req.body;
+  if (token !== resetToken) return res.status(403).send("Invalid token");
+  if (!email || !new_password) return res.status(400).send("Email and new_password required");
+  try {
+    const hash = await bcrypt.hash(new_password, 10);
+    const result = await query("UPDATE broker_users SET password_digest = $1 WHERE email = $2", [hash, email.toLowerCase().trim()]);
+    if (result.rowCount === 0) return res.status(404).send("User not found");
+    res.send("Password updated for " + email);
+  } catch (err) {
+    res.status(500).send("Error: " + String(err));
+  }
+});
