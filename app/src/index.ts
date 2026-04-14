@@ -57,7 +57,7 @@ app.use(session({
 }));
 
 // Public routes — no CSRF
-app.get("/", (req, res) => res.redirect("/dashboard"));
+app.get("/", (req, res) => res.redirect("/loads"));
 app.use("/", authRoutes);
 app.use("/", intakeRoutes);
 app.use("/", stripeWebhookRoutes);  // Stripe webhook — raw body, no CSRF
