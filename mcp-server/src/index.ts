@@ -1277,9 +1277,12 @@ const httpServer = http.createServer(async (req, res) => {
       await query("UPDATE load_applications SET has_profile = true WHERE mc_number = '1234567'");
       // Delete Kate's self-application
       await query("DELETE FROM load_applications WHERE mc_number = '064447'");
+      // Delete duplicate/old test loads (keep only the one with applicants)
+      await query("DELETE FROM loads WHERE load_id = 'HX-0414-3895'");
+      await query("DELETE FROM loads WHERE load_id = 'HX-0413-49B2'");
 
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, message: "Demo seeded: Direct Drive dispatch-ready, Kate self-app removed" }));
+      res.end(JSON.stringify({ success: true, message: "Demo seeded: Direct Drive dispatch-ready, duplicates cleaned" }));
     } catch (err) {
       console.error("[admin/seed-demo error]", err);
       res.writeHead(500, { "Content-Type": "application/json" });
