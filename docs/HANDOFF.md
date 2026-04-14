@@ -300,7 +300,9 @@ Layer 4:          Setup packet auto-chase SMS
 Layer 5:          Pickup code as dock-side authorization (V2 — needs shipper)
 Layer 6:          Performance memory per carrier per load
 Layer 7:          Network intelligence across multiple brokers
-Layer 8:          Load marketplace for pre-screened carriers
+Layer 8:          Carrier risk intelligence — partner with CAB or similar for chameleon carrier detection,
+                  advanced scoring, insurance cycling patterns (ref: 60 Minutes "Chameleon Carriers" Apr 12, 2026)
+Layer 9:          Load marketplace for pre-screened carriers
 ```
 
 ---
