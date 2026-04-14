@@ -140,6 +140,8 @@ function copyText(t) {
 async function refreshAttention() {
   var card = document.getElementById('attention-card');
   var list = document.getElementById('attention-list');
+  list.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">Refreshing...</div>';
+  card.style.display = 'block';
   try {
     var res = await fetch(MCP + '/loads/attention');
     if (!res.ok) throw new Error('Failed');
