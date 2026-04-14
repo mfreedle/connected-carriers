@@ -302,7 +302,11 @@ Layer 6:          Performance memory per carrier per load
 Layer 7:          Network intelligence across multiple brokers
 Layer 8:          Carrier risk intelligence — partner with CAB or similar for chameleon carrier detection,
                   advanced scoring, insurance cycling patterns (ref: 60 Minutes "Chameleon Carriers" Apr 12, 2026)
-Layer 9:          Load marketplace for pre-screened carriers
+Layer 9:          ELD/telematics integration — pull real-time truck location from existing ELD providers
+                  (Motive, Samsara, etc.) or aggregators (Project44, Descartes MacroPoint). Auto-trigger
+                  arrival signals without driver action. No app install, no browser tab — the truck is
+                  already reporting location. Partnership play, not a code build.
+Layer 10:         Load marketplace for pre-screened carriers
 ```
 
 ---
