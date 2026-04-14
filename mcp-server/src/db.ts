@@ -96,6 +96,7 @@ export async function initDb() {
       id SERIAL PRIMARY KEY,
       load_id VARCHAR(30) UNIQUE NOT NULL,
       slug VARCHAR(20) UNIQUE NOT NULL,
+      broker_ref TEXT,
       broker_phone VARCHAR(20),
       broker_email TEXT,
       origin TEXT NOT NULL,
@@ -108,6 +109,8 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Add broker_ref column if table already exists
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_ref TEXT").catch(() => {});
 
   await query(`
     CREATE TABLE IF NOT EXISTS load_applications (

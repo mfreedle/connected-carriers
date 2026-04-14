@@ -88,6 +88,7 @@ ${alertsHtml}
   <div class="card" id="create-card">
     <div class="card-title">Post a load</div>
     <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Create a shareable link. Paste it into DAT or Truckstop. Carriers enter their MC — you see who qualifies.</p>
+    <div class="form-field"><label class="field-label">Your load / BOL number</label><input class="field-input" id="qc-ref" placeholder="e.g. LX-20260414-001, BOL 94827, DAT-2026-0413"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="form-field"><label class="field-label">Origin</label><input class="field-input" id="qc-origin" placeholder="Tacoma, WA"></div>
       <div class="form-field"><label class="field-label">Destination</label><input class="field-input" id="qc-dest" placeholder="Dallas, TX"></div>
@@ -134,6 +135,7 @@ ${alertsHtml}
 var MCP = '${mcpUrl}';
 
 async function quickCreate() {
+  var ref = document.getElementById('qc-ref').value.trim();
   var origin = document.getElementById('qc-origin').value.trim();
   var dest = document.getElementById('qc-dest').value.trim();
   var equip = document.getElementById('qc-equip').value.trim();
@@ -145,7 +147,7 @@ async function quickCreate() {
   try {
     var res = await fetch(MCP + '/load/create', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date})
+      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined})
     });
     var data = await res.json();
     if (data.success) {
@@ -175,7 +177,7 @@ async function refreshLoads() {
       el.innerHTML = '<div class="empty" style="padding:24px">No loads yet. Create your first load above.</div>';
       return;
     }
-    el.innerHTML = '<table class="data-table"><thead><tr><th>Load ID</th><th>Route</th><th>Equipment</th><th>Pipeline</th><th></th></tr></thead><tbody>' +
+    el.innerHTML = '<table class="data-table"><thead><tr><th>Load</th><th>Route</th><th>Equipment</th><th>Pipeline</th><th></th></tr></thead><tbody>' +
       data.loads.map(function(l) {
         var pipeColors = {
           posted: {bg:'#6B7A8A',label:'Posted'},
@@ -195,7 +197,10 @@ async function refreshLoads() {
         var viewBtn = appCount > 0
           ? '<button onclick="toggleApplicants(\\'' + l.load_id + '\\',\\'' + l.slug + '\\')" class="btn-link" style="border:none;background:none;cursor:pointer;font-family:var(--sans)">' + appCount + ' applicant' + (appCount !== 1 ? 's' : '') + ' ▾</button>'
           : '<a href="javascript:void(0)" onclick="copyLoadLink(\\'' + MCP + '/load/' + l.slug + '\\')" class="btn-link" style="font-size:11px">Copy link</a>';
-        return '<tr><td><code>' + l.load_id + '</code></td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + p.bg + '20;color:' + p.bg + ';border:1px solid ' + p.bg + '40">' + p.label + '</span><div style="font-size:11px;color:var(--muted);margin-top:2px">' + (l.pipeline_detail || '') + '</div></td><td>' + viewBtn + '</td></tr>' +
+        var loadLabel = l.broker_ref
+          ? '<div style="font-weight:500;font-size:13px;color:var(--slate)">' + l.broker_ref + '</div><div style="font-size:11px;color:var(--muted)"><code>' + l.load_id + '</code></div>'
+          : '<code>' + l.load_id + '</code>';
+        return '<tr><td>' + loadLabel + '</td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + p.bg + '20;color:' + p.bg + ';border:1px solid ' + p.bg + '40">' + p.label + '</span><div style="font-size:11px;color:var(--muted);margin-top:2px">' + (l.pipeline_detail || '') + '</div></td><td>' + viewBtn + '</td></tr>' +
           '<tr id="apps-' + l.load_id + '" style="display:none"><td colspan="5" style="padding:0;background:var(--cream)"><div id="apps-content-' + l.load_id + '" style="padding:12px 16px"></div></td></tr>';
       }).join('') + '</tbody></table>';
   } catch(e) {

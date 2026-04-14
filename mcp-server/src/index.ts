@@ -460,7 +460,7 @@ const httpServer = http.createServer(async (req, res) => {
     setCors(res);
     try {
       const body = JSON.parse((await readBody(req)).toString());
-      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email } = body;
+      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email, broker_ref } = body;
 
       if (!origin || !destination || !equipment) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -472,9 +472,9 @@ const httpServer = http.createServer(async (req, res) => {
       const slug = crypto.randomBytes(4).toString("hex").toUpperCase();
 
       await query(
-        `INSERT INTO loads (load_id, slug, broker_phone, broker_email, origin, destination, equipment, pickup_date, rate_note, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [load_id, slug, normalizePhone(broker_phone || ""), broker_email || null,
+        `INSERT INTO loads (load_id, slug, broker_ref, broker_phone, broker_email, origin, destination, equipment, pickup_date, rate_note, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [load_id, slug, broker_ref?.trim() || null, normalizePhone(broker_phone || ""), broker_email || null,
          origin, destination, equipment, pickup_date || null, rate_note || null, notes || null]
       );
 
@@ -773,7 +773,7 @@ const httpServer = http.createServer(async (req, res) => {
     setCors(res);
     try {
       const loads = await query(`
-        SELECT l.load_id, l.slug, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
+        SELECT l.load_id, l.slug, l.broker_ref, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
                COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count,
                COUNT(la.id) FILTER (WHERE la.qualification_result = 'qualified' AND la.contact_phone IS NOT NULL) as interested_count
         FROM loads l
