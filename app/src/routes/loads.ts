@@ -197,19 +197,25 @@ async function refreshLoads() {
 async function refreshAttention() {
   var card = document.getElementById('attention-card');
   var list = document.getElementById('attention-list');
+  card.style.display = 'block';
+  list.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">Refreshing...</div>';
   try {
     var res = await fetch(MCP + '/loads/attention');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
-    if (!data.items || data.items.length === 0) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
+    if (!data.items || data.items.length === 0) { 
+      list.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">Nothing needs attention right now.</div>';
+      return; 
+    }
     list.innerHTML = data.items.map(function(item) {
       var uc = item.priority <= 1 ? '#a32d2d' : item.priority <= 2 ? '#BA7517' : '#6B7A8A';
       return '<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--cream2)"><span style="font-size:15px;flex-shrink:0;margin-top:1px">' + item.icon + '</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;color:var(--slate)">' + item.load_id + ' <span style="font-weight:400;color:var(--muted)">— ' + item.route + '</span></div><div style="font-size:12px;color:' + uc + ';margin-top:1px">' + item.message + '</div></div></div>';
     }).join('');
     var ch = list.children;
     if (ch.length > 0) ch[ch.length - 1].style.borderBottom = 'none';
-  } catch(e) { card.style.display = 'none'; }
+  } catch(e) { 
+    list.innerHTML = '<div style="padding:8px;font-size:12px;color:#a32d2d">Could not load — try again.</div>';
+  }
 }
 
 function copyText(t, el) {
