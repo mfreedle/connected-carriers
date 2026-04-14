@@ -171,10 +171,23 @@ async function refreshLoads() {
       el.innerHTML = '<div class="empty" style="padding:24px">No loads yet. Create your first load above.</div>';
       return;
     }
-    el.innerHTML = '<table class="data-table"><thead><tr><th>Load ID</th><th>Route</th><th>Equipment</th><th>Status</th><th>Applicants</th><th></th></tr></thead><tbody>' +
+    el.innerHTML = '<table class="data-table"><thead><tr><th>Load ID</th><th>Route</th><th>Equipment</th><th>Pipeline</th><th></th></tr></thead><tbody>' +
       data.loads.map(function(l) {
-        var sc = l.status === 'open' ? '#10b981' : l.status === 'covered' ? '#3b82f6' : '#6b7a8a';
-        return '<tr><td><code>' + l.load_id + '</code></td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + sc + '20;color:' + sc + ';border:1px solid ' + sc + '40">' + l.status + '</span></td><td class="muted">' + (l.applicant_count || 0) + '</td><td><a href="' + MCP + '/board/' + l.slug + '" target="_blank" class="btn-link">Board →</a></td></tr>';
+        var pipeColors = {
+          posted: {bg:'#6B7A8A',label:'Posted'},
+          has_applicants: {bg:'#3b82f6',label:'Qualified'},
+          ready_to_assign: {bg:'#C8892A',label:'Ready to Assign'},
+          assigned: {bg:'#8b5cf6',label:'Docs Requested'},
+          arrival_sent: {bg:'#2563eb',label:'Arrival Sent'},
+          unresponsive: {bg:'#ef4444',label:'No Response'},
+          confirmed: {bg:'#10b981',label:'Confirmed ✓'},
+          review: {bg:'#f59e0b',label:'Review'},
+          alert: {bg:'#ef4444',label:'Alert ⚠'},
+          covered: {bg:'#10b981',label:'Covered'},
+          cancelled: {bg:'#6B7A8A',label:'Cancelled'}
+        };
+        var p = pipeColors[l.pipeline] || {bg:'#6B7A8A',label:l.pipeline};
+        return '<tr><td><code>' + l.load_id + '</code></td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + p.bg + '20;color:' + p.bg + ';border:1px solid ' + p.bg + '40">' + p.label + '</span><div style="font-size:11px;color:var(--muted);margin-top:2px">' + (l.pipeline_detail || '') + '</div></td><td><a href="' + MCP + '/board/' + l.slug + '" target="_blank" class="btn-link">Board →</a></td></tr>';
       }).join('') + '</tbody></table>';
   } catch(e) {
     el.innerHTML = '<div class="empty" style="padding:24px">No loads yet. Create your first load above.</div>';

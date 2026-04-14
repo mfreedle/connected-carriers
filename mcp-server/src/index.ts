@@ -752,15 +752,71 @@ const httpServer = http.createServer(async (req, res) => {
     try {
       const loads = await query(`
         SELECT l.load_id, l.slug, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
-               COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count
+               COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count,
+               COUNT(la.id) FILTER (WHERE la.qualification_result = 'qualified' AND la.contact_phone IS NOT NULL) as interested_count
         FROM loads l
         LEFT JOIN load_applications la ON la.load_id = l.id
         GROUP BY l.id
         ORDER BY l.created_at DESC
         LIMIT 50
       `);
+
+      // Get latest dispatch verification for each load
+      const verifications = await query(`
+        SELECT DISTINCT ON (load_id) load_id, status, geofence_result, distance_miles, confirmed_at,
+               reminder_count, fmcsa_company, driver_phone, mc_number
+        FROM dispatch_verifications
+        WHERE created_at > NOW() - INTERVAL '14 days'
+        ORDER BY load_id, created_at DESC
+      `);
+      const verifyMap: Record<string, any> = {};
+      for (const v of verifications.rows) { verifyMap[v.load_id] = v; }
+
+      // Enrich loads with pipeline status
+      const enriched = loads.rows.map((l: any) => {
+        const v = verifyMap[l.load_id];
+        let pipeline = "posted";
+        let pipeline_detail = "";
+
+        const apps = parseInt(l.applicant_count) || 0;
+        const interested = parseInt(l.interested_count) || 0;
+
+        if (l.status === "cancelled") {
+          pipeline = "cancelled";
+        } else if (v && v.status === "confirmed" && v.geofence_result === "green") {
+          pipeline = "confirmed";
+          pipeline_detail = (v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "on site") + " — " + (v.fmcsa_company || "");
+        } else if (v && v.status === "confirmed" && v.geofence_result === "yellow") {
+          pipeline = "review";
+          pipeline_detail = (v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "nearby") + " — review before loading";
+        } else if (v && v.status === "confirmed" && v.geofence_result === "red") {
+          pipeline = "alert";
+          pipeline_detail = (v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "far") + " — call before loading";
+        } else if (v && v.status === "pending" && v.reminder_count >= 2) {
+          pipeline = "unresponsive";
+          pipeline_detail = "2 reminders sent — no confirmation";
+        } else if (v && v.status === "pending") {
+          pipeline = "arrival_sent";
+          pipeline_detail = "Waiting for driver" + (v.reminder_count > 0 ? " (" + v.reminder_count + " reminder)" : "");
+        } else if (l.status === "covered" && !v) {
+          pipeline = "assigned";
+          pipeline_detail = "Doc request sent";
+        } else if (interested > 0) {
+          pipeline = "ready_to_assign";
+          pipeline_detail = interested + " carrier" + (interested !== 1 ? "s" : "") + " interested";
+        } else if (apps > 0) {
+          pipeline = "has_applicants";
+          pipeline_detail = apps + " qualified";
+        } else {
+          pipeline = "posted";
+          pipeline_detail = "No applicants yet";
+        }
+
+        return { ...l, pipeline, pipeline_detail };
+      });
+
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ loads: loads.rows }));
+      res.end(JSON.stringify({ loads: enriched }));
     } catch (err) {
       console.error("[GET /loads/recent error]", err);
       res.writeHead(500, { "Content-Type": "application/json" });
