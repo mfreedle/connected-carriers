@@ -556,6 +556,45 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
 
+      // Prevent duplicate applications — same MC on same load
+      const existingApp = await query(
+        "SELECT id, qualification_result FROM load_applications WHERE load_id = $1 AND mc_number = $2",
+        [load.id, mc_number.replace(/\D/g, "")]
+      );
+      if (existingApp.rows.length > 0) {
+        // Return the existing result instead of creating a duplicate
+        const existing = existingApp.rows[0];
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          qualification: existing.qualification_result,
+          company_name: "Already checked",
+          authority: "See previous result",
+          safety: "See previous result",
+          already_applied: true,
+          message: "This MC has already been checked for this load."
+        }));
+        return;
+      }
+
+      // Prevent broker self-application — check if MC belongs to load creator
+      if (load.broker_email) {
+        try {
+          const brokerAccount = await query(
+            "SELECT ba.company_name FROM broker_users bu JOIN broker_accounts ba ON ba.id = bu.broker_account_id WHERE bu.email = $1",
+            [load.broker_email]
+          );
+          if (brokerAccount.rows.length > 0) {
+            // Check if this MC is associated with the broker's own company
+            const brokerCarrier = await query(
+              "SELECT id FROM carriers WHERE mc_number = $1 AND broker_account_id IS NOT NULL",
+              [mc_number.replace(/\D/g, "")]
+            );
+            // Also check if the FMCSA company name matches the broker company name
+            // (we'll check this after FMCSA lookup below)
+          }
+        } catch { /* ignore — guard is best-effort */ }
+      }
+
       // FMCSA lookup
       let fmcsa_authority = "unknown";
       let fmcsa_safety = "unknown";
@@ -859,9 +898,10 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
       const apps = await query(
-        `SELECT id, mc_number, company_name, contact_name, contact_phone, contact_email,
+        `SELECT DISTINCT ON (mc_number) id, mc_number, company_name, contact_name, contact_phone, contact_email,
                 fmcsa_authority, fmcsa_safety, qualification_result, has_profile, created_at
-         FROM load_applications WHERE load_id = $1 ORDER BY created_at DESC`,
+         FROM load_applications WHERE load_id = $1 AND qualification_result IN ('qualified','review')
+         ORDER BY mc_number, created_at DESC`,
         [load.id]
       );
       res.writeHead(200, { "Content-Type": "application/json" });

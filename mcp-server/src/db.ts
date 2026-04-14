@@ -134,6 +134,18 @@ export async function initDb() {
   await query(`CREATE INDEX IF NOT EXISTS idx_load_applications_mc ON load_applications(mc_number)`);
 
   console.error("Database initialized — tables ready");
+
+  // One-time cleanup: remove duplicate applications (keep earliest per MC per load)
+  try {
+    await query(`
+      DELETE FROM load_applications WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY load_id, mc_number ORDER BY created_at ASC) as rn
+          FROM load_applications
+        ) dupes WHERE rn > 1
+      )
+    `);
+  } catch { /* ignore if no duplicates */ }
 }
 
 export default pool;
