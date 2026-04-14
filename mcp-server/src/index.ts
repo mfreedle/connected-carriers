@@ -1508,9 +1508,12 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
         </div>
       </div>
       <div class="app-actions">
-        <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, '${a.contact_phone || ""}', '${a.company_name || ""}')">
-          ${a.has_profile ? "Assign → Arrival Check" : "Assign → Send Doc Request"}
-        </button>
+        <div>
+          <input type="tel" class="phone-input" id="phone-${a.id}" value="${a.contact_phone || ""}" placeholder="Driver phone" style="width:130px;padding:6px 8px;border:1px solid #e8e4de;border-radius:4px;font-size:12px;margin-bottom:6px;display:block">
+          <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, document.getElementById('phone-${a.id}').value, '${(a.company_name || "").replace(/'/g, "\\'")}')">
+            ${a.has_profile ? "Assign → Arrival Check" : "Assign → Send Doc Request"}
+          </button>
+        </div>
       </div>
     </div>`).join("");
 
@@ -1524,13 +1527,15 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1C2B3A; min-height: 100vh; padding: 20px; }
   .container { max-width: 600px; margin: 0 auto; padding-top: 20px; }
+  .back-link { font-size: 13px; color: #C8892A; text-decoration: none; display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+  .back-link:hover { opacity: 0.8; }
   .header { margin-bottom: 24px; }
   .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #C8892A; margin-bottom: 8px; }
   .route { font-size: 22px; font-weight: 600; color: #F7F5F0; margin-bottom: 4px; }
   .meta { font-size: 13px; color: #6b7a8a; }
   .count { font-size: 14px; color: #F7F5F0; margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(247,245,240,0.1); }
   .count span { color: #C8892A; font-weight: 600; }
-  .app-row { background: #fff; border-radius: 8px; padding: 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .app-row { background: #fff; border-radius: 8px; padding: 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
   .app-name { font-size: 16px; font-weight: 600; color: #1C2B3A; margin-bottom: 4px; }
   .app-detail { font-size: 13px; color: #6b7a8a; margin-bottom: 8px; }
   .app-badges { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1538,20 +1543,21 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
   .badge-green { background: #EAF3DE; color: #3b6d11; }
   .badge-yellow { background: #FFF8ED; color: #8B6914; }
   .badge-gray { background: #F0EDE7; color: #6b7a8a; }
-  .assign-btn { padding: 10px 16px; background: #C8892A; border: none; border-radius: 6px; color: #1C2B3A; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .assign-btn { padding: 10px 16px; background: #C8892A; border: none; border-radius: 6px; color: #1C2B3A; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; width: 100%; }
   .assign-btn:hover { background: #E09B35; }
   .assign-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .assigned-msg { display: none; background: #EAF3DE; border-radius: 8px; padding: 18px; margin-bottom: 10px; text-align: center; }
+  .assigned-msg { display: none; background: #EAF3DE; border-radius: 8px; padding: 18px; margin-bottom: 10px; }
   .assigned-msg h3 { color: #3b6d11; font-size: 16px; margin-bottom: 6px; }
-  .assigned-msg p { color: #6b7a8a; font-size: 13px; }
+  .assigned-msg p { color: #6b7a8a; font-size: 13px; margin-bottom: 4px; }
+  .assigned-msg .next-steps { margin-top: 12px; padding-top: 12px; border-top: 1px solid #C5E0A0; font-size: 12px; color: #6b7a8a; }
+  .assigned-msg a { color: #C8892A; text-decoration: none; font-weight: 600; }
   .empty { color: #6b7a8a; text-align: center; padding: 40px; font-size: 14px; }
-  .window-fields { display: none; margin-top: 12px; }
-  .window-fields input { padding: 8px 10px; border: 1px solid #e8e4de; border-radius: 4px; font-size: 13px; width: 120px; }
-  .window-fields label { font-size: 11px; color: #6b7a8a; display: block; margin-bottom: 4px; }
+  .phone-input:focus { border-color: #C8892A; outline: none; }
 </style>
 </head>
 <body>
 <div class="container">
+  <a href="https://app.connectedcarriers.org/loads" class="back-link">← Back to my loads</a>
   <div class="header">
     <div class="tag">Load Board — ${load.load_id}</div>
     <div class="route">${load.origin} → ${load.destination}</div>
@@ -1561,11 +1567,19 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
   <div id="assigned-msg" class="assigned-msg">
     <h3 id="assigned-title">✓ Carrier Assigned</h3>
     <p id="assigned-detail"></p>
+    <p id="assigned-action" style="font-weight:500;color:#3b6d11"></p>
+    <div class="next-steps" id="assigned-next">
+      <a href="https://app.connectedcarriers.org/loads">← Back to my loads</a> to see status updates
+    </div>
   </div>
   ${appRows || '<div class="empty">No qualified carriers yet. Share your load link and check back.</div>'}
 </div>
 <script>
 async function assignCarrier(slug, appId, phone, name) {
+  if (!phone || !phone.trim()) {
+    alert('Enter the driver phone number to send the arrival check or doc request.');
+    return;
+  }
   const btn = event.target;
   btn.disabled = true;
   btn.textContent = 'Assigning...';
@@ -1573,17 +1587,22 @@ async function assignCarrier(slug, appId, phone, name) {
     const res = await fetch('/load/' + slug + '/assign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ applicant_id: appId, driver_phone: phone || undefined })
+      body: JSON.stringify({ applicant_id: appId, driver_phone: phone.trim() })
     });
     const data = await res.json();
     if (data.assigned) {
       document.getElementById('assigned-msg').style.display = 'block';
       document.getElementById('assigned-title').textContent = '✓ ' + (data.carrier || name) + ' Assigned';
       document.getElementById('assigned-detail').textContent = data.message;
+      if (data.action === 'arrival_check_sent') {
+        document.getElementById('assigned-action').textContent = 'Arrival check sent to driver. You\\'ll get a signal when they confirm.';
+      } else if (data.action === 'doc_request_sent') {
+        document.getElementById('assigned-action').textContent = 'Doc request sent. System will follow up at 10 and 20 minutes.';
+      }
       document.getElementById('app-' + appId).style.opacity = '0.4';
-      btn.textContent = 'Assigned';
+      btn.textContent = 'Assigned ✓';
     } else {
-      btn.textContent = 'Error — try again';
+      btn.textContent = data.error || 'Error — try again';
       btn.disabled = false;
     }
   } catch(e) {
