@@ -587,12 +587,34 @@ const httpServer = http.createServer(async (req, res) => {
       // Check if carrier has a completed profile
       let hasProfile = false;
       try {
-        // Check MCP server's own carriers table
         const profileCheck = await query(
-          "SELECT id FROM carriers WHERE mc_number = $1", [mc_number.replace(/\D/g, "")]
+          "SELECT completion_status FROM carrier_profiles WHERE mc_number = $1 ORDER BY created_at DESC LIMIT 1",
+          [mc_number.replace(/\D/g, "")]
         );
-        hasProfile = profileCheck.rows.length > 0;
+        hasProfile = profileCheck.rows.length > 0 && profileCheck.rows[0].completion_status === "dispatch_ready";
       } catch { /* ignore */ }
+
+      // Upsert carrier into the carriers roster (shared DB)
+      if (qualification === "qualified" || qualification === "review") {
+        try {
+          const mcClean = mc_number.replace(/\D/g, "");
+          const existing = await query("SELECT id FROM carriers WHERE mc_number = $1", [mcClean]);
+          if (!existing.rows.length) {
+            await query(
+              `INSERT INTO carriers (mc_number, company_name, dot_number, tier, fmcsa_status, verified_at)
+               VALUES ($1, $2, $3, $4, $5, NOW())`,
+              [mcClean, fmcsa_company, (details as any).dot_number || null,
+               qualification === "qualified" ? "approved" : "manual_review",
+               JSON.stringify(details)]
+            );
+          } else {
+            await query(
+              "UPDATE carriers SET fmcsa_status = $1, verified_at = NOW(), updated_at = NOW() WHERE mc_number = $2",
+              [JSON.stringify(details), mcClean]
+            );
+          }
+        } catch (err) { console.error("[Carrier roster upsert]", err); }
+      }
 
       // Save the application
       await query(

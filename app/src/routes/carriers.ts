@@ -59,6 +59,18 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
       ORDER BY created_at DESC LIMIT 5
     `, [carrierId, accountId]);
 
+    // Fetch carrier profile (uploaded docs, parsed data) if MC number exists
+    let carrierProfile: any = null;
+    if (carrier.mc_number) {
+      try {
+        const profileRes = await query(
+          "SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY created_at DESC LIMIT 1",
+          [carrier.mc_number]
+        );
+        if (profileRes.rows.length) carrierProfile = profileRes.rows[0];
+      } catch { /* table might not have new columns yet */ }
+    }
+
     const csrf = csrfToken(req);
     const html = layout({
       title: String(carrier.legal_name || carrier.company_name || "Carrier Detail"),
@@ -73,7 +85,8 @@ router.get("/carriers/:id", requireAuth, async (req: AuthenticatedRequest, res: 
         activityRes.rows,
         setupPacketsRes.rows,
         req.query.success as string,
-        csrf
+        csrf,
+        carrierProfile
       ),
     });
 
@@ -210,11 +223,46 @@ function carrierDetailContent(
   activity: Record<string, unknown>[],
   setupPackets: Record<string, unknown>[] = [],
   success?: string,
-  csrf?: string
+  csrf?: string,
+  carrierProfile?: any
 ): string {
   const latestSubmission = submissions[0] || null;
   const fmcsa = latestSubmission?.fmcsa_result as Record<string, unknown> | null;
   const flags = (latestSubmission?.internal_flags as Record<string, unknown>) || {};
+
+  // Build carrier profile docs section
+  let profileDocsHtml = "";
+  if (carrierProfile) {
+    const p = carrierProfile;
+    const today = new Date();
+    const insExp = p.insurance_expiration ? new Date(p.insurance_expiration) : null;
+    const cdlExp = p.cdl_expiration ? new Date(p.cdl_expiration) : null;
+    const insExpired = insExp && insExp < today;
+    const cdlExpired = cdlExp && cdlExp < today;
+    const vinMismatch = p.doc_flags && JSON.stringify(p.doc_flags).includes("VIN_NOT_ON_INSURANCE");
+
+    profileDocsHtml = `
+    <div class="card">
+      <div class="card-title">Carrier Profile — Uploaded Documents</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Completion: <strong style="color:${p.completion_status === "dispatch_ready" ? "#10b981" : "#f59e0b"}">${p.completion_status === "dispatch_ready" ? "Dispatch Ready" : "Partial"}</strong></div>
+      <div class="info-grid">
+        ${p.driver_name ? `<div class="info-row"><span class="info-label">Driver</span><span>${h(p.driver_name)} ${p.driver_phone ? "· " + h(p.driver_phone) : ""}</span></div>` : ""}
+        ${p.truck_number ? `<div class="info-row"><span class="info-label">Truck</span><span>#${h(p.truck_number)} ${p.trailer_number ? "/ Trailer #" + h(p.trailer_number) : ""}</span></div>` : ""}
+        ${p.vin_number ? `<div class="info-row"><span class="info-label">VIN</span><span style="font-family:monospace;letter-spacing:0.05em">${h(p.vin_number)} ${vinMismatch ? '<span style="color:#a32d2d;font-weight:500"> ⚠ NOT ON INSURANCE</span>' : ""}</span></div>` : ""}
+        ${p.cdl_number ? `<div class="info-row"><span class="info-label">CDL</span><span>${h(p.cdl_number)} ${p.cdl_state ? "(" + h(p.cdl_state) + ")" : ""}</span></div>` : ""}
+        ${cdlExp ? `<div class="info-row"><span class="info-label">CDL expires</span><span style="color:${cdlExpired ? "#a32d2d;font-weight:500" : "inherit"}">${cdlExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${cdlExpired ? " — EXPIRED" : ""}</span></div>` : ""}
+        ${p.insurance_company ? `<div class="info-row"><span class="info-label">Insurer</span><span>${h(p.insurance_company)} ${p.insurance_policy_number ? "· #" + h(p.insurance_policy_number) : ""}</span></div>` : ""}
+        ${insExp ? `<div class="info-row"><span class="info-label">Insurance expires</span><span style="color:${insExpired ? "#a32d2d;font-weight:500" : "inherit"}">${insExp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${insExpired ? " — EXPIRED" : ""}</span></div>` : ""}
+        ${p.insurance_auto_liability ? `<div class="info-row"><span class="info-label">Auto liability</span><span>$${(p.insurance_auto_liability / 1000000).toFixed(1)}M</span></div>` : ""}
+        ${p.insurance_cargo ? `<div class="info-row"><span class="info-label">Cargo</span><span>$${(p.insurance_cargo / 1000).toFixed(0)}K</span></div>` : ""}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">
+        ${p.cdl_photo_url ? `<a href="${p.cdl_photo_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 CDL Photo</a>` : '<span style="font-size:11px;color:#a32d2d">Missing CDL</span>'}
+        ${p.vin_photo_url ? `<a href="${p.vin_photo_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 VIN Photo</a>` : '<span style="font-size:11px;color:#a32d2d">Missing VIN photo</span>'}
+        ${p.insurance_doc_url ? `<a href="${p.insurance_doc_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:12px;color:var(--slate);text-decoration:none">📄 Insurance Cert</a>` : '<span style="font-size:11px;color:#a32d2d">Missing insurance</span>'}
+      </div>
+    </div>`;
+  }
 
   const successMessages: Record<string, string> = {
     approve: "Carrier approved.",
@@ -304,6 +352,8 @@ ${success && successMessages[success] ? `<div class="alert alert-success">${succ
         </div>
       `}
     </div>
+
+    ${profileDocsHtml}
 
   </div>
 

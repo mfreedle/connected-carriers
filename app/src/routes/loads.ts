@@ -240,7 +240,12 @@ async function refreshLoads() {
           cancelled: {bg:'#6B7A8A',label:'Cancelled'}
         };
         var p = pipeColors[l.pipeline] || {bg:'#6B7A8A',label:l.pipeline};
-        return '<tr><td><code>' + l.load_id + '</code></td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + p.bg + '20;color:' + p.bg + ';border:1px solid ' + p.bg + '40">' + p.label + '</span><div style="font-size:11px;color:var(--muted);margin-top:2px">' + (l.pipeline_detail || '') + '</div></td><td><a href="' + MCP + '/board/' + l.slug + '" target="_blank" class="btn-link">Board →</a></td></tr>';
+        var appCount = parseInt(l.applicant_count) || 0;
+        var viewBtn = appCount > 0
+          ? '<button onclick="toggleApplicants(\\'' + l.load_id + '\\',\\'' + l.slug + '\\')" class="btn-link" style="border:none;background:none;cursor:pointer;font-family:var(--sans)">' + appCount + ' applicant' + (appCount !== 1 ? 's' : '') + ' ▾</button>'
+          : '<a href="javascript:void(0)" onclick="copyLoadLink(\\'' + MCP + '/load/' + l.slug + '\\')" class="btn-link" style="font-size:11px">Copy link</a>';
+        return '<tr><td><code>' + l.load_id + '</code></td><td style="font-weight:500">' + l.origin + ' → ' + l.destination + '</td><td class="muted">' + l.equipment + '</td><td><span class="badge" style="background:' + p.bg + '20;color:' + p.bg + ';border:1px solid ' + p.bg + '40">' + p.label + '</span><div style="font-size:11px;color:var(--muted);margin-top:2px">' + (l.pipeline_detail || '') + '</div></td><td>' + viewBtn + '</td></tr>' +
+          '<tr id="apps-' + l.load_id + '" style="display:none"><td colspan="5" style="padding:0;background:var(--cream)"><div id="apps-content-' + l.load_id + '" style="padding:12px 16px"></div></td></tr>';
       }).join('') + '</tbody></table>';
   } catch(e) {
     el.innerHTML = '<div class="empty" style="padding:24px">No loads yet. Create your first load above.</div>';
@@ -275,6 +280,72 @@ function copyText(t, el) {
   navigator.clipboard.writeText(t).catch(function(){});
   el.textContent = 'Copied!';
   setTimeout(function(){ el.textContent = 'Copy Link'; }, 2000);
+}
+
+function copyLoadLink(url) {
+  navigator.clipboard.writeText(url).catch(function(){});
+}
+
+async function toggleApplicants(loadId, slug) {
+  var row = document.getElementById('apps-' + loadId);
+  if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+  row.style.display = '';
+  var content = document.getElementById('apps-content-' + loadId);
+  content.innerHTML = '<div style="font-size:12px;color:var(--muted)">Loading applicants...</div>';
+  try {
+    var res = await fetch(MCP + '/loads/' + loadId + '/applicants');
+    if (!res.ok) throw new Error('Failed');
+    var data = await res.json();
+    if (!data.applicants || data.applicants.length === 0) {
+      content.innerHTML = '<div style="font-size:12px;color:var(--muted)">No qualified applicants yet.</div>';
+      return;
+    }
+    content.innerHTML = data.applicants.map(function(a) {
+      var profileBadge = a.has_profile
+        ? '<span style="background:#EAF3DE;color:#3b6d11;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">DISPATCH READY</span>'
+        : '<span style="background:#F0EDE7;color:#6b7a8a;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">NEEDS DOCS</span>';
+      var contactInfo = a.contact_name ? (a.contact_name + (a.contact_phone ? ' · ' + a.contact_phone : '')) : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--cream2)">' +
+        '<div>' +
+          '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + '</div>' +
+          (contactInfo ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + contactInfo + '</div>' : '') +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<input type="tel" id="aphone-' + a.id + '" value="' + (a.contact_phone || '') + '" placeholder="Driver phone" style="padding:4px 8px;border:1px solid var(--cream3);border-radius:2px;font-size:11px;width:110px">' +
+          '<button onclick="assignFromDashboard(\\'' + slug + '\\',' + a.id + ',document.getElementById(\\'aphone-' + a.id + '\\').value,\\'' + (a.company_name || '').replace(/'/g, '') + '\\')" style="padding:5px 12px;background:var(--amber);color:var(--slate);border:none;border-radius:2px;font-size:11px;font-weight:500;cursor:pointer;white-space:nowrap">' + (a.has_profile ? 'Assign → Check' : 'Assign → Docs') + '</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    content.innerHTML = '<div style="font-size:12px;color:#a32d2d">Error loading applicants.</div>';
+  }
+}
+
+async function assignFromDashboard(slug, appId, phone, name) {
+  if (!phone || !phone.trim()) { alert('Enter the driver phone number.'); return; }
+  var btn = event.target;
+  btn.disabled = true; btn.textContent = 'Assigning...';
+  try {
+    var res = await fetch(MCP + '/load/' + slug + '/assign', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({applicant_id: appId, driver_phone: phone.trim()})
+    });
+    var data = await res.json();
+    if (data.assigned) {
+      btn.textContent = 'Assigned ✓';
+      btn.style.background = '#10b981';
+      btn.style.color = '#fff';
+      refreshLoads();
+      refreshAttention();
+    } else {
+      btn.textContent = data.error || 'Error';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+    btn.disabled = false;
+  }
 }
 
 refreshAttention();
