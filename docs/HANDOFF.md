@@ -362,3 +362,43 @@ Layer 10:         Load marketplace for pre-screened carriers
 - **Single shared Postgres** — both MCP server and broker dashboard use the same instance
 - All tables from both services coexist: `carriers`, `carrier_submissions`, `loads`, `load_applications`, `dispatch_verifications`, `carrier_profiles`, `broker_accounts`, `broker_users`, `broker_billing`, etc.
 - No data migration needed — tables were already shared
+
+---
+
+## 14. FINAL LATE-NIGHT FIXES (April 13-14, 2026)
+
+### Demo data seeded
+- **Direct Drive Transportation LLC** (MC1234567) — dispatch-ready carrier with complete profile
+  - CDL: D4821-5577-9013 (AZ), expires 6/30/2027
+  - VIN: 1HGBH41JXMN109186 (on insurance)
+  - Insurance: National Indemnity Company, policy TRK-2026-44821, expires 1/15/2027
+  - Coverage: $1M auto, $100K cargo, $1M GL
+  - Driver: Marcus Webb, 602-555-0199, Truck DDT-4821, Trailer TR-7702
+  - Contact: dispatch@swifteagle.com, 602-555-0188
+- **Demo load**: LX-20260416-003 (Seattle, WA → Phoenix, AZ, 53 Dry Van, April 16)
+  - Direct Drive is the qualified applicant — ready to assign
+  - Kate can click "1 applicant ▾", see Direct Drive as DISPATCH READY, and assign
+
+### Fixes applied
+1. Duplicate MC applications prevented — same MC on same load returns existing result
+2. Applicants query deduplicated — DISTINCT ON (mc_number) per load
+3. Kate's self-application (MC064447) deleted from all loads
+4. Old/duplicate test loads cleaned up via seed-demo endpoint
+5. "For carriers" link restored to homepage nav
+6. Broker reference number field added to Post a Load form
+7. Loads table shows broker ref prominently, HX number smaller
+
+### Admin endpoints (remove after use)
+- `POST /reset-password` on broker dashboard — gated by RESET_TOKEN env var
+- `GET /admin/seed-demo` on MCP server — gated by RESET_TOKEN env var
+- **Remove RESET_TOKEN from both services after seeding is complete**
+
+### Env vars to set/remove
+- **ADD** `ANTHROPIC_API_KEY` to broker dashboard Railway service (enables AI doc parsing)
+- **REMOVE** `RESET_TOKEN` from broker dashboard Railway service
+- **REMOVE** `RESET_TOKEN` from MCP server Railway service
+
+### Git status
+- 59 commits on April 13-14, 2026
+- All pushed, no uncommitted changes
+- Latest commit: homepage "For carriers" nav link restored
