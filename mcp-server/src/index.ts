@@ -1314,11 +1314,42 @@ const httpServer = http.createServer(async (req, res) => {
       // Ensure carriers table has them as approved with broker_account_id
       const brokerLookup = await query("SELECT broker_account_id FROM broker_users WHERE email = 'kateloads@logisticsxpress.com'");
       const kateAccountId = brokerLookup.rows.length ? brokerLookup.rows[0].broker_account_id : null;
+      
+      // Get or update the carriers row
       await query(`
-        UPDATE carriers SET company_name = 'Direct Drive Transportation LLC', tier = 'approved',
+        UPDATE carriers SET company_name = 'Direct Drive Transportation LLC',
+          legal_name = 'Direct Drive Transportation LLC',
+          tier = 'approved', onboarding_status = 'approved', approval_tier = 'approved',
+          authority_status = 'Active', safety_rating_snapshot = 'Not Rated',
           verified_at = NOW(), updated_at = NOW(), broker_account_id = COALESCE(broker_account_id, $1)
         WHERE mc_number = '1234567'
       `, [kateAccountId]);
+
+      // Get the carrier id
+      const carrierRow = await query("SELECT id FROM carriers WHERE mc_number = '1234567'");
+      const carrierId = carrierRow.rows.length ? carrierRow.rows[0].id : null;
+
+      // Create a carrier_submission so Direct Drive shows in the Carrier Queue
+      if (carrierId && kateAccountId) {
+        const existingSub = await query("SELECT id FROM carrier_submissions WHERE carrier_id = $1 AND broker_account_id = $2", [carrierId, kateAccountId]);
+        if (!existingSub.rows.length) {
+          // Get Kate's user id for reviewed_by
+          const kateUser = await query("SELECT id FROM broker_users WHERE email = 'kateloads@logisticsxpress.com'");
+          const kateUserId = kateUser.rows.length ? kateUser.rows[0].id : null;
+          await query(`
+            INSERT INTO carrier_submissions
+              (mc_number, broker_account_id, carrier_id, submitted_by_name, submitted_by_email,
+               fmcsa_result, status, reviewed_by, reviewed_at, submitted_at, decision_reason)
+            VALUES ($1, $2, $3, 'Marcus Webb', 'dispatch@directdrive.com',
+               '{"active": true, "safety_rating": "Not Rated", "entity_name": "DIRECT DRIVE TRANSPORTATION LLC"}'::jsonb,
+               'approved', $4, NOW(), NOW() - INTERVAL '2 days',
+               'Qualified via load apply — FMCSA active, complete profile on file')
+          `, ['1234567', kateAccountId, carrierId, kateUserId]);
+        } else {
+          await query("UPDATE carrier_submissions SET status = 'approved' WHERE carrier_id = $1 AND broker_account_id = $2", [carrierId, kateAccountId]);
+        }
+      }
+
       // Update the load_application to show has_profile = true
       await query("UPDATE load_applications SET has_profile = true WHERE mc_number = '1234567'");
       // Delete Kate's self-application
