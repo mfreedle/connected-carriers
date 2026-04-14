@@ -294,6 +294,9 @@ Layer 1B (BUILT): Chase — auto doc request, 10-min nudge, broker alerts
 Layer 1C (BUILT): Signal — arrival check, geofence gate, GPS, timing flags
 Layer 1D (BUILT): Pipeline — assign, profile check, auto-route to docs or arrival check
 Layer 1E (BUILT): Billing — Stripe, pricing page, trial, pilot users
+Layer 1F (BUILT): Dashboard — workspace with inline assign, attention summary, pipeline status
+Layer 1G (BUILT): Doc Intelligence — AI document parsing (Claude Vision), VIN/insurance cross-reference,
+                  expiration monitoring, proactive carrier doc alerts
 Layer 2 (NEXT):   Kate pilot — real loads, real SMS, real feedback
 Layer 3:          Dispatch Readiness board (prototyped, deploy after validation)
 Layer 4:          Setup packet auto-chase SMS
@@ -323,3 +326,39 @@ Layer 10:         Load marketplace for pre-screened carriers
 - `honexai.com` points to GoDaddy parking page — links removed, plain text only until landing page built
 - Board page lives on MCP server domain — context switch from app.connectedcarriers.org; acceptable for now
 - Soft gates use localStorage — not bulletproof, intentionally so
+- Both services (MCP server + broker dashboard) share ONE Postgres database — confirmed in Railway
+- The billing route must use `session.userId` not `session.user` — login sets individual session properties
+- Adding new session properties requires updating the AuthenticatedRequest interface in middleware/auth.ts
+- TypeScript build failures on Railway are silent — the old code keeps running, deploy appears successful
+- Kate's password was reset via `/reset-password` endpoint (gated by RESET_TOKEN env var) — remove RESET_TOKEN from Railway after use
+
+---
+
+## 13. EVENING SESSION ADDITIONS (April 13, 2026)
+
+### Built in evening session
+1. **Dashboard redesign** — `/loads` as workspace with Post a Load + Send Arrival Check side by side
+2. **Pipeline status column** — loads table shows full lifecycle state (Posted → Qualified → Ready to Assign → Docs Requested → Arrival Sent → No Response → Confirmed ✓ → Review → Alert ⚠)
+3. **"What needs attention?" summary** — prioritized action items with icons and urgency coloring
+4. **Inline applicant view** — click "2 applicants ▾" on any load to see carriers and assign without leaving dashboard
+5. **Carrier roster connection** — carriers from load apply flow now appear in Carrier Queue
+6. **Carrier docs in queue** — carrier detail page shows uploaded CDL, VIN photo, insurance cert with parsed data
+7. **AI document parsing** — Claude Vision extracts fields from CDL (number, expiration, class), COI (expiration, coverage, VINs), and VIN photos. Auto-populates profile, cross-references VIN against insurance.
+8. **Insurance expiration monitoring** — proactive alerts on loads page when carrier insurance or CDL expiring within 30 days
+9. **VIN cross-reference** — flags if truck VIN doesn't match any VIN on insurance policy
+10. **User dropdown menu** — Billing, Settings, Team, Sign out under Kate's name in nav
+11. **Billing page fixed** — session bug (checked `session.user` instead of `session.userId`), now uses layout with dashboard nav
+12. **Login redirect** — goes to `/loads` instead of `/dashboard`
+13. **Password reset endpoint** — `/reset-password` gated by RESET_TOKEN env var
+14. **Cross-page navigation** — all dashboard pages have consistent nav, no islands
+15. **Soft usage gates** — dispatch (3 free), post-load (1 free) with trial signup prompt
+16. **Tooltips** — contextual help on dispatch and post-load form fields
+
+### Env vars to set on Railway (broker dashboard service)
+- `ANTHROPIC_API_KEY` — enables AI document parsing on carrier profile uploads
+- Remove `RESET_TOKEN` — password reset endpoint should be disabled after use
+
+### Database status
+- **Single shared Postgres** — both MCP server and broker dashboard use the same instance
+- All tables from both services coexist: `carriers`, `carrier_submissions`, `loads`, `load_applications`, `dispatch_verifications`, `carrier_profiles`, `broker_accounts`, `broker_users`, `broker_billing`, etc.
+- No data migration needed — tables were already shared
