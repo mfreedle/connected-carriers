@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { layout } from "../views/layout";
+import { query } from "../db";
 
 const router = Router();
 const MCP_URL = process.env.MCP_SERVER_URL || "https://cc-mcp-server-production.up.railway.app";
@@ -9,11 +10,52 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
   const userName = req.session.userName || "";
   const userRole = req.session.userRole || "";
 
+  // Check for expiring docs across all carrier profiles
+  let docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [];
+  try {
+    const expiring = await query(`
+      SELECT company_name, mc_number, insurance_expiration, cdl_expiration, doc_flags
+      FROM carrier_profiles
+      WHERE completion_status = 'dispatch_ready'
+        AND (
+          (insurance_expiration IS NOT NULL AND insurance_expiration < NOW() + INTERVAL '30 days')
+          OR (cdl_expiration IS NOT NULL AND cdl_expiration < NOW() + INTERVAL '30 days')
+          OR (doc_flags::text LIKE '%VIN_NOT_ON_INSURANCE%')
+        )
+      ORDER BY COALESCE(insurance_expiration, cdl_expiration) ASC
+      LIMIT 10
+    `);
+    for (const row of expiring.rows) {
+      const today = new Date();
+      if (row.insurance_expiration) {
+        const exp = new Date(row.insurance_expiration);
+        if (exp < today) {
+          docAlerts.push({ company: row.company_name, mc: row.mc_number, issue: "Insurance expired " + exp.toLocaleDateString(), severity: "red" });
+        } else {
+          const days = Math.ceil((exp.getTime() - today.getTime()) / (1000*60*60*24));
+          docAlerts.push({ company: row.company_name, mc: row.mc_number, issue: `Insurance expires in ${days} days`, severity: days <= 7 ? "red" : "yellow" });
+        }
+      }
+      if (row.cdl_expiration) {
+        const exp = new Date(row.cdl_expiration);
+        if (exp < today) {
+          docAlerts.push({ company: row.company_name, mc: row.mc_number, issue: "CDL expired " + exp.toLocaleDateString(), severity: "red" });
+        } else {
+          const days = Math.ceil((exp.getTime() - today.getTime()) / (1000*60*60*24));
+          if (days <= 30) docAlerts.push({ company: row.company_name, mc: row.mc_number, issue: `CDL expires in ${days} days`, severity: days <= 7 ? "red" : "yellow" });
+        }
+      }
+      if (row.doc_flags && JSON.stringify(row.doc_flags).includes("VIN_NOT_ON_INSURANCE")) {
+        docAlerts.push({ company: row.company_name, mc: row.mc_number, issue: "VIN not found on insurance policy", severity: "red" });
+      }
+    }
+  } catch { /* table might not have new columns yet */ }
+
   const html = layout({
     title: "My Loads",
     userName,
     userRole,
-    content: loadsPageContent(MCP_URL),
+    content: loadsPageContent(MCP_URL, docAlerts),
   });
 
   res.send(html);
@@ -21,12 +63,23 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
 
 export default router;
 
-function loadsPageContent(mcpUrl: string): string {
+function loadsPageContent(mcpUrl: string, docAlerts: { company: string; mc: string; issue: string; severity: string }[] = []): string {
+  const alertsHtml = docAlerts.length > 0 ? `
+<div class="card" style="border-left:3px solid #a32d2d;margin-bottom:20px">
+  <div class="card-title" style="margin:0 0 10px 0;padding:0;border:0;color:#a32d2d">Carrier doc alerts</div>
+  ${docAlerts.map(a => `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--cream2)">
+    <span style="font-size:14px;flex-shrink:0">${a.severity === "red" ? "🔴" : "🟡"}</span>
+    <div><span style="font-size:13px;font-weight:500;color:var(--slate)">${a.company || "Unknown"}</span><span style="color:var(--muted);font-size:12px"> · MC${a.mc || "?"}</span><div style="font-size:12px;color:${a.severity === "red" ? "#a32d2d" : "#BA7517"};margin-top:1px">${a.issue}</div></div>
+  </div>`).join("")}
+</div>` : "";
+
   return `
 <div class="page-header">
   <h1 class="page-title">My Loads</h1>
   <p class="page-sub">Filter carriers, chase docs, get pickup signals — all from here.</p>
 </div>
+
+${alertsHtml}
 
 <!-- TWO ACTION CARDS -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">

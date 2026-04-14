@@ -415,6 +415,28 @@ export async function migrateCarrierProfiles() {
   await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_mc ON carrier_profiles(mc_number)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_email ON carrier_profiles(email)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_carrier_profiles_status ON carrier_profiles(completion_status)`);
+
+  // Add doc parsing columns (idempotent — uses IF NOT EXISTS pattern via DO block)
+  await query(`
+    DO $$ BEGIN
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS vin_number TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS cdl_number TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS cdl_state TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS cdl_expiration DATE;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_expiration DATE;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_policy_number TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_company TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_auto_liability INTEGER;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_cargo INTEGER;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_general_liability INTEGER;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS insurance_vins JSONB DEFAULT '[]';
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS parsed_cdl JSONB;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS parsed_insurance JSONB;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS parsed_vin TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS doc_flags JSONB DEFAULT '[]';
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$
+  `);
   console.log("Carrier profiles migration complete.");
 }
 

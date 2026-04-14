@@ -88,12 +88,18 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       }
     }
 
-    // Determine completion status
+    // Determine completion status — now includes VIN and insurance expiration
     const hasAllDocs = !!(cdl_photo_url && vin_photo_url && insurance_doc_url);
     const hasDriverInfo = !!(driver_name?.trim() && driver_phone?.trim());
     const hasTruckInfo = !!(truck_number?.trim() && trailer_number?.trim());
-    const completion = (hasAllDocs && hasDriverInfo && hasTruckInfo) ? "dispatch_ready"
+    const hasVIN = !!req.body.vin_number?.trim();
+    const hasInsExpiry = !!req.body.insurance_expiration;
+    const completion = (hasAllDocs && hasDriverInfo && hasTruckInfo && hasVIN && hasInsExpiry) ? "dispatch_ready"
       : (hasAllDocs || hasDriverInfo || hasTruckInfo) ? "partial" : "partial";
+
+    const vin_number = req.body.vin_number?.trim()?.toUpperCase() || null;
+    const insurance_expiration = req.body.insurance_expiration || null;
+    const cdl_expiration = req.body.cdl_expiration || null;
 
     await query(`
       INSERT INTO carrier_profiles
@@ -103,8 +109,9 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
          cdl_photo_url, cdl_photo_r2_key,
          vin_photo_url, vin_photo_r2_key,
          insurance_doc_url, insurance_doc_r2_key,
+         vin_number, insurance_expiration, cdl_expiration,
          completion_status, source)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     `, [
       company_name.trim(), mc_number?.replace(/\D/g, "") || null,
       contact_name.trim(), email.trim().toLowerCase(),
@@ -115,8 +122,88 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       cdl_photo_url, cdl_photo_r2_key,
       vin_photo_url, vin_photo_r2_key,
       insurance_doc_url, insurance_doc_r2_key,
+      vin_number, insurance_expiration, cdl_expiration,
       completion, source?.trim() || "direct",
     ]);
+
+    // Run AI document parsing in background (don't block the response)
+    const profileEmail = email.trim().toLowerCase();
+    setImmediate(async () => {
+      try {
+        const { parseCDL, parseInsurance, parseVINPhoto, checkDocFlags } = await import("../doc-parser");
+
+        let parsedCdl: any = null, parsedIns: any = null, parsedVin: string | null = null;
+        const updates: string[] = [];
+        const params: any[] = [];
+        let paramIdx = 1;
+
+        if (cdl_photo_url) {
+          parsedCdl = await parseCDL(cdl_photo_url);
+          if (parsedCdl && Object.keys(parsedCdl).length > 0) {
+            updates.push(`parsed_cdl = $${paramIdx++}`);
+            params.push(JSON.stringify(parsedCdl));
+            if (parsedCdl.cdl_number) { updates.push(`cdl_number = $${paramIdx++}`); params.push(parsedCdl.cdl_number); }
+            if (parsedCdl.state) { updates.push(`cdl_state = $${paramIdx++}`); params.push(parsedCdl.state); }
+            if (parsedCdl.expiration_date && !cdl_expiration) { updates.push(`cdl_expiration = $${paramIdx++}`); params.push(parsedCdl.expiration_date); }
+          }
+        }
+
+        if (insurance_doc_url) {
+          parsedIns = await parseInsurance(insurance_doc_url);
+          if (parsedIns && Object.keys(parsedIns).length > 0) {
+            updates.push(`parsed_insurance = $${paramIdx++}`);
+            params.push(JSON.stringify(parsedIns));
+            if (parsedIns.policy_number) { updates.push(`insurance_policy_number = $${paramIdx++}`); params.push(parsedIns.policy_number); }
+            if (parsedIns.insurance_company) { updates.push(`insurance_company = $${paramIdx++}`); params.push(parsedIns.insurance_company); }
+            if (parsedIns.expiration_date && !insurance_expiration) { updates.push(`insurance_expiration = $${paramIdx++}`); params.push(parsedIns.expiration_date); }
+            if (parsedIns.auto_liability) { updates.push(`insurance_auto_liability = $${paramIdx++}`); params.push(parsedIns.auto_liability); }
+            if (parsedIns.cargo) { updates.push(`insurance_cargo = $${paramIdx++}`); params.push(parsedIns.cargo); }
+            if (parsedIns.general_liability) { updates.push(`insurance_general_liability = $${paramIdx++}`); params.push(parsedIns.general_liability); }
+            if (parsedIns.vins && parsedIns.vins.length > 0) { updates.push(`insurance_vins = $${paramIdx++}`); params.push(JSON.stringify(parsedIns.vins)); }
+          }
+        }
+
+        if (vin_photo_url) {
+          const vinResult = await parseVINPhoto(vin_photo_url);
+          if (vinResult?.vin) {
+            parsedVin = vinResult.vin;
+            updates.push(`parsed_vin = $${paramIdx++}`);
+            params.push(parsedVin);
+            if (!vin_number) { updates.push(`vin_number = $${paramIdx++}`); params.push(parsedVin); }
+          }
+        }
+
+        // Run doc flag checks
+        const profileRow = await query("SELECT * FROM carrier_profiles WHERE email = $1 ORDER BY created_at DESC LIMIT 1", [profileEmail]);
+        if (profileRow.rows.length > 0) {
+          const flags = checkDocFlags(profileRow.rows[0]);
+          updates.push(`doc_flags = $${paramIdx++}`);
+          params.push(JSON.stringify(flags));
+
+          // Update completion status if AI filled in missing fields
+          const p = profileRow.rows[0];
+          const vinNow = vin_number || parsedVin || p.vin_number;
+          const insExpNow = insurance_expiration || (parsedIns?.expiration_date) || p.insurance_expiration;
+          const allDocs = !!(p.cdl_photo_url && p.vin_photo_url && p.insurance_doc_url);
+          const allInfo = !!(p.driver_name && p.driver_phone && p.truck_number && p.trailer_number);
+          if (allDocs && allInfo && vinNow && insExpNow) {
+            updates.push(`completion_status = $${paramIdx++}`);
+            params.push("dispatch_ready");
+          }
+        }
+
+        if (updates.length > 0) {
+          params.push(profileEmail);
+          await query(
+            `UPDATE carrier_profiles SET ${updates.join(", ")}, updated_at = NOW() WHERE email = $${paramIdx}`,
+            params
+          );
+          console.log(`[DocParser] Parsed docs for ${profileEmail}: CDL=${!!parsedCdl}, Insurance=${!!parsedIns}, VIN=${!!parsedVin}`);
+        }
+      } catch (err) {
+        console.error("[DocParser] Background parsing error:", err);
+      }
+    });
 
     res.send(profileConfirmationPage(completion));
   } catch (err) {
@@ -280,24 +367,42 @@ function profilePage(source: string, error?: string, success?: string): string {
           <input type="text" name="trailer_number" placeholder="e.g. TR-2209">
         </div>
       </div>
+      <div class="field">
+        <label>VIN number (truck)</label>
+        <input type="text" name="vin_number" placeholder="e.g. 1HGBH41JXMN109186" maxlength="17" style="text-transform:uppercase;letter-spacing:0.05em">
+        <div class="field-hint">17-character Vehicle Identification Number. Found on the driver's door jamb or registration. We'll auto-fill this if you upload a VIN photo below.</div>
+      </div>
     </div>
 
     <div class="card">
       <div class="section-label">Documents — upload now, skip the wait later</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Upload your docs and we'll automatically read the key details. No need to type everything — just upload the photo.</p>
       <div class="field">
         <label>CDL photo</label>
         <input type="file" name="cdl_photo" accept="image/*,.pdf">
-        <div class="field-hint">Photo or scan of driver's CDL. JPEG, PNG, or PDF.</div>
+        <div class="field-hint">Photo or scan of driver's CDL. We'll extract the license number, class, and expiration date automatically.</div>
       </div>
       <div class="field">
         <label>VIN photo (truck door)</label>
         <input type="file" name="vin_photo" accept="image/*,.pdf">
-        <div class="field-hint">Photo of VIN on truck door or registration doc.</div>
+        <div class="field-hint">Photo of VIN on truck door or registration. We'll read the VIN and cross-reference it with your insurance.</div>
       </div>
       <div class="field">
         <label>Insurance certificate (COI)</label>
         <input type="file" name="insurance_doc" accept="image/*,.pdf">
-        <div class="field-hint">Current certificate of insurance. PDF or photo.</div>
+        <div class="field-hint">Current certificate of insurance. We'll extract the expiration date, coverage amounts, and VINs on the policy.</div>
+      </div>
+      <div class="two-col">
+        <div class="field">
+          <label>Insurance expiration date</label>
+          <input type="date" name="insurance_expiration">
+          <div class="field-hint">Auto-filled from your COI if uploaded. Enter manually if the upload doesn't capture it.</div>
+        </div>
+        <div class="field">
+          <label>CDL expiration date</label>
+          <input type="date" name="cdl_expiration">
+          <div class="field-hint">Auto-filled from your CDL photo if uploaded.</div>
+        </div>
       </div>
     </div>
 
