@@ -1321,6 +1321,7 @@ const httpServer = http.createServer(async (req, res) => {
           legal_name = 'Direct Drive Transportation LLC',
           tier = 'approved', onboarding_status = 'approved', approval_tier = 'approved',
           authority_status = 'Active', safety_rating_snapshot = 'Not Rated',
+          email = 'dispatch@directdrive.com', phone = '602-555-0188',
           verified_at = NOW(), updated_at = NOW(), broker_account_id = COALESCE(broker_account_id, $1)
         WHERE mc_number = '1234567'
       `, [kateAccountId]);
