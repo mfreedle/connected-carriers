@@ -871,13 +871,13 @@ const httpServer = http.createServer(async (req, res) => {
           pipeline_detail = "2 reminders sent — no confirmation";
         } else if (v && v.status === "pending") {
           pipeline = "arrival_sent";
-          pipeline_detail = "Waiting for driver" + (v.reminder_count > 0 ? " (" + v.reminder_count + " reminder)" : "");
+          pipeline_detail = "Dispatched — waiting for driver" + (v.reminder_count > 0 ? " (" + v.reminder_count + " reminder)" : "");
         } else if (interested > 0) {
           pipeline = "ready_to_assign";
           pipeline_detail = interested + " carrier" + (interested !== 1 ? "s" : "") + " interested";
         } else if (l.status === "covered" && !v) {
           pipeline = "assigned";
-          pipeline_detail = "Doc request sent";
+          pipeline_detail = "Assigned — requesting docs";
         } else if (apps > 0) {
           pipeline = "has_applicants";
           pipeline_detail = apps + " qualified";
