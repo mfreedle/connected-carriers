@@ -298,18 +298,23 @@ Layer 1F (BUILT): Dashboard — workspace with inline assign, attention summary,
 Layer 1G (BUILT): Doc Intelligence — AI document parsing (Claude Vision), VIN/insurance cross-reference,
                   expiration monitoring, proactive carrier doc alerts
 Layer 2 (NEXT):   Kate pilot — real loads, real SMS, real feedback
-Layer 3:          Dispatch Readiness board (prototyped, deploy after validation)
-Layer 4:          Setup packet auto-chase SMS
-Layer 5:          Pickup code as dock-side authorization (V2 — needs shipper)
-Layer 6:          Performance memory per carrier per load
-Layer 7:          Network intelligence across multiple brokers
-Layer 8:          Carrier risk intelligence — partner with CAB or similar for chameleon carrier detection,
+Layer 3:          Multi-driver roster — carriers with fleets can list multiple drivers and trucks.
+                  When assigned a load, carrier dispatch selects which driver/truck combo to send.
+                  Each driver has own CDL, phone. Each truck has own VIN, trailer. Arrival check
+                  goes to the specific driver on the load, not the dispatcher. Current model works
+                  for owner-operators (1 truck, 1 driver). Multi-driver needed for fleet carriers.
+Layer 4:          Dispatch Readiness board (prototyped, deploy after validation)
+Layer 5:          Setup packet auto-chase SMS
+Layer 6:          Pickup code as dock-side authorization (V2 — needs shipper)
+Layer 7:          Performance memory per carrier per load
+Layer 8:          Network intelligence across multiple brokers
+Layer 9:          Carrier risk intelligence — partner with CAB or similar for chameleon carrier detection,
                   advanced scoring, insurance cycling patterns (ref: 60 Minutes "Chameleon Carriers" Apr 12, 2026)
-Layer 9:          ELD/telematics integration — pull real-time truck location from existing ELD providers
+Layer 10:         ELD/telematics integration — pull real-time truck location from existing ELD providers
                   (Motive, Samsara, etc.) or aggregators (Project44, Descartes MacroPoint). Auto-trigger
                   arrival signals without driver action. No app install, no browser tab — the truck is
                   already reporting location. Partnership play, not a code build.
-Layer 10:         Load marketplace for pre-screened carriers
+Layer 11:         Load marketplace for pre-screened carriers
 ```
 
 ---
