@@ -872,12 +872,12 @@ const httpServer = http.createServer(async (req, res) => {
         } else if (v && v.status === "pending") {
           pipeline = "arrival_sent";
           pipeline_detail = "Waiting for driver" + (v.reminder_count > 0 ? " (" + v.reminder_count + " reminder)" : "");
-        } else if (l.status === "covered" && !v) {
-          pipeline = "assigned";
-          pipeline_detail = "Doc request sent";
         } else if (interested > 0) {
           pipeline = "ready_to_assign";
           pipeline_detail = interested + " carrier" + (interested !== 1 ? "s" : "") + " interested";
+        } else if (l.status === "covered" && !v) {
+          pipeline = "assigned";
+          pipeline_detail = "Doc request sent";
         } else if (apps > 0) {
           pipeline = "has_applicants";
           pipeline_detail = apps + " qualified";
@@ -1354,6 +1354,8 @@ const httpServer = http.createServer(async (req, res) => {
       await query("UPDATE load_applications SET has_profile = true WHERE mc_number = '1234567'");
       // Delete Kate's self-application
       await query("DELETE FROM load_applications WHERE mc_number = '064447'");
+      // Reset demo load to open (may have been set to covered during testing)
+      await query("UPDATE loads SET status = 'open' WHERE load_id = 'HX-0414-6247'");
       // Delete duplicate/old test loads (keep only the one with applicants)
       await query("DELETE FROM loads WHERE load_id = 'HX-0414-3895'");
       await query("DELETE FROM loads WHERE load_id = 'HX-0413-49B2'");
