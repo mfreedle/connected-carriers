@@ -23,7 +23,7 @@ The step between carrier approval and load execution that no tool currently owns
 - The dispatch clearance layer
 - The step between approval and dispatch
 - Operational infrastructure for brokers
-- A completeness and readiness check
+- A system that ensures nothing is missing before dispatch
 
 **We are not:**
 - A compliance platform
@@ -41,7 +41,9 @@ The step between carrier approval and load execution that no tool currently owns
 ### Banned Words (never use in any copy, UI, or conversation)
 - verify / verified / verification
 - validate / validated / validation
-- approve / approved / approval (in a compliance sense)
+- approve / approved / approval (when referring to Connected Carriers only)
+
+> **Exception:** "Approve" is allowed when referring to Highway or the approval step in the broker workflow. It is NOT allowed when describing what Connected Carriers does.
 - authenticate / authentication
 - confirm identity
 - enforce compliance
@@ -101,7 +103,7 @@ These are locked. Use them verbatim or adapt tone — never change meaning.
 ## 6. How It Works (Filter. Chase. Signal.)
 
 ### The three steps:
-1. **Filter** — See who's worth your time
+1. **Filter** — Clean up the inbound noise
 2. **Chase** — Get what's missing without phone tag
 3. **Signal** — Know if anything changed before pickup
 
