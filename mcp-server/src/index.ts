@@ -11,6 +11,10 @@ const TWILIO_AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN   || "";
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || "";
 const GOOGLE_GEOCODE_KEY  = process.env.GOOGLE_GEOCODE_KEY  || "";
 const BASE_URL            = process.env.BASE_URL || "https://cc-mcp-server-production.up.railway.app";
+const GHL_API_TOKEN       = process.env.GHL_API_TOKEN || "";
+const GHL_LOCATION_ID     = process.env.GHL_LOCATION_ID || "";
+const GHL_API_BASE        = "https://services.leadconnectorhq.com";
+const GHL_API_VERSION     = "2021-07-28";
 
 // ── MCP SERVER FACTORY ───────────────────────────────────────────
 // Returns a fresh McpServer with all tools registered.
@@ -19,7 +23,7 @@ const BASE_URL            = process.env.BASE_URL || "https://cc-mcp-server-produ
 function buildMcpServer(): McpServer {
   const mcpServer = new McpServer({
     name: "cc-mcp-server",
-    version: "1.2.0"
+    version: "1.3.0"
   });
 
   // ── TOOL: cc_lookup_carrier
@@ -91,6 +95,363 @@ function buildMcpServer(): McpServer {
         tier = "Tier 3 — Conditional"; reason = "Passes minimums, manual review required";
       }
       return { content: [{ type: "text", text: JSON.stringify({ mc_number, tier, reason }, null, 2) }] };
+    }
+  );
+
+  // ── GHL (Go High Level) TOOLS ────────────────────────────────────
+
+  // Helper for GHL API calls
+  async function ghlFetch(path: string, options: { method?: string; body?: unknown; params?: Record<string, string> } = {}): Promise<unknown> {
+    const url = new URL(`${GHL_API_BASE}${path}`);
+    if (options.params) {
+      for (const [k, v] of Object.entries(options.params)) url.searchParams.set(k, v);
+    }
+    const resp = await fetch(url.toString(), {
+      method: options.method || "GET",
+      headers: {
+        "Authorization": `Bearer ${GHL_API_TOKEN}`,
+        "Content-Type": "application/json",
+        "Version": GHL_API_VERSION,
+        "Accept": "application/json"
+      },
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      signal: AbortSignal.timeout(15000)
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(`GHL API ${resp.status}: ${JSON.stringify(data)}`);
+    return data;
+  }
+
+  // ── TOOL: ghl_search_contacts
+  mcpServer.registerTool(
+    "ghl_search_contacts",
+    {
+      description: "Search contacts in Go High Level by name, email, phone, or tag. Returns matching contacts with their details.",
+      inputSchema: {
+        query: z.string().optional().describe("Search term — name, email, or phone"),
+        tag: z.string().optional().describe("Filter by tag name"),
+        limit: z.number().optional().describe("Max results (default 20, max 100)")
+      }
+    },
+    async ({ query: q, tag, limit }) => {
+      try {
+        const params: Record<string, string> = { locationId: GHL_LOCATION_ID, limit: String(limit || 20) };
+        if (q) params.query = q;
+        if (tag) params.tag = tag;
+        const data = await ghlFetch("/contacts/", { params });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL search error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_get_contact
+  mcpServer.registerTool(
+    "ghl_get_contact",
+    {
+      description: "Get a single Go High Level contact by ID. Returns full contact details including custom fields, tags, and opportunities.",
+      inputSchema: {
+        contact_id: z.string().describe("The GHL contact ID")
+      }
+    },
+    async ({ contact_id }) => {
+      try {
+        const data = await ghlFetch(`/contacts/${contact_id}`);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL get contact error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_create_contact
+  mcpServer.registerTool(
+    "ghl_create_contact",
+    {
+      description: "Create a new contact in Go High Level. Use for adding broker leads, carriers, or any contact to the CRM.",
+      inputSchema: {
+        firstName: z.string().optional().describe("First name"),
+        lastName: z.string().optional().describe("Last name"),
+        email: z.string().optional().describe("Email address"),
+        phone: z.string().optional().describe("Phone number"),
+        companyName: z.string().optional().describe("Company name"),
+        website: z.string().optional().describe("Website URL"),
+        tags: z.array(z.string()).optional().describe("Tags to apply (e.g. ['broker-lead', 'mvp-outreach'])"),
+        source: z.string().optional().describe("Lead source (e.g. 'linkedin', 'cold-email', 'referral')"),
+        customFields: z.array(z.object({ key: z.string(), value: z.string() })).optional().describe("Custom field key/value pairs")
+      }
+    },
+    async ({ firstName, lastName, email, phone, companyName, website, tags, source, customFields }) => {
+      try {
+        const body: Record<string, unknown> = { locationId: GHL_LOCATION_ID };
+        if (firstName) body.firstName = firstName;
+        if (lastName) body.lastName = lastName;
+        if (email) body.email = email;
+        if (phone) body.phone = phone;
+        if (companyName) body.companyName = companyName;
+        if (website) body.website = website;
+        if (tags) body.tags = tags;
+        if (source) body.source = source;
+        if (customFields) body.customField = customFields;
+        const data = await ghlFetch("/contacts/", { method: "POST", body });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL create contact error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_update_contact
+  mcpServer.registerTool(
+    "ghl_update_contact",
+    {
+      description: "Update an existing Go High Level contact. Can update any field including tags, custom fields, etc.",
+      inputSchema: {
+        contact_id: z.string().describe("The GHL contact ID to update"),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+        email: z.string().optional(),
+        phone: z.string().optional(),
+        companyName: z.string().optional(),
+        website: z.string().optional(),
+        tags: z.array(z.string()).optional().describe("Replace all tags with this list"),
+        customFields: z.array(z.object({ key: z.string(), value: z.string() })).optional()
+      }
+    },
+    async ({ contact_id, ...fields }) => {
+      try {
+        const body: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(fields)) {
+          if (v !== undefined) {
+            if (k === "customFields") body.customField = v;
+            else body[k] = v;
+          }
+        }
+        const data = await ghlFetch(`/contacts/${contact_id}`, { method: "PUT", body });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL update contact error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_add_contact_tags
+  mcpServer.registerTool(
+    "ghl_add_contact_tags",
+    {
+      description: "Add tags to a Go High Level contact without removing existing tags.",
+      inputSchema: {
+        contact_id: z.string().describe("The GHL contact ID"),
+        tags: z.array(z.string()).describe("Tags to add")
+      }
+    },
+    async ({ contact_id, tags }) => {
+      try {
+        // Get current tags first
+        const current = await ghlFetch(`/contacts/${contact_id}`) as { contact?: { tags?: string[] } };
+        const existingTags = current?.contact?.tags || [];
+        const merged = [...new Set([...existingTags, ...tags])];
+        const data = await ghlFetch(`/contacts/${contact_id}`, { method: "PUT", body: { tags: merged } });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL add tags error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_delete_contact
+  mcpServer.registerTool(
+    "ghl_delete_contact",
+    {
+      description: "Delete a contact from Go High Level by ID.",
+      inputSchema: {
+        contact_id: z.string().describe("The GHL contact ID to delete")
+      }
+    },
+    async ({ contact_id }) => {
+      try {
+        const data = await ghlFetch(`/contacts/${contact_id}`, { method: "DELETE" });
+        return { content: [{ type: "text", text: JSON.stringify({ deleted: true, contact_id, data }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL delete error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_list_pipelines
+  mcpServer.registerTool(
+    "ghl_list_pipelines",
+    {
+      description: "List all pipelines and their stages in Go High Level. Use to find pipeline/stage IDs for creating opportunities.",
+      inputSchema: {}
+    },
+    async () => {
+      try {
+        const data = await ghlFetch("/opportunities/pipelines", { params: { locationId: GHL_LOCATION_ID } });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL pipelines error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_create_opportunity
+  mcpServer.registerTool(
+    "ghl_create_opportunity",
+    {
+      description: "Create an opportunity (deal) in a Go High Level pipeline. Links to a contact and pipeline stage.",
+      inputSchema: {
+        pipeline_id: z.string().describe("Pipeline ID (get from ghl_list_pipelines)"),
+        stage_id: z.string().describe("Stage ID within the pipeline"),
+        contact_id: z.string().describe("Contact ID to associate"),
+        name: z.string().describe("Opportunity name (e.g. 'Freight Flex — MVP Test')"),
+        status: z.enum(["open", "won", "lost", "abandoned"]).optional().describe("Status (default: open)"),
+        monetary_value: z.number().optional().describe("Deal value in dollars")
+      }
+    },
+    async ({ pipeline_id, stage_id, contact_id, name, status, monetary_value }) => {
+      try {
+        const body: Record<string, unknown> = {
+          locationId: GHL_LOCATION_ID,
+          pipelineId: pipeline_id,
+          pipelineStageId: stage_id,
+          contactId: contact_id,
+          name,
+          status: status || "open"
+        };
+        if (monetary_value !== undefined) body.monetaryValue = monetary_value;
+        const data = await ghlFetch("/opportunities/", { method: "POST", body });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL create opportunity error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_update_opportunity
+  mcpServer.registerTool(
+    "ghl_update_opportunity",
+    {
+      description: "Update an opportunity in Go High Level — move stages, change status, update value.",
+      inputSchema: {
+        opportunity_id: z.string().describe("Opportunity ID to update"),
+        pipeline_id: z.string().describe("Pipeline ID"),
+        stage_id: z.string().optional().describe("Move to this stage"),
+        status: z.enum(["open", "won", "lost", "abandoned"]).optional(),
+        monetary_value: z.number().optional(),
+        name: z.string().optional()
+      }
+    },
+    async ({ opportunity_id, pipeline_id, stage_id, status, monetary_value, name }) => {
+      try {
+        const body: Record<string, unknown> = { pipelineId: pipeline_id };
+        if (stage_id) body.pipelineStageId = stage_id;
+        if (status) body.status = status;
+        if (monetary_value !== undefined) body.monetaryValue = monetary_value;
+        if (name) body.name = name;
+        const data = await ghlFetch(`/opportunities/${opportunity_id}`, { method: "PUT", body });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL update opportunity error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_search_opportunities
+  mcpServer.registerTool(
+    "ghl_search_opportunities",
+    {
+      description: "Search opportunities in Go High Level. Filter by pipeline, stage, status, contact, or date.",
+      inputSchema: {
+        pipeline_id: z.string().describe("Pipeline ID to search in"),
+        stage_id: z.string().optional(),
+        status: z.enum(["open", "won", "lost", "abandoned"]).optional(),
+        contact_id: z.string().optional(),
+        query: z.string().optional().describe("Search by opportunity name"),
+        limit: z.number().optional()
+      }
+    },
+    async ({ pipeline_id, stage_id, status, contact_id, query: q, limit }) => {
+      try {
+        const params: Record<string, string> = { locationId: GHL_LOCATION_ID, pipelineId: pipeline_id };
+        if (stage_id) params.pipelineStageId = stage_id;
+        if (status) params.status = status;
+        if (contact_id) params.contact_id = contact_id;
+        if (q) params.q = q;
+        if (limit) params.limit = String(limit);
+        const data = await ghlFetch("/opportunities/search", { params });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL search opportunities error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_add_contact_note
+  mcpServer.registerTool(
+    "ghl_add_contact_note",
+    {
+      description: "Add a note to a Go High Level contact. Use for logging outreach attempts, call notes, pain points mentioned, etc.",
+      inputSchema: {
+        contact_id: z.string().describe("Contact ID"),
+        body: z.string().describe("Note content")
+      }
+    },
+    async ({ contact_id, body: noteBody }) => {
+      try {
+        const data = await ghlFetch(`/contacts/${contact_id}/notes`, {
+          method: "POST",
+          body: { body: noteBody, userId: GHL_LOCATION_ID }
+        });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL add note error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_list_contact_notes
+  mcpServer.registerTool(
+    "ghl_list_contact_notes",
+    {
+      description: "List all notes on a Go High Level contact.",
+      inputSchema: {
+        contact_id: z.string().describe("Contact ID")
+      }
+    },
+    async ({ contact_id }) => {
+      try {
+        const data = await ghlFetch(`/contacts/${contact_id}/notes`);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL list notes error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
+  );
+
+  // ── TOOL: ghl_create_task
+  mcpServer.registerTool(
+    "ghl_create_task",
+    {
+      description: "Create a task linked to a Go High Level contact. Use for follow-up reminders, outreach scheduling, etc.",
+      inputSchema: {
+        contact_id: z.string().describe("Contact ID to link task to"),
+        title: z.string().describe("Task title"),
+        description: z.string().optional().describe("Task description/details"),
+        dueDate: z.string().describe("Due date in ISO format (e.g. '2026-04-28T09:00:00Z')"),
+        completed: z.boolean().optional().describe("Mark as completed (default false)")
+      }
+    },
+    async ({ contact_id, title, description, dueDate, completed }) => {
+      try {
+        const body: Record<string, unknown> = { title, dueDate, completed: completed || false };
+        if (description) body.description = description;
+        const data = await ghlFetch(`/contacts/${contact_id}/tasks`, { method: "POST", body });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `GHL create task error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
     }
   );
 
