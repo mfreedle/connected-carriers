@@ -1,0 +1,19 @@
+# Exclude app and mcp-server (separate Railway services)
+app/
+mcp-server/
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.git/
+docs/
+vps/
+scripts/
+*.md
+.env
+.env.*
+
+# Explicitly DO NOT ignore these
+!nginx.conf
+!*.html
+!assets/
