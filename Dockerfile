@@ -1,5 +1,8 @@
 FROM nginx:alpine
 
+# Cache bust
+ARG CACHEBUST=2
+
 RUN apk add --no-cache gettext
 
 # Copy nginx config
