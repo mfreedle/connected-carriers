@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join the Waitlist — Connected Carriers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate:   #1C2B3A;
+    --slate2:  #243447;
+    --slate3:  #2E4058;
+    --amber:   #C8892A;
+    --amber2:  #E09B35;
+    --amber3:  #F5B84A;
+    --cream:   #F7F5F0;
+    --cream2:  #EDE9E1;
+    --cream3:  #E0DAD0;
+    --ink:     #141414;
+    --muted:   #6B7A8A;
+    --white:   #FFFFFF;
+    --serif:   'Playfair Display', Georgia, serif;
+    --sans:    'DM Sans', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--slate);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* ── NAV ──────────────────────────────────────────────── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: var(--slate);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+    border-bottom: 1px solid var(--slate3);
+  }
+
+  .nav-logo {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--cream);
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .nav-logo span { color: var(--amber); }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(247,245,240,0.6);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--cream); }
+
+  /* ── MAIN LAYOUT ────────────────────────────────────── */
+  .page-wrapper {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 120px 48px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .page-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 60%;
+    height: 130%;
+    background: var(--slate2);
+    transform: skewX(-8deg);
+    z-index: 0;
+  }
+
+  .page-wrapper::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--amber), transparent);
+  }
+
+  .content {
+    position: relative;
+    z-index: 1;
+    max-width: 960px;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+
+  /* ── LEFT: COPY ──────────────────────────────────────── */
+  .copy-side {}
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 28px;
+    font-weight: 500;
+  }
+
+  .eyebrow::before {
+    content: '';
+    display: block;
+    width: 28px;
+    height: 1px;
+    background: var(--amber);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 400;
+    line-height: 1.15;
+    color: var(--cream);
+    margin-bottom: 24px;
+    letter-spacing: -0.01em;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--amber);
+  }
+
+  .subtitle {
+    font-size: 17px;
+    font-weight: 300;
+    color: rgba(247,245,240,0.65);
+    max-width: 420px;
+    margin-bottom: 36px;
+    line-height: 1.7;
+  }
+
+  .how-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+
+  .how-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14px;
+    color: rgba(247,245,240,0.75);
+    line-height: 1.5;
+  }
+
+  .how-list .num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pricing-note {
+    font-size: 13px;
+    color: rgba(247,245,240,0.45);
+    border-top: 1px solid var(--slate3);
+    padding-top: 20px;
+    line-height: 1.6;
+  }
+
+  .pricing-note strong {
+    color: var(--amber);
+    font-weight: 500;
+  }
+
+  /* ── RIGHT: FORM ─────────────────────────────────────── */
+  .form-card {
+    background: var(--cream);
+    border-radius: 4px;
+    padding: 40px 36px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.3);
+  }
+
+  .form-card h2 {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+
+  .form-card .form-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 28px;
+  }
+
+  .form-group {
+    margin-bottom: 18px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    padding: 12px 14px;
+    font-family: var(--sans);
+    font-size: 15px;
+    border: 1px solid var(--cream3);
+    border-radius: 2px;
+    background: var(--white);
+    color: var(--ink);
+    transition: border-color 0.2s;
+    outline: none;
+    -webkit-appearance: none;
+  }
+
+  .form-group input:focus,
+  .form-group select:focus {
+    border-color: var(--amber);
+  }
+
+  .form-group input::placeholder {
+    color: var(--cream3);
+  }
+
+  .btn-submit {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--amber);
+    color: var(--slate);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 14px 32px;
+    border-radius: 2px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 8px;
+  }
+
+  .btn-submit:hover { background: var(--amber2); }
+  .btn-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .form-fine {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 14px;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  /* ── SUCCESS STATE ───────────────────────────────────── */
+  .success-state {
+    display: none;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .success-state .check-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+
+  .success-state h2 {
+    font-family: var(--serif);
+    font-size: 24px;
+    color: var(--ink);
+    margin-bottom: 10px;
+  }
+
+  .success-state p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .error-msg {
+    display: none;
+    background: #FFF0F0;
+    border: 1px solid #E8B4B4;
+    color: #8B3A3A;
+    padding: 10px 14px;
+    border-radius: 2px;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  /* ── FOOTER ──────────────────────────────────────────── */
+  footer {
+    background: var(--ink);
+    padding: 40px 48px 32px;
+    text-align: center;
+  }
+
+  footer p {
+    font-size: 12px;
+    color: rgba(247,245,240,0.35);
+    line-height: 1.8;
+  }
+
+  footer a {
+    color: rgba(247,245,240,0.5);
+    text-decoration: none;
+  }
+
+  footer a:hover { color: var(--cream); }
+
+  /* ── RESPONSIVE ──────────────────────────────────────── */
+  @media (max-width: 768px) {
+    nav { padding: 0 20px; }
+    .nav-links { display: none; }
+
+    .page-wrapper { padding: 100px 20px 60px; }
+
+    .content {
+      grid-template-columns: 1fr;
+      gap: 40px;
+    }
+
+    .page-wrapper::before { display: none; }
+
+    .form-card { padding: 28px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="https://connectedcarriers.org" class="nav-logo">Connected<span>Carriers</span></a>
+  <ul class="nav-links">
+    <li><a href="https://connectedcarriers.org">Home</a></li>
+    <li><a href="https://connectedcarriers.org/about.html">About</a></li>
+    <li><a href="https://connectedcarriers.org/pricing.html">Pricing</a></li>
+    <li><a href="https://connectedcarriers.org/contact.html">Contact</a></li>
+  </ul>
+</nav>
+
+<!-- MAIN -->
+<div class="page-wrapper">
+  <div class="content">
+
+    <!-- LEFT: COPY -->
+    <div class="copy-side">
+      <div class="eyebrow">Early access</div>
+      <h1>We verify your carriers<br><em>before pickup.</em></h1>
+      <p class="subtitle">Forward us one carrier and load before you dispatch. We check insurance, authority, CDL, equipment, and pickup readiness. You get a one-page report: Clear, Caution, or Do Not Use.</p>
+
+      <ul class="how-list">
+        <li>
+          <span class="num">1</span>
+          Forward us the carrier details and load info
+        </li>
+        <li>
+          <span class="num">2</span>
+          We verify everything — MC/DOT, insurance, CDL, VIN, readiness
+        </li>
+        <li>
+          <span class="num">3</span>
+          Get your report back before dispatch: clear, caution, or do not use
+        </li>
+      </ul>
+
+      <p class="pricing-note">
+        Verification reports are <strong>$9.99 per file</strong> at launch.<br>
+        Waitlist members get their <strong>first verifications free</strong> — we want your feedback before anything else.
+      </p>
+    </div>
+
+    <!-- RIGHT: FORM -->
+    <div class="form-card" id="formCard">
+      <div id="formView">
+        <h2>Join the waitlist</h2>
+        <p class="form-sub">Be first in line. No spam. We'll reach out when it's your turn.</p>
+
+        <div class="error-msg" id="errorMsg"></div>
+
+        <form id="waitlistForm" onsubmit="return handleSubmit(event)">
+          <div class="form-group">
+            <label for="firstName">First Name</label>
+            <input type="text" id="firstName" name="firstName" placeholder="Kate" required>
+          </div>
+
+          <div class="form-group">
+            <label for="lastName">Last Name</label>
+            <input type="text" id="lastName" name="lastName" placeholder="Gonzalez" required>
+          </div>
+
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="kate@logistics.com" required>
+          </div>
+
+          <div class="form-group">
+            <label for="company">Company</label>
+            <input type="text" id="company" name="company" placeholder="Your brokerage name">
+          </div>
+
+          <div class="form-group">
+            <label for="loadsPerWeek">Loads per week (approx)</label>
+            <select id="loadsPerWeek" name="loadsPerWeek">
+              <option value="">Select...</option>
+              <option value="1-10">1–10</option>
+              <option value="11-50">11–50</option>
+              <option value="51-200">51–200</option>
+              <option value="200+">200+</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn-submit" id="submitBtn">
+            Join the Waitlist
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </form>
+
+        <p class="form-fine">No credit card. No software to install. We'll email you when it's your turn.</p>
+      </div>
+
+      <!-- SUCCESS -->
+      <div class="success-state" id="successView">
+        <div class="check-circle">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke="#1C2B3A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h2>You're on the list.</h2>
+        <p>We'll reach out when it's your turn. In the meantime, if you have a carrier you want verified before your next pickup — just reply to the email we'll send you.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <p>&copy; 2026 Connected Carriers — <a href="https://connectedcarriers.org">connectedcarriers.org</a>. A <a href="https://honexai.com">HoneXAI</a> product.</p>
+  <p style="margin-top:4px"><a href="/terms.html">Terms</a> &middot; <a href="/privacy.html">Privacy</a></p>
+</footer>
+
+<script>
+// Get the referral source from URL params (e.g. ?ref=fb-truckers)
+function getRef() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('ref') || 'direct';
+}
+
+async function handleSubmit(e) {
+  e.preventDefault();
+
+  const btn = document.getElementById('submitBtn');
+  const errorMsg = document.getElementById('errorMsg');
+  errorMsg.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  const firstName = document.getElementById('firstName').value.trim();
+  const lastName = document.getElementById('lastName').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const company = document.getElementById('company').value.trim();
+  const loadsPerWeek = document.getElementById('loadsPerWeek').value;
+  const ref = getRef();
+
+  try {
+    const response = await fetch('https://services.leadconnectorhq.com/contacts/', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer pit-f8a34ded-18c6-4175-88c4-5379e3af237d',
+        'Content-Type': 'application/json',
+        'Version': '2021-07-28'
+      },
+      body: JSON.stringify({
+        locationId: 'TULRx3iimtqkBW9jG2dy',
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        companyName: company,
+        tags: ['waitlist', 'ref-' + ref],
+        source: 'waitlist-' + ref,
+        customField: loadsPerWeek ? [{ key: 'loads_per_week', value: loadsPerWeek }] : []
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      // GHL returns 400 if contact already exists with that email
+      if (err.message && err.message.includes('duplicate')) {
+        // Still show success - they're already on the list
+        showSuccess();
+        return;
+      }
+      throw new Error(err.message || 'Something went wrong');
+    }
+
+    showSuccess();
+
+  } catch (error) {
+    errorMsg.textContent = 'Something went wrong. Try again or email us at hello@connectedcarriers.org';
+    errorMsg.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Join the Waitlist <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+}
+
+function showSuccess() {
+  document.getElementById('formView').style.display = 'none';
+  document.getElementById('successView').style.display = 'block';
+}
+</script>
+
+</body>
+</html>
