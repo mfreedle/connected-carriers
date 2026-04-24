@@ -460,3 +460,72 @@ export async function migrateBilling() {
   await query(`CREATE INDEX IF NOT EXISTS idx_broker_billing_customer ON broker_billing(stripe_customer_id)`);
   console.log("Billing migration complete.");
 }
+
+export async function migrateVerification() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_verifications (
+      id SERIAL PRIMARY KEY,
+      token TEXT UNIQUE NOT NULL,
+      broker_account_id INTEGER REFERENCES broker_accounts(id),
+      broker_name TEXT,
+      broker_phone TEXT,
+      broker_email TEXT,
+
+      -- Carrier info (from broker trigger)
+      mc_number TEXT NOT NULL,
+      carrier_phone TEXT,
+      carrier_email TEXT,
+      carrier_name TEXT,
+
+      -- FMCSA auto-check results
+      fmcsa_data JSONB,
+      fmcsa_status TEXT,
+
+      -- Carrier-submitted documents (R2 keys)
+      doc_cdl TEXT,
+      doc_cdl_submitted_at TIMESTAMPTZ,
+      doc_insurance TEXT,
+      doc_insurance_submitted_at TIMESTAMPTZ,
+      doc_cab_card TEXT,
+      doc_cab_card_submitted_at TIMESTAMPTZ,
+      doc_truck_photo TEXT,
+      doc_truck_photo_submitted_at TIMESTAMPTZ,
+
+      -- Carrier-provided info
+      driver_name TEXT,
+      driver_phone TEXT,
+      truck_vin TEXT,
+      vin_decode JSONB,
+
+      -- Submission tracking
+      submission_method TEXT,
+      carrier_first_response_at TIMESTAMPTZ,
+
+      -- Status + result
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete', 'expired')),
+      result TEXT CHECK (result IN ('CLEAR', 'CAUTION', 'DO_NOT_USE')),
+      result_reasons JSONB DEFAULT '[]',
+      result_delivered_at TIMESTAMPTZ,
+
+      -- Notifications
+      sms_sent_at TIMESTAMPTZ,
+      email_sent_at TIMESTAMPTZ,
+      caution_sent_at TIMESTAMPTZ,
+      dnu_sent_at TIMESTAMPTZ,
+      reminder_count INTEGER DEFAULT 0,
+      last_reminder_at TIMESTAMPTZ,
+
+      -- Time-boxing
+      deadline TIMESTAMPTZ,
+
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_token ON carrier_verifications(token)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_mc ON carrier_verifications(mc_number)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_carrier_phone ON carrier_verifications(carrier_phone)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_status ON carrier_verifications(status)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_broker ON carrier_verifications(broker_account_id)`);
+  console.log("Verification pipeline migration complete.");
+}

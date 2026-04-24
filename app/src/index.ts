@@ -1,7 +1,7 @@
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio, migrateTeam, migrateCarrierProfiles, migrateBilling } from "./db";
+import pool, { migrate, migrateIntake, migrateDispatch, migrateInterest, migrateSetupPackets, migrateTwilio, migrateTeam, migrateCarrierProfiles, migrateBilling, migrateVerification } from "./db";
 import authRoutes from "./routes/auth";
 import dashboardRoutes from "./routes/dashboard";
 import carrierRoutes from "./routes/carriers";
@@ -17,6 +17,7 @@ import profileRoutes from "./routes/profile";
 import billingRoutes from "./routes/billing";
 import loadsRoutes from "./routes/loads";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
+import verifyRoutes from "./routes/verify";
 import { verifyCsrf } from "./middleware/security";
 
 const app = express();
@@ -69,6 +70,7 @@ app.use("/", teamRoutes);      // team management + public invite acceptance
 app.use("/", profileRoutes);   // public /profile/carrier route
 app.use("/", billingRoutes);   // /billing page + /api/billing/* endpoints
 app.use("/", loadsRoutes);    // /loads page (My Loads dashboard)
+app.use("/", verifyRoutes);   // /v/:token carrier verification + /api/verify/* endpoints
 
 // Broker routes — CSRF verification on all POSTs
 app.use(verifyCsrf);
@@ -105,7 +107,7 @@ app.use((req, res) => {
 });
 
 // Auto-run migrations on startup
-migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio()).then(() => migrateTeam()).then(() => migrateCarrierProfiles()).then(() => migrateBilling())
+migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => migrateInterest()).then(() => migrateSetupPackets()).then(() => migrateTwilio()).then(() => migrateTeam()).then(() => migrateCarrierProfiles()).then(() => migrateBilling()).then(() => migrateVerification())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);
