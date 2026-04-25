@@ -424,7 +424,7 @@ router.post("/api/verify/trigger", async (req, res) => {
 
     // Step 3: Send carrier verification request
     const brokerLabel = broker_name || "A broker";
-    const carrierMsg = `${brokerLabel} requires verification before dispatch.\n\nComplete here to be approved:\n${verifyUrl}\n\nTakes ~2 minutes.\n\nNo verification = no dispatch.`;
+    const carrierMsg = `${brokerLabel} requires verification before dispatch.\n\nComplete here to be approved:\n${verifyUrl}\n\nTakes ~2 minutes.\n\nSecure verification for dispatch — no spam, no marketing.\n\nNo verification = no dispatch.`;
 
     let smsSent = false;
     let emailSent = false;
@@ -870,6 +870,7 @@ function renderCarrierForm(token: string, v: Record<string, unknown>, fmcsa: Rec
       <h1>Verification Required</h1>
       <p><strong>${brokerName}</strong> requires verification before dispatch for <strong>${carrierName}</strong>.</p>
       <p>Submit the documents below. Takes about 2 minutes.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--muted);padding:10px 14px;background:var(--cream2);border-radius:4px;line-height:1.5">This verification is required by your broker before dispatch. We only use this information to confirm you're dispatch-ready. We do not share your data or use it for marketing.</p>
     </div>
 
     <form action="/v/${token}" method="POST" enctype="multipart/form-data">
@@ -887,6 +888,7 @@ function renderCarrierForm(token: string, v: Record<string, unknown>, fmcsa: Rec
 
       <div class="card">
         <h2>Documents</h2>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Used only for verification — not stored for marketing or resale.</p>
 
         <div class="form-group">
           <label>CDL — Front Photo</label>
