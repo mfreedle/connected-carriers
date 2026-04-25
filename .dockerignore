@@ -1,4 +1,3 @@
-# Exclude app and mcp-server (separate Railway services)
 app/
 mcp-server/
 node_modules/
@@ -12,8 +11,4 @@ scripts/
 *.md
 .env
 .env.*
-
-# Explicitly DO NOT ignore these
-!nginx.conf
-!*.html
-!assets/
+.claude/
