@@ -412,27 +412,32 @@
     <div class="copy-side">
       <div class="eyebrow">Early access</div>
       <h1>Not sure about<br>a <em>carrier?</em></h1>
-      <p class="subtitle">Send us whatever you have — MC number, rate con, carrier packet, or even a screenshot of an email. We verify insurance, authority, safety, and flag anything missing. You get a one-page result before dispatch: Clear, Caution, or Do Not Use.</p>
+      <p class="subtitle">Send us whatever you have — MC number, rate con, carrier packet, even a screenshot of an email. We contact the carrier, collect what's missing, verify everything, and send you a one-page result before dispatch.</p>
 
       <ul class="how-list">
         <li>
           <span class="num">1</span>
-          Forward us the carrier details and load info
+          Send whatever you have on the carrier
         </li>
         <li>
           <span class="num">2</span>
-          We verify everything — MC/DOT, insurance, CDL, VIN, readiness
+          We verify and collect what's missing — you don't chase paperwork
         </li>
         <li>
           <span class="num">3</span>
-          Get your report back before dispatch: clear, caution, or do not use
+          Get a result before dispatch: Clear, Caution, or Do Not Use
         </li>
       </ul>
 
-      <p class="pricing-note">
-        Verification reports are <strong>$9.99 per file</strong> at launch.<br>
-        Waitlist members get their <strong>first verifications free</strong> — we want your feedback before anything else.
-      </p>
+      <div class="pricing-note">
+        <strong>$9.99 per verification</strong> at launch.<br>
+        Waitlist members get their first checks free — we want your feedback first.
+      </div>
+
+      <div class="pricing-note" style="border-top:none;padding-top:0;margin-top:8px">
+        We don't store your data. We don't touch your accounts.<br>
+        This is strictly a verification layer.
+      </div>
     </div>
 
     <!-- RIGHT: FORM -->
@@ -446,17 +451,17 @@
         <form id="waitlistForm" onsubmit="return handleSubmit(event)">
           <div class="form-group">
             <label for="firstName">First Name</label>
-            <input type="text" id="firstName" name="firstName" placeholder="Kate" required>
+            <input type="text" id="firstName" name="firstName" placeholder="Jane" required>
           </div>
 
           <div class="form-group">
             <label for="lastName">Last Name</label>
-            <input type="text" id="lastName" name="lastName" placeholder="Gonzalez" required>
+            <input type="text" id="lastName" name="lastName" placeholder="Shipper" required>
           </div>
 
           <div class="form-group">
             <label for="email">Email</label>
-            <input type="email" id="email" name="email" placeholder="kate@logistics.com" required>
+            <input type="email" id="email" name="email" placeholder="jane@mybrokerage.com" required>
           </div>
 
           <div class="form-group">
