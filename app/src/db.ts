@@ -527,5 +527,25 @@ export async function migrateVerification() {
   await query(`CREATE INDEX IF NOT EXISTS idx_cv_carrier_phone ON carrier_verifications(carrier_phone)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cv_status ON carrier_verifications(status)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cv_broker ON carrier_verifications(broker_account_id)`);
+
+  // OCR parsed data columns
+  await query(`
+    DO $$ BEGIN
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS parsed_cdl JSONB;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS parsed_insurance JSONB;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS parsed_vin TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS cdl_expiration DATE;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS insurance_expiration DATE;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS insurance_company TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS insurance_policy_number TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS insurance_vins JSONB DEFAULT '[]';
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS cdl_name TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS cdl_number TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS cdl_state TEXT;
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS doc_flags JSONB DEFAULT '[]';
+      ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS carrier_profile_id INTEGER;
+    END $$
+  `);
+
   console.log("Verification pipeline migration complete.");
 }

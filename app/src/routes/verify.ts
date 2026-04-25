@@ -4,6 +4,7 @@ import multer from "multer";
 import { query } from "../db";
 import { sendSms } from "../lib/sms";
 import { uploadToR2, getPresignedDownloadUrl } from "../lib/storage";
+import { parseCDL, parseInsurance, parseVINPhoto, checkDocFlags } from "../doc-parser";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -128,8 +129,229 @@ function computeResult(v: Record<string, unknown>): { result: string; reasons: s
     return { result: "DO_NOT_USE", reasons };
   }
 
-  if (reasons.length === 0) return { result: "CLEAR", reasons: ["All documents provided. FMCSA authority active."] };
+  // OCR-based checks (from doc_flags)
+  const flags = v.doc_flags as string[] || [];
+  let hasCriticalFlag = false;
+  for (const flag of flags) {
+    if (flag === "INSURANCE_EXPIRED") { reasons.push("Insurance policy is expired"); hasCriticalFlag = true; }
+    else if (flag === "CDL_EXPIRED") { reasons.push("CDL is expired"); hasCriticalFlag = true; }
+    else if (flag === "VIN_NOT_ON_INSURANCE") { reasons.push("Truck VIN does not match any VIN on insurance policy"); hasCriticalFlag = true; }
+    else if (flag === "INSURANCE_EXPIRING_7_DAYS") reasons.push("Insurance expires within 7 days");
+    else if (flag === "INSURANCE_EXPIRING_30_DAYS") reasons.push("Insurance expires within 30 days");
+    else if (flag === "CDL_EXPIRING_30_DAYS") reasons.push("CDL expires within 30 days");
+  }
+
+  if (hasCriticalFlag) return { result: "DO_NOT_USE", reasons };
+
+  // CDL name vs driver name cross-reference
+  if (v.cdl_name && v.driver_name) {
+    const cdlName = String(v.cdl_name).toUpperCase().trim();
+    const driverName = String(v.driver_name).toUpperCase().trim();
+    if (cdlName && driverName && !cdlName.includes(driverName.split(" ")[0]) && !driverName.includes(cdlName.split(" ")[0])) {
+      reasons.push(`Driver name (${v.driver_name}) may not match CDL name (${v.cdl_name})`);
+    }
+  }
+
+  if (reasons.length === 0) {
+    const positives = ["All documents provided", "FMCSA authority active"];
+    if (v.parsed_cdl) positives.push("CDL verified via OCR");
+    if (v.parsed_insurance) positives.push("Insurance verified via OCR");
+    if (v.parsed_vin && v.insurance_vins) positives.push("VIN matches insurance policy");
+    return { result: "CLEAR", reasons: positives };
+  }
   return { result: "CAUTION", reasons };
+}
+
+// ── HELPER: Run OCR on uploaded documents and update verification record ──
+async function runOCR(verificationId: number): Promise<void> {
+  try {
+    const result = await query(`SELECT * FROM carrier_verifications WHERE id=$1`, [verificationId]);
+    if (result.rows.length === 0) return;
+    const v = result.rows[0];
+
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    let paramCount = 0;
+
+    // OCR the CDL
+    if (v.doc_cdl && !v.parsed_cdl) {
+      try {
+        const cdlUrl = await getPresignedDownloadUrl(v.doc_cdl, 120);
+        const parsed = await parseCDL(cdlUrl);
+        if (parsed && Object.keys(parsed).length > 0) {
+          paramCount++; updates.push(`parsed_cdl=$${paramCount}`); values.push(JSON.stringify(parsed));
+          if (parsed.driver_name) { paramCount++; updates.push(`cdl_name=$${paramCount}`); values.push(parsed.driver_name); }
+          if (parsed.cdl_number) { paramCount++; updates.push(`cdl_number=$${paramCount}`); values.push(parsed.cdl_number); }
+          if (parsed.state) { paramCount++; updates.push(`cdl_state=$${paramCount}`); values.push(parsed.state); }
+          if (parsed.expiration_date) { paramCount++; updates.push(`cdl_expiration=$${paramCount}`); values.push(parsed.expiration_date); }
+          console.log(`[VERIFY-OCR] CDL parsed for MC#${v.mc_number}: ${parsed.driver_name || "?"}, exp ${parsed.expiration_date || "?"}`);
+        }
+      } catch (err) { console.error("[VERIFY-OCR] CDL parse error:", err); }
+    }
+
+    // OCR the insurance
+    if (v.doc_insurance && !v.parsed_insurance) {
+      try {
+        const insUrl = await getPresignedDownloadUrl(v.doc_insurance, 120);
+        const parsed = await parseInsurance(insUrl);
+        if (parsed && Object.keys(parsed).length > 0) {
+          paramCount++; updates.push(`parsed_insurance=$${paramCount}`); values.push(JSON.stringify(parsed));
+          if (parsed.expiration_date) { paramCount++; updates.push(`insurance_expiration=$${paramCount}`); values.push(parsed.expiration_date); }
+          if (parsed.insurance_company) { paramCount++; updates.push(`insurance_company=$${paramCount}`); values.push(parsed.insurance_company); }
+          if (parsed.policy_number) { paramCount++; updates.push(`insurance_policy_number=$${paramCount}`); values.push(parsed.policy_number); }
+          if (parsed.vins && parsed.vins.length > 0) { paramCount++; updates.push(`insurance_vins=$${paramCount}`); values.push(JSON.stringify(parsed.vins)); }
+          console.log(`[VERIFY-OCR] Insurance parsed for MC#${v.mc_number}: ${parsed.insurance_company || "?"}, exp ${parsed.expiration_date || "?"}, ${(parsed.vins || []).length} VINs`);
+        }
+      } catch (err) { console.error("[VERIFY-OCR] Insurance parse error:", err); }
+    }
+
+    // OCR the cab card / truck photo for VIN
+    if ((v.doc_cab_card || v.doc_truck_photo) && !v.parsed_vin) {
+      const docKey = v.doc_cab_card || v.doc_truck_photo;
+      try {
+        const vinUrl = await getPresignedDownloadUrl(docKey as string, 120);
+        const parsed = await parseVINPhoto(vinUrl);
+        if (parsed && parsed.vin) {
+          paramCount++; updates.push(`parsed_vin=$${paramCount}`); values.push(parsed.vin);
+          // Also set truck_vin if not already set, and decode
+          if (!v.truck_vin) {
+            paramCount++; updates.push(`truck_vin=$${paramCount}`); values.push(parsed.vin);
+            const decoded = await decodeVIN(parsed.vin);
+            if (decoded) { paramCount++; updates.push(`vin_decode=$${paramCount}`); values.push(JSON.stringify(decoded)); }
+          }
+          console.log(`[VERIFY-OCR] VIN extracted for MC#${v.mc_number}: ${parsed.vin}`);
+        }
+      } catch (err) { console.error("[VERIFY-OCR] VIN parse error:", err); }
+    }
+
+    if (updates.length > 0) {
+      paramCount++;
+      updates.push(`updated_at=NOW()`);
+      values.push(verificationId);
+      await query(`UPDATE carrier_verifications SET ${updates.join(", ")} WHERE id=$${paramCount}`, values);
+    }
+
+    // Run doc flags check after OCR
+    const refreshed = await query(`SELECT * FROM carrier_verifications WHERE id=$1`, [verificationId]);
+    if (refreshed.rows.length > 0) {
+      const rv = refreshed.rows[0];
+      const profileForFlags = {
+        cdl_expiration: rv.cdl_expiration,
+        insurance_expiration: rv.insurance_expiration,
+        vin_number: rv.parsed_vin || rv.truck_vin,
+        insurance_vins: rv.insurance_vins,
+        cdl_photo_url: rv.doc_cdl,
+        vin_photo_url: rv.doc_cab_card || rv.doc_truck_photo,
+        insurance_doc_url: rv.doc_insurance,
+        driver_name: rv.driver_name,
+        driver_phone: rv.driver_phone,
+        truck_number: rv.truck_vin,
+      };
+      const flags = checkDocFlags(profileForFlags);
+      await query(`UPDATE carrier_verifications SET doc_flags=$1, updated_at=NOW() WHERE id=$2`, [JSON.stringify(flags), verificationId]);
+      console.log(`[VERIFY-OCR] Doc flags for MC#${rv.mc_number}: ${flags.length > 0 ? flags.join(", ") : "none"}`);
+    }
+  } catch (err) {
+    console.error("[VERIFY-OCR] Error:", err);
+  }
+}
+
+// ── HELPER: Load carrier profile if exists (for pre-fill) ──
+async function loadCarrierProfile(mcNumber: string): Promise<Record<string, unknown> | null> {
+  try {
+    const clean = mcNumber.replace(/\D/g, "");
+    const result = await query(`SELECT * FROM carrier_profiles WHERE mc_number=$1 ORDER BY updated_at DESC LIMIT 1`, [clean]);
+    return result.rows.length > 0 ? result.rows[0] : null;
+  } catch { return null; }
+}
+
+// ── HELPER: Save/update carrier profile after verification ──
+async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
+  try {
+    const mc = String(v.mc_number).replace(/\D/g, "");
+    if (!mc) return;
+
+    const existing = await query(`SELECT id FROM carrier_profiles WHERE mc_number=$1 LIMIT 1`, [mc]);
+    const fmcsa = v.fmcsa_data as Record<string, unknown> || {};
+
+    if (existing.rows.length > 0) {
+      // Update existing profile
+      const profileId = existing.rows[0].id;
+      const updates: string[] = [];
+      const vals: unknown[] = [];
+      let p = 0;
+
+      if (v.driver_name) { p++; updates.push(`driver_name=$${p}`); vals.push(v.driver_name); }
+      if (v.driver_phone) { p++; updates.push(`driver_phone=$${p}`); vals.push(v.driver_phone); }
+      if (v.truck_vin || v.parsed_vin) { p++; updates.push(`vin_number=$${p}`); vals.push(v.parsed_vin || v.truck_vin); }
+      if (v.doc_cdl) { p++; updates.push(`cdl_photo_r2_key=$${p}`); vals.push(v.doc_cdl); }
+      if (v.doc_insurance) { p++; updates.push(`insurance_doc_r2_key=$${p}`); vals.push(v.doc_insurance); }
+      if (v.doc_cab_card || v.doc_truck_photo) { p++; updates.push(`vin_photo_r2_key=$${p}`); vals.push(v.doc_cab_card || v.doc_truck_photo); }
+      if (v.parsed_cdl) { p++; updates.push(`parsed_cdl=$${p}`); vals.push(v.parsed_cdl); }
+      if (v.parsed_insurance) { p++; updates.push(`parsed_insurance=$${p}`); vals.push(v.parsed_insurance); }
+      if (v.parsed_vin) { p++; updates.push(`parsed_vin=$${p}`); vals.push(v.parsed_vin); }
+      if (v.cdl_number) { p++; updates.push(`cdl_number=$${p}`); vals.push(v.cdl_number); }
+      if (v.cdl_state) { p++; updates.push(`cdl_state=$${p}`); vals.push(v.cdl_state); }
+      if (v.cdl_expiration) { p++; updates.push(`cdl_expiration=$${p}`); vals.push(v.cdl_expiration); }
+      if (v.insurance_expiration) { p++; updates.push(`insurance_expiration=$${p}`); vals.push(v.insurance_expiration); }
+      if (v.insurance_company) { p++; updates.push(`insurance_company=$${p}`); vals.push(v.insurance_company); }
+      if (v.insurance_policy_number) { p++; updates.push(`insurance_policy_number=$${p}`); vals.push(v.insurance_policy_number); }
+      if (v.insurance_vins) { p++; updates.push(`insurance_vins=$${p}`); vals.push(v.insurance_vins); }
+      if (v.doc_flags) { p++; updates.push(`doc_flags=$${p}`); vals.push(v.doc_flags); }
+
+      if (updates.length > 0) {
+        updates.push(`updated_at=NOW()`);
+        updates.push(`completion_status='dispatch_ready'`);
+        p++;
+        vals.push(profileId);
+        await query(`UPDATE carrier_profiles SET ${updates.join(", ")} WHERE id=$${p}`, vals);
+        // Link profile to verification
+        await query(`UPDATE carrier_verifications SET carrier_profile_id=$1 WHERE id=$2`, [profileId, v.id]);
+        console.log(`[VERIFY] Updated carrier profile #${profileId} for MC#${mc}`);
+      }
+    } else {
+      // Create new profile
+      const ins = await query(`
+        INSERT INTO carrier_profiles (company_name, mc_number, contact_name, email, phone,
+          driver_name, driver_phone, vin_number,
+          cdl_photo_r2_key, vin_photo_r2_key, insurance_doc_r2_key,
+          parsed_cdl, parsed_insurance, parsed_vin,
+          cdl_number, cdl_state, cdl_expiration,
+          insurance_expiration, insurance_company, insurance_policy_number, insurance_vins,
+          doc_flags, completion_status, source)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'dispatch_ready','direct')
+        RETURNING id
+      `, [
+        (fmcsa.legal_name as string) || v.carrier_name || `MC#${mc}`,
+        mc,
+        v.driver_name || v.carrier_name || "",
+        v.carrier_email || "",
+        v.carrier_phone || "",
+        v.driver_name || null,
+        v.driver_phone || null,
+        v.parsed_vin || v.truck_vin || null,
+        v.doc_cdl || null,
+        v.doc_cab_card || v.doc_truck_photo || null,
+        v.doc_insurance || null,
+        v.parsed_cdl || null,
+        v.parsed_insurance || null,
+        v.parsed_vin || null,
+        v.cdl_number || null,
+        v.cdl_state || null,
+        v.cdl_expiration || null,
+        v.insurance_expiration || null,
+        v.insurance_company || null,
+        v.insurance_policy_number || null,
+        v.insurance_vins ? JSON.stringify(v.insurance_vins) : "[]",
+        v.doc_flags ? JSON.stringify(v.doc_flags) : "[]",
+      ]);
+      const profileId = ins.rows[0].id;
+      await query(`UPDATE carrier_verifications SET carrier_profile_id=$1 WHERE id=$2`, [profileId, v.id]);
+      console.log(`[VERIFY] Created carrier profile #${profileId} for MC#${mc}`);
+    }
+  } catch (err) {
+    console.error("[VERIFY] Save carrier profile error:", err);
+  }
 }
 
 
@@ -263,8 +485,15 @@ router.get("/v/:token", async (req, res) => {
       return res.send(renderCarrierPage("Link expired", "This verification request has expired. Please contact your broker.", token, v));
     }
 
-    // Show the form
+    // Show the form — pre-fill from carrier profile if exists
     const fmcsa = v.fmcsa_data || {};
+    const profile = await loadCarrierProfile(v.mc_number);
+    if (profile && !v.carrier_first_response_at) {
+      // Pre-fill driver info from previous verification
+      if (profile.driver_name && !v.driver_name) v.driver_name = profile.driver_name;
+      if (profile.driver_phone && !v.driver_phone) v.driver_phone = profile.driver_phone;
+      if (profile.vin_number && !v.truck_vin) v.truck_vin = profile.vin_number;
+    }
     res.send(renderCarrierForm(token, v, fmcsa));
 
   } catch (err) {
@@ -345,16 +574,25 @@ router.post("/v/:token", upload.fields([
     const updated = await query(`SELECT * FROM carrier_verifications WHERE id=$1`, [v.id]);
     const uv = updated.rows[0];
 
-    // Check if all docs are provided — auto-complete
-    if (uv.doc_cdl && uv.doc_insurance && uv.doc_cab_card && uv.doc_truck_photo) {
-      const { result: finalResult, reasons } = computeResult(uv);
-      await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
-        [finalResult, JSON.stringify(reasons), v.id]);
+    // Check if all docs are provided — run OCR then compute result
+    if (uv.doc_cdl && uv.doc_insurance && (uv.doc_cab_card || uv.doc_truck_photo)) {
+      // Run OCR in background (don't block the redirect)
+      runOCR(v.id).then(async () => {
+        // Re-fetch with OCR data
+        const ocrResult = await query(`SELECT * FROM carrier_verifications WHERE id=$1`, [v.id]);
+        const ov = ocrResult.rows[0];
+        const { result: finalResult, reasons } = computeResult(ov);
+        await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
+          [finalResult, JSON.stringify(reasons), v.id]);
 
-      // Notify broker
-      if (v.broker_phone) {
-        await sendSms(v.broker_phone, `MC#${v.mc_number} — ${finalResult}. ${reasons.join(". ")}. View: ${BASE_URL}/v/${token}/report`);
-      }
+        // Save to carrier profile for next time
+        await saveCarrierProfile(ov);
+
+        // Notify broker
+        if (ov.broker_phone) {
+          await sendSms(ov.broker_phone, `MC#${ov.mc_number} — ${finalResult}. ${reasons.join(". ")}. View: ${BASE_URL}/v/${token}/report`);
+        }
+      }).catch(err => console.error("[VERIFY] OCR/complete error:", err));
     }
 
     res.redirect(`/v/${token}`);
@@ -448,14 +686,18 @@ router.post("/api/verify/sms", async (req, res) => {
       if (!rv.doc_truck_photo) missing.push("Truck photo");
 
       if (missing.length === 0) {
-        // All docs received — compute and deliver result
-        const { result: finalResult, reasons } = computeResult(rv);
-        await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
-          [finalResult, JSON.stringify(reasons), v.id]);
-
-        if (rv.broker_phone) {
-          await sendSms(rv.broker_phone, `MC#${rv.mc_number} — ${finalResult}. ${reasons.join(". ")}. View: ${BASE_URL}/v/${rv.token}/report`);
-        }
+        // All docs received — run OCR, compute result, save profile
+        runOCR(v.id).then(async () => {
+          const ocrResult = await query(`SELECT * FROM carrier_verifications WHERE id=$1`, [v.id]);
+          const ov = ocrResult.rows[0];
+          const { result: finalResult, reasons } = computeResult(ov);
+          await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
+            [finalResult, JSON.stringify(reasons), v.id]);
+          await saveCarrierProfile(ov);
+          if (ov.broker_phone) {
+            await sendSms(ov.broker_phone, `MC#${ov.mc_number} — ${finalResult}. ${reasons.join(". ")}. View: ${BASE_URL}/v/${ov.token}/report`);
+          }
+        }).catch(err => console.error("[VERIFY] SMS OCR/complete error:", err));
 
         res.type("text/xml").send(`<Response><Message>All documents received. Your broker has been notified. Thank you.</Message></Response>`);
       } else {
