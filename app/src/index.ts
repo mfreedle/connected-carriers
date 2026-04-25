@@ -18,6 +18,7 @@ import billingRoutes from "./routes/billing";
 import loadsRoutes from "./routes/loads";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
 import verifyRoutes from "./routes/verify";
+import { startVerificationCron } from "./lib/verify-cron";
 import { verifyCsrf } from "./middleware/security";
 
 const app = express();
@@ -111,6 +112,7 @@ migrate().then(() => migrateIntake()).then(() => migrateDispatch()).then(() => m
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Connected Carriers broker app running on port ${PORT}`);
+      startVerificationCron();
     });
   })
   .catch((err) => {

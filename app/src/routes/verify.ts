@@ -201,8 +201,8 @@ router.post("/api/verify/trigger", async (req, res) => {
     }
 
     // Step 3: Send carrier verification request
-    const brokerLabel = broker_name || "Your broker";
-    const carrierMsg = `${brokerLabel} requires verification before dispatch.\n\nSubmit here to be approved:\n${verifyUrl}\n\nTakes 2 minutes.\nNo submission = no dispatch.`;
+    const brokerLabel = broker_name || "A broker";
+    const carrierMsg = `${brokerLabel} requires verification before dispatch.\n\nComplete here to be approved:\n${verifyUrl}\n\nTakes ~2 minutes.\n\nNo verification = no dispatch.`;
 
     let smsSent = false;
     let emailSent = false;
