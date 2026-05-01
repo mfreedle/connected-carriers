@@ -492,20 +492,10 @@
             </select>
           </div>
 
-          <!-- Carrier verification section -->
-          <div style="border-top:1px solid var(--cream3);margin:24px 0 20px;padding-top:20px">
-            <p style="font-size:13px;font-weight:500;color:var(--ink);margin-bottom:4px">Have a carrier you want checked now?</p>
-            <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Optional — we'll manually run your first verification.</p>
-          </div>
-
-          <div class="form-group">
-            <label for="carrierMC">Carrier MC Number (optional)</label>
-            <input type="text" id="carrierMC" name="carrierMC" placeholder="e.g. 123456">
-          </div>
-
-          <div class="form-group">
-            <label for="carrierPhone">Carrier Phone or Email (optional)</label>
-            <input type="text" id="carrierPhone" name="carrierPhone" placeholder="How we reach the carrier">
+          <!-- SMS CONSENT — NOT PRE-CHECKED -->
+          <div style="margin:20px 0 16px;display:flex;align-items:flex-start;gap:10px">
+            <input type="checkbox" id="smsConsent" name="smsConsent" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;accent-color:var(--amber);cursor:pointer">
+            <label for="smsConsent" style="font-size:12px;color:var(--muted);line-height:1.5;cursor:pointer;text-transform:none;letter-spacing:0">By submitting, I agree to receive SMS messages from Connected Carriers related to waitlist updates and carrier verification. Message &amp; data rates may apply. Reply STOP to opt out.</label>
           </div>
 
           <button type="submit" class="btn-submit" id="submitBtn">
