@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carrier Verification — Connected Carriers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slate:   #1C2B3A;
+    --slate2:  #243447;
+    --slate3:  #2E4058;
+    --amber:   #C8892A;
+    --amber2:  #E09B35;
+    --cream:   #F7F5F0;
+    --cream2:  #EDE9E1;
+    --cream3:  #E0DAD0;
+    --ink:     #141414;
+    --muted:   #6B7A8A;
+    --white:   #FFFFFF;
+    --serif:   'Playfair Display', Georgia, serif;
+    --sans:    'DM Sans', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--cream);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── NAV ──────────────────────────────────────────────── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: var(--slate);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+    border-bottom: 1px solid var(--slate3);
+  }
+
+  .nav-logo {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--cream);
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .nav-logo span { color: var(--amber); }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(247,245,240,0.6);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--cream); }
+
+  /* ── MAIN ───────────────────────────────────────────── */
+  .container {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 100px 20px 60px;
+  }
+
+  .page-header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  .page-header h1 {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--slate);
+    margin-bottom: 8px;
+  }
+
+  .page-header p {
+    font-size: 15px;
+    color: var(--muted);
+  }
+
+  .intro {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.7;
+    margin-bottom: 28px;
+    padding: 16px 20px;
+    background: var(--cream2);
+    border-radius: 4px;
+  }
+
+  /* ── FORM ───────────────────────────────────────────── */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--cream3);
+    border-radius: 6px;
+    padding: 28px;
+    margin-bottom: 20px;
+  }
+
+  .card h2 {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--slate);
+    margin-bottom: 18px;
+  }
+
+  .form-group {
+    margin-bottom: 18px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .form-group input[type="text"],
+  .form-group input[type="tel"] {
+    width: 100%;
+    padding: 10px 12px;
+    font-family: var(--sans);
+    font-size: 15px;
+    border: 1px solid var(--cream3);
+    border-radius: 4px;
+    background: var(--white);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .form-group input:focus {
+    border-color: var(--amber);
+  }
+
+  .form-group input::placeholder {
+    color: var(--cream3);
+  }
+
+  .file-input {
+    position: relative;
+    border: 2px dashed var(--cream3);
+    border-radius: 6px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .file-input:hover { border-color: var(--amber); }
+
+  .file-input input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .file-input .label {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* ── CONSENT CHECKBOX ───────────────────────────────── */
+  .consent-section {
+    background: var(--white);
+    border: 1px solid var(--cream3);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+
+  .consent-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .consent-row input[type="checkbox"] {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    accent-color: var(--amber);
+    cursor: pointer;
+  }
+
+  .consent-row label {
+    font-size: 13px;
+    color: var(--ink);
+    line-height: 1.6;
+    cursor: pointer;
+  }
+
+  /* ── SUBMIT ─────────────────────────────────────────── */
+  .btn-submit {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--amber);
+    color: var(--white);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 14px 32px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-submit:hover { background: var(--amber2); }
+
+  .btn-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .helper-text {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ── ERROR / SUCCESS ────────────────────────────────── */
+  .error-msg {
+    display: none;
+    background: #FFF0F0;
+    border: 1px solid #E8B4B4;
+    color: #8B3A3A;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  .success-state {
+    display: none;
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .success-state .check-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+
+  .success-state h2 {
+    font-family: var(--serif);
+    font-size: 22px;
+    color: var(--slate);
+    margin-bottom: 10px;
+  }
+
+  .success-state p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* ── FOOTER ──────────────────────────────────────────── */
+  footer {
+    background: var(--ink);
+    padding: 40px 48px 32px;
+    text-align: center;
+  }
+
+  footer p {
+    font-size: 12px;
+    color: rgba(247,245,240,0.35);
+    line-height: 1.8;
+  }
+
+  footer a {
+    color: rgba(247,245,240,0.5);
+    text-decoration: none;
+  }
+
+  footer a:hover { color: var(--cream); }
+
+  /* ── RESPONSIVE ──────────────────────────────────────── */
+  @media (max-width: 768px) {
+    nav { padding: 0 20px; }
+    .nav-links { display: none; }
+    .container { padding: 80px 16px 40px; }
+    .card { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="https://connectedcarriers.org" class="nav-logo">Connected<span>Carriers</span></a>
+  <ul class="nav-links">
+    <li><a href="https://connectedcarriers.org">Home</a></li>
+    <li><a href="https://connectedcarriers.org/about.html">About</a></li>
+    <li><a href="https://connectedcarriers.org/pricing.html">Pricing</a></li>
+    <li><a href="https://connectedcarriers.org/contact.html">Contact</a></li>
+  </ul>
+</nav>
+
+<!-- MAIN -->
+<div class="container">
+
+  <div class="page-header">
+    <h1>Carrier Verification</h1>
+    <p>Complete broker-required verification before dispatch.</p>
+  </div>
+
+  <div class="intro">
+    A freight broker has asked you to complete verification before dispatch. Submit your phone number and required documents so Connected Carriers can send verification updates and document reminders related to this verification.
+  </div>
+
+  <div id="formView">
+    <div class="error-msg" id="errorMsg"></div>
+
+    <form id="verifyForm" onsubmit="return handleSubmit(event)">
+
+      <!-- CARRIER INFO -->
+      <div class="card">
+        <h2>Carrier Information</h2>
+        <div class="form-group">
+          <label for="carrierName">Carrier Name</label>
+          <input type="text" id="carrierName" name="carrierName" placeholder="Company legal name" required>
+        </div>
+        <div class="form-group">
+          <label for="mcNumber">MC Number</label>
+          <input type="text" id="mcNumber" name="mcNumber" placeholder="e.g. 123456" required>
+        </div>
+        <div class="form-group">
+          <label for="phone">Phone Number</label>
+          <input type="tel" id="phone" name="phone" placeholder="(555) 555-1234" required>
+        </div>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div class="card">
+        <h2>Documents</h2>
+
+        <div class="form-group">
+          <label>Certificate of Insurance (COI)</label>
+          <div class="file-input">
+            <p class="label">Tap to upload or take photo</p>
+            <input type="file" name="insurance" accept="image/*,.pdf" capture="environment">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>CDL — Front Photo</label>
+          <div class="file-input">
+            <p class="label">Tap to upload or take photo</p>
+            <input type="file" name="cdl" accept="image/*,.pdf" capture="environment">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Cab Card</label>
+          <div class="file-input">
+            <p class="label">Tap to upload or take photo</p>
+            <input type="file" name="cab_card" accept="image/*,.pdf" capture="environment">
+          </div>
+        </div>
+      </div>
+
+      <!-- SMS CONSENT — NOT PRE-CHECKED -->
+      <div class="consent-section">
+        <div class="consent-row">
+          <input type="checkbox" id="smsConsent" name="smsConsent" required>
+          <label for="smsConsent">By submitting, I agree to receive SMS messages from Connected Carriers related to carrier verification and dispatch updates. Message &amp; data rates may apply. Reply STOP to opt out.</label>
+        </div>
+      </div>
+
+      <!-- SUBMIT -->
+      <button type="submit" class="btn-submit" id="submitBtn">Submit Verification</button>
+      <p class="helper-text">Messages are transactional only. No marketing messages.</p>
+
+    </form>
+  </div>
+
+  <!-- SUCCESS STATE -->
+  <div class="success-state" id="successView">
+    <div class="check-circle">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke="#1C2B3A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2>Verification submitted.</h2>
+    <p>Your documents have been received. You may receive SMS updates related to this verification. Your broker will be notified when verification is complete.</p>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <p>&copy; 2026 Connected Carriers — <a href="https://connectedcarriers.org">connectedcarriers.org</a>. A <a href="https://honexai.com">HoneXAI</a> product.</p>
+  <p style="margin-top:4px"><a href="/terms.html">Terms</a> &middot; <a href="/privacy.html">Privacy</a></p>
+</footer>
+
+<script>
+function handleSubmit(e) {
+  e.preventDefault();
+
+  const errorMsg = document.getElementById('errorMsg');
+  const consent = document.getElementById('smsConsent');
+  const btn = document.getElementById('submitBtn');
+
+  // Block submission if consent checkbox is not checked
+  if (!consent.checked) {
+    errorMsg.textContent = 'You must agree to receive SMS messages to submit this verification.';
+    errorMsg.style.display = 'block';
+    return false;
+  }
+
+  errorMsg.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  // For now this is a static proof page for Twilio verification.
+  // When functional, this will POST to /api/verify/carrier-submit
+  // with form data including phone, MC, consent, and uploaded documents.
+  setTimeout(function() {
+    document.getElementById('formView').style.display = 'none';
+    document.getElementById('successView').style.display = 'block';
+  }, 1000);
+
+  return false;
+}
+</script>
+
+</body>
+</html>
