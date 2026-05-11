@@ -89,6 +89,9 @@ export async function initDb() {
   await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0`);
   await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ`);
   await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS no_confirm_alert_sent BOOLEAN DEFAULT FALSE`);
+  // SMS retry safety columns
+  await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS sms_attempt_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE dispatch_verifications ADD COLUMN IF NOT EXISTS sms_fail_reason TEXT`);
 
   // ── LOADS (for inbound filter / load apply page) ──
   await query(`

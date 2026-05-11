@@ -81,12 +81,24 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
   }
 }
 
-function normalizePhone(phone: string): string | null {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (digits.length > 7) return `+${digits}`;
-  return null;
+/** Strict E.164 validation */
+const E164_REGEX = /^\+[1-9]\d{1,14}$/;
+
+function normalizePhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const trimmed = phone.trim();
+  if (!trimmed) return null;
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits || digits.length === 0) return null;
+
+  let candidate: string;
+  if (digits.length === 10) candidate = `+1${digits}`;
+  else if (digits.length === 11 && digits.startsWith("1")) candidate = `+${digits}`;
+  else if (digits.length > 7) candidate = `+${digits}`;
+  else return null;
+
+  return E164_REGEX.test(candidate) ? candidate : null;
 }
 
 export { isConfigured as isTwilioConfigured };

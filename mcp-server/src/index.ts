@@ -640,26 +640,57 @@ function geofenceResult(miles: number): string {
 }
 
 // ── TWILIO SMS ───────────────────────────────────────────────────
-async function sendSms(to: string, body: string): Promise<boolean> {
+// Twilio error codes that mean "stop retrying — this number is permanently bad"
+const PERMANENT_TWILIO_CODES = new Set([
+  21211, 21214, 21217, 21408, 21610, 21612, 21614
+]);
+
+interface SmsResult {
+  sent: boolean;
+  error?: string;
+  permanentFailure?: boolean;
+}
+
+async function sendSms(to: string | null | undefined, body: string): Promise<SmsResult> {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
-    console.error(`[SMS SKIPPED — no Twilio config] To: ${to} | ${body}`);
-    return false;
+    console.error(`[SMS SKIPPED — no Twilio config] To: ${to} | ${body.slice(0, 80)}`);
+    return { sent: false, error: "Twilio not configured" };
   }
+
+  // Hard E.164 gate — reject before ever touching Twilio
+  const normalized = normalizePhone(to);
+  if (!normalized) {
+    console.error(`[SMS BLOCKED — invalid phone] Raw input: ${JSON.stringify(to)}`);
+    return { sent: false, error: "Invalid phone number", permanentFailure: true };
+  }
+
   const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
   const creds = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
-  const params = new URLSearchParams({ To: to, From: TWILIO_PHONE_NUMBER, Body: body });
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-    signal: AbortSignal.timeout(8000)
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    console.error(`[SMS ERROR] ${res.status}: ${err}`);
-    return false;
+  const params = new URLSearchParams({ To: normalized, From: TWILIO_PHONE_NUMBER, Body: body });
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let code = 0;
+      try { code = JSON.parse(errText).code || 0; } catch {}
+      const isPermanent = PERMANENT_TWILIO_CODES.has(code);
+      console.error(`[SMS ${isPermanent ? "PERMANENT FAIL" : "ERROR"}] ${res.status} (code ${code}) to ${normalized}: ${errText.slice(0, 200)}`);
+      return { sent: false, error: `Twilio ${code}: ${res.status}`, permanentFailure: isPermanent };
+    }
+
+    console.error(`[SMS] Sent to ${normalized}`);
+    return { sent: true };
+  } catch (err) {
+    console.error(`[SMS ERROR] to ${normalized}:`, err);
+    return { sent: false, error: String(err) };
   }
-  return true;
 }
 
 // ── HTTP SERVER ──────────────────────────────────────────────────
@@ -708,6 +739,20 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
 
+      // Validate phones before doing anything — reject garbage early
+      const normalizedDriver = normalizePhone(driver_phone);
+      const normalizedBroker = normalizePhone(broker_phone);
+      if (!normalizedDriver) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Invalid driver_phone: ${driver_phone}` }));
+        return;
+      }
+      if (!normalizedBroker) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Invalid broker_phone: ${broker_phone}` }));
+        return;
+      }
+
       // ── SUPERSEDE: if this replaces an existing load, mark the old one ──
       let superseded_load: string | null = null;
       let superseded_driver_phone: string | null = null;
@@ -732,7 +777,7 @@ const httpServer = http.createServer(async (req, res) => {
           `SELECT * FROM dispatch_verifications
            WHERE broker_phone = $1 AND pickup_address = $2 AND status = 'pending'
            ORDER BY created_at DESC LIMIT 1`,
-          [normalizePhone(broker_phone), pickup_address]
+          [normalizedBroker, pickup_address]
         );
         if (existing.rows.length) {
           superseded_load = existing.rows[0].load_id;
@@ -745,7 +790,7 @@ const httpServer = http.createServer(async (req, res) => {
       }
 
       // Notify the superseded driver — let them know, and nudge them to complete their profile
-      if (superseded_driver_phone && superseded_driver_phone !== normalizePhone(driver_phone)) {
+      if (superseded_driver_phone && superseded_driver_phone !== normalizedDriver) {
         const profileUrl = `${BASE_URL}/carrier-profile`;
         await sendSms(
           superseded_driver_phone,
@@ -777,7 +822,7 @@ const httpServer = http.createServer(async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           load_id, token,
-          normalizePhone(driver_phone), normalizePhone(broker_phone),
+          normalizedDriver, normalizedBroker,
           mc_number || null, pickup_address,
           pickup_window_start || null, pickup_window_end || null,
           coords?.lat || null, coords?.lng || null,
@@ -787,7 +832,7 @@ const httpServer = http.createServer(async (req, res) => {
 
       const verifyUrl  = `${BASE_URL}/verify/${token}`;
       const driverSms  = `${load_id} — pickup at ${pickup_address.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`;
-      const smsSent    = await sendSms(normalizePhone(driver_phone), driverSms);
+      const smsResult  = await sendSms(normalizedDriver, driverSms);
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -797,7 +842,7 @@ const httpServer = http.createServer(async (req, res) => {
         geocoded: Boolean(coords),
         fmcsa_authority,
         fmcsa_company,
-        sms_sent: smsSent,
+        sms_sent: smsResult.sent,
         verify_url: verifyUrl
       }));
 
@@ -1594,7 +1639,7 @@ const httpServer = http.createServer(async (req, res) => {
       const brokerSms = buildBrokerSms(v.load_id, distance_miles, fence_result, confirmed_at, timing_flag);
       const notified  = await sendSms(v.broker_phone, brokerSms);
 
-      if (notified) {
+      if (notified.sent) {
         await query("UPDATE dispatch_verifications SET broker_notified_at = NOW() WHERE token = $1", [token]);
       }
 
@@ -1749,11 +1794,24 @@ function setCors(res: http.ServerResponse) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return `+${digits}`;
+/** Strict E.164 validation: + followed by 1-15 digits, first digit non-zero */
+const E164_REGEX = /^\+[1-9]\d{1,14}$/;
+
+function normalizePhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const trimmed = phone.trim();
+  if (!trimmed) return null;
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits || digits.length === 0) return null; // catches "+", "++", blank
+
+  let candidate: string;
+  if (digits.length === 10) candidate = `+1${digits}`;
+  else if (digits.length === 11 && digits.startsWith("1")) candidate = `+${digits}`;
+  else if (digits.length > 7) candidate = `+${digits}`;
+  else return null;
+
+  return E164_REGEX.test(candidate) ? candidate : null;
 }
 
 function buildBrokerSms(
@@ -2239,24 +2297,55 @@ initDb().then(async () => {
     console.error(`Geocoding: ${GOOGLE_GEOCODE_KEY ? "Google Maps" : "Nominatim (fallback)"}`);
   });
 
+  // ── ONE-TIME CLEANUP: kill stuck records with invalid phones ──
+  try {
+    // Kill the specific runaway record
+    const killed = await query(
+      `UPDATE dispatch_verifications SET status = 'sms_failed', sms_fail_reason = 'startup_cleanup_invalid_phone'
+       WHERE status = 'pending' AND (driver_phone IS NULL OR driver_phone = '+' OR LENGTH(REGEXP_REPLACE(driver_phone, '\\D', '', 'g')) < 7)`
+    );
+    if (killed.rowCount && killed.rowCount > 0) {
+      console.error(`[STARTUP CLEANUP] Marked ${killed.rowCount} stuck record(s) with invalid phones as sms_failed`);
+    }
+  } catch (err) {
+    console.error("[STARTUP CLEANUP] Error:", err);
+  }
+
   // ── REMINDER / NUDGE TIMER ─────────────────────────────────────
   // Runs every 2 minutes. Two jobs:
-  // 1. Driver nudge: if pending + no confirmation after 10 min, send reminder (max 2)
+  // 1. Driver nudge: if pending + no confirmation after 10 min, send reminder (max 2 successful, max 3 total attempts)
   // 2. Broker "no confirmation" alert: if pending + pickup window approaching, alert broker
+  //
+  // SAFETY: Invalid phones are caught at sendSms level (returns permanentFailure).
+  // On permanent failure, record is marked 'sms_failed' and drops out of future queries.
+  // Total attempt cap of 3 prevents infinite loops even on transient failures.
   setInterval(async () => {
     try {
       const now = new Date();
 
-      // ── JOB 1: DRIVER NUDGE (10 min cadence, max 2 reminders) ──
+      // ── JOB 1: DRIVER NUDGE ──
+      // reminder_count tracks SUCCESSFUL sends (max 2).
+      // sms_attempt_count tracks ALL attempts including failures (max 3).
       const nudgeable = await query(`
         SELECT * FROM dispatch_verifications
         WHERE status = 'pending'
           AND reminder_count < 2
+          AND COALESCE(sms_attempt_count, 0) < 3
           AND sent_at < NOW() - INTERVAL '10 minutes'
           AND (last_reminder_at IS NULL OR last_reminder_at < NOW() - INTERVAL '10 minutes')
       `);
 
       for (const v of nudgeable.rows) {
+        // Skip if driver_phone is invalid (shouldn't be in DB, but belt-and-suspenders)
+        if (!normalizePhone(v.driver_phone)) {
+          console.error(`[NUDGE] SKIPPING ${v.load_id} — invalid driver_phone in DB: ${JSON.stringify(v.driver_phone)}`);
+          await query(
+            `UPDATE dispatch_verifications SET status = 'sms_failed', sms_fail_reason = 'invalid_phone_in_db' WHERE id = $1`,
+            [v.id]
+          );
+          continue;
+        }
+
         const isSecond = v.reminder_count >= 1;
         const verifyUrl = `${BASE_URL}/verify/${v.token}`;
 
@@ -2264,25 +2353,51 @@ initDb().then(async () => {
           ? `Still waiting on your arrival confirmation for ${v.load_id}. If we don't hear back shortly, this load may move to another carrier. Confirm here: ${verifyUrl}`
           : `Reminder: ${v.load_id} — please confirm arrival at ${v.pickup_address.split(",")[0]} when you get there. Tap here: ${verifyUrl}`;
 
-        const sent = await sendSms(v.driver_phone, driverMsg);
-        if (sent) {
+        const result = await sendSms(v.driver_phone, driverMsg);
+
+        // Always increment attempt count
+        await query(
+          `UPDATE dispatch_verifications SET sms_attempt_count = COALESCE(sms_attempt_count, 0) + 1 WHERE id = $1`,
+          [v.id]
+        );
+
+        if (result.permanentFailure) {
+          // Phone is permanently bad — mark record so it never comes back
+          await query(
+            `UPDATE dispatch_verifications SET status = 'sms_failed', sms_fail_reason = $1 WHERE id = $2`,
+            [result.error || "permanent_failure", v.id]
+          );
+          console.error(`[NUDGE] PERMANENT FAIL for ${v.load_id} — phone ${v.driver_phone} marked dead. Error: ${result.error}`);
+          continue;
+        }
+
+        if (result.sent) {
           await query(
             `UPDATE dispatch_verifications SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = $1`,
             [v.id]
           );
           console.error(`[NUDGE] Reminder ${v.reminder_count + 1} sent to ${v.driver_phone} for ${v.load_id}`);
 
-          // On the second nudge, also alert the broker that the driver hasn't responded
           if (isSecond) {
             await sendSms(v.broker_phone, `⚠ No response from driver on ${v.load_id}. Two reminders sent — no arrival confirmation received.`);
             console.error(`[NUDGE] Broker alert sent for ${v.load_id} — driver unresponsive after 2 nudges`);
+          }
+        } else {
+          // Transient failure — check if we've hit the attempt ceiling
+          const attempts = (v.sms_attempt_count || 0) + 1;
+          if (attempts >= 3) {
+            await query(
+              `UPDATE dispatch_verifications SET status = 'sms_failed', sms_fail_reason = $1 WHERE id = $2`,
+              [`max_attempts_reached: ${result.error}`, v.id]
+            );
+            console.error(`[NUDGE] MAX ATTEMPTS for ${v.load_id} — dead-lettered after ${attempts} failures`);
+          } else {
+            console.error(`[NUDGE] Transient fail for ${v.load_id} (attempt ${attempts}/3): ${result.error}`);
           }
         }
       }
 
       // ── JOB 2: NO-CONFIRMATION ALERT (before pickup window) ────
-      // If there's a pickup window and we're within 15 min of it opening,
-      // alert the broker if no confirmation has come in
       const preWindow = await query(`
         SELECT * FROM dispatch_verifications
         WHERE status = 'pending'
@@ -2298,15 +2413,18 @@ initDb().then(async () => {
 
         const minsUntilWindow = (windowDate.getTime() - now.getTime()) / (1000 * 60);
 
-        // Alert broker if pickup window opens within 15 minutes and no confirmation
         if (minsUntilWindow <= 15 && minsUntilWindow > -30) {
-          const sent = await sendSms(
+          const result = await sendSms(
             v.broker_phone,
             `⛔ No arrival confirmation for ${v.load_id}. Pickup window ${minsUntilWindow > 0 ? `opens in ${Math.round(minsUntilWindow)} min` : "is now open"}. Driver has not confirmed — HOLD / CALL DRIVER.`
           );
-          if (sent) {
+          if (result.sent) {
             await query("UPDATE dispatch_verifications SET no_confirm_alert_sent = TRUE WHERE id = $1", [v.id]);
             console.error(`[NO-CONFIRM] Broker alert sent for ${v.load_id} — window approaching, no confirmation`);
+          }
+          // Even on failure, mark it so we don't spam the broker
+          if (result.permanentFailure) {
+            await query("UPDATE dispatch_verifications SET no_confirm_alert_sent = TRUE WHERE id = $1", [v.id]);
           }
         }
       }
