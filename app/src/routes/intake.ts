@@ -325,26 +325,25 @@ router.post("/apply/:token", async (req, res: Response) => {
 });
 
 // ── PUBLIC: Persistent broker intake link (for DAT/Truckstop postings) ──
-// Unlike /apply/:token, this never expires and supports unlimited carriers.
-// Rate-limited by MC number per broker to prevent FMCSA hammering.
+// Carrier self-service: enter MC + phone → FMCSA check → straight to doc upload.
+// This triggers the real verify pipeline (OCR, time-boxing, broker notification).
 
 router.get("/intake/:slug", async (req, res: Response) => {
   const { slug } = req.params;
   try {
     const result = await query(`
-      SELECT ba.id as broker_account_id, ba.company_name, ba.active, bp.*
+      SELECT ba.id as broker_account_id, ba.company_name, ba.active
       FROM broker_accounts ba
-      LEFT JOIN broker_policies bp ON bp.broker_account_id = ba.id
       WHERE ba.slug = $1
     `, [slug]);
 
     if (!result.rows.length || !result.rows[0].active) {
-      return res.send(intakeErrorPage("This broker is not currently accepting applications."));
+      return res.send(intakeErrorPage("This broker is not currently accepting carriers."));
     }
 
     const broker = result.rows[0];
-    // Pass slug as the "token" for display purposes, and override formAction
-    res.send(intakeFormPage(slug, broker.company_name, broker, req.query.error as string, `/intake/${h(slug)}`));
+    const error = req.query.error as string || "";
+    res.send(selfServiceIntakePage(slug, broker.company_name, error));
   } catch (err) {
     console.error("[INTAKE] Persistent link error:", err);
     res.status(500).send(intakeErrorPage("Something went wrong. Please try again."));
@@ -356,202 +355,81 @@ router.post("/intake/:slug", async (req, res: Response) => {
   const body = req.body;
 
   try {
-    // Load broker + policy by slug
+    // Load broker
     const brokerRes = await query(`
-      SELECT ba.id as broker_account_id, ba.company_name, ba.active, bp.*
+      SELECT ba.id as broker_account_id, ba.company_name, ba.active,
+             ba.contact_phone as broker_phone, ba.contact_email as broker_email
       FROM broker_accounts ba
-      LEFT JOIN broker_policies bp ON bp.broker_account_id = ba.id
       WHERE ba.slug = $1 AND ba.active = true
     `, [slug]);
 
     if (!brokerRes.rows.length) {
-      return res.send(intakeErrorPage("This broker is not currently accepting applications."));
+      return res.send(intakeErrorPage("This broker is not currently accepting carriers."));
     }
 
     const broker = brokerRes.rows[0];
-    const policy = broker;
-    const accountId = broker.broker_account_id;
-
-    // Rate limit: max 3 submissions per MC number per broker per 24 hours
     const mcNumber = (body.mc_number || "").replace(/\D/g, "");
-    if (mcNumber) {
-      const recentCount = await query(
-        `SELECT COUNT(*) as count FROM carrier_submissions
-         WHERE broker_account_id = $1 AND mc_number = $2
-         AND submitted_at > NOW() - INTERVAL '24 hours'`,
-        [accountId, mcNumber]
-      );
-      if (parseInt(recentCount.rows[0].count) >= 3) {
-        return res.send(intakeFormPage(slug, broker.company_name, broker,
-          "This MC number has already been submitted recently. If you need to update your submission, contact the broker directly.",
-          `/intake/${h(slug)}`));
-      }
-    }
+    const carrierPhone = (body.carrier_phone || "").trim();
+    const carrierEmail = (body.carrier_email || "").trim();
 
     // Basic validation
-    const errors: string[] = [];
-    if (!body.legal_name?.trim()) errors.push("Company name is required.");
-    if (!body.mc_number?.trim()) errors.push("MC number is required.");
-    if (!body.dispatcher_name?.trim()) errors.push("Dispatcher name is required.");
-    if (!body.dispatcher_phone?.trim()) errors.push("Dispatcher phone is required.");
-    if (!body.dispatcher_email?.trim()) errors.push("Dispatcher email is required.");
-    if (!body.agreed_to_terms) errors.push("You must agree to the terms.");
-    if (!body.agreed_to_tracking) errors.push("You must agree to the tracking requirement.");
-    if (policy.coi_required_at_submission && !body.coi_provided) errors.push("Certificate of Insurance is required at submission.");
-
-    if (errors.length) {
-      return res.send(intakeFormPage(slug, broker.company_name, broker, errors.join(" "), `/intake/${h(slug)}`));
+    if (!mcNumber) {
+      return res.redirect(`/intake/${slug}?error=${encodeURIComponent("MC number is required.")}`);
+    }
+    if (!carrierPhone && !carrierEmail) {
+      return res.redirect(`/intake/${slug}?error=${encodeURIComponent("Phone number or email is required.")}`);
     }
 
-    const cleanMc = body.mc_number.replace(/\D/g, "");
-
-    // Run FMCSA verification
-    let fmcsaResult: Record<string, unknown> = {};
-    let verifyChecks: Record<string, unknown> = {};
-    try {
-      const rawResult = await mcpToolCall("cc_verify_carrier", {
-        mc_number: cleanMc,
-        min_years: policy.minimum_authority_age_days ? Math.floor(policy.minimum_authority_age_days / 365) : undefined,
-      });
-      const parsed = JSON.parse(rawResult);
-      fmcsaResult = parsed.fmcsa || {};
-      verifyChecks = parsed.checks || {};
-    } catch (err) {
-      console.error("FMCSA lookup failed:", err);
+    // Rate limit: 3 per MC per broker per 24h
+    const recentCount = await query(
+      `SELECT COUNT(*) as count FROM carrier_verifications
+       WHERE broker_account_id = $1 AND mc_number = $2
+       AND created_at > NOW() - INTERVAL '24 hours'`,
+      [broker.broker_account_id, mcNumber]
+    );
+    if (parseInt(recentCount.rows[0].count) >= 3) {
+      return res.redirect(`/intake/${slug}?error=${encodeURIComponent("This MC number has already been submitted recently.")}`);
     }
 
-    // Hard-stop evaluation
-    const autoRejectReasons: string[] = [];
-    const internalFlags: Record<string, unknown> = {};
+    // Call the verify trigger API internally
+    const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
+    const triggerPayload = JSON.stringify({
+      mc_number: mcNumber,
+      carrier_phone: carrierPhone || undefined,
+      carrier_email: carrierEmail || undefined,
+      carrier_name: (body.carrier_name || "").trim() || undefined,
+      broker_name: broker.company_name,
+      broker_phone: broker.broker_phone || undefined,
+      broker_email: broker.broker_email || undefined,
+      broker_account_id: broker.broker_account_id,
+    });
 
-    if (policy.require_mc_active && fmcsaResult.found && !fmcsaResult.active) {
-      autoRejectReasons.push("Inactive MC / FMCSA operating authority");
-    }
-    if (fmcsaResult.found === false) {
-      autoRejectReasons.push("MC number not found in FMCSA database");
-    }
-    if (policy.require_dot_active && fmcsaResult.usdot_status && !String(fmcsaResult.usdot_status).includes("ACTIVE")) {
-      autoRejectReasons.push("DOT number not in good standing");
-    }
-    if (fmcsaResult.safety_rating === "Unsatisfactory") {
-      autoRejectReasons.push("Unsatisfactory FMCSA safety rating");
-    }
-    if (policy.double_brokering_flag_triggers_reject && body.double_brokering_flag) {
-      autoRejectReasons.push("Double brokering flag on record");
-    }
-    if (policy.minimum_authority_age_days && fmcsaResult.years_in_operation !== undefined) {
-      const minYears = policy.minimum_authority_age_days / 365;
-      if ((fmcsaResult.years_in_operation as number) < minYears) {
-        autoRejectReasons.push(`Carrier does not meet minimum time in business (${Math.round(minYears * 12)} months required)`);
-      }
-    }
+    // Internal fetch to the verify trigger
+    const triggerResp = await fetch(`${BASE_URL}/api/verify/trigger`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: triggerPayload,
+    });
 
-    const autoRejected = autoRejectReasons.length > 0;
+    const triggerData = await triggerResp.json() as Record<string, unknown>;
 
-    // Conditional/manual-review flags
-    const conditionalFlags: string[] = [];
-    if (fmcsaResult.safety_rating === "Conditional") {
-      conditionalFlags.push("Conditional FMCSA safety rating — manual review required");
-      internalFlags.conditional_safety_rating = true;
-    }
-    if (!body.w9_provided && policy.require_w9) {
-      conditionalFlags.push("W-9 not provided");
-      internalFlags.missing_w9 = true;
-    }
-    if (!body.agreement_provided && policy.require_signed_agreement) {
-      conditionalFlags.push("Signed carrier agreement not provided");
-      internalFlags.missing_agreement = true;
+    if (!triggerResp.ok) {
+      console.error("[INTAKE] Verify trigger failed:", triggerData);
+      return res.redirect(`/intake/${slug}?error=${encodeURIComponent("Something went wrong. Please try again.")}`);
     }
 
-    const isConditional = !autoRejected && conditionalFlags.length > 0;
-    const submissionStatus = autoRejected ? "rejected" : isConditional ? "conditional" : "submitted";
+    // If FMCSA already returned DO NOT USE, show a polite rejection
+    if (triggerData.result === "DO_NOT_USE") {
+      return res.send(selfServiceRejectionPage(broker.company_name));
+    }
 
-    // Upsert carrier
-    const carrierRes = await query(`
-      INSERT INTO carriers (broker_account_id, mc_number, legal_name, dba_name, phone, email,
-        onboarding_status, approval_tier, authority_status, safety_rating_snapshot, last_verified_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
-      ON CONFLICT (mc_number) DO UPDATE SET
-        legal_name = EXCLUDED.legal_name,
-        onboarding_status = EXCLUDED.onboarding_status,
-        approval_tier = EXCLUDED.approval_tier,
-        authority_status = EXCLUDED.authority_status,
-        safety_rating_snapshot = EXCLUDED.safety_rating_snapshot,
-        last_verified_at = NOW(),
-        updated_at = NOW()
-      RETURNING id
-    `, [
-      accountId, cleanMc, body.legal_name.trim(), body.dba_name?.trim() || null,
-      body.dispatcher_phone?.trim() || null, body.dispatcher_email?.trim() || null,
-      autoRejected ? "rejected" : isConditional ? "conditional" : "submitted",
-      autoRejected ? "rejected" : isConditional ? "conditional" : "manual_review",
-      fmcsaResult.operating_status || null,
-      fmcsaResult.safety_rating || null,
-    ]);
-
-    const carrierId = carrierRes.rows[0].id;
-
-    // Create submission (no intake_link_id — this is a persistent link)
-    const rawPayload = {
-      legal_name: body.legal_name,
-      mc_number: cleanMc,
-      dot_number: body.dot_number,
-      dispatcher_name: body.dispatcher_name,
-      dispatcher_phone: body.dispatcher_phone,
-      dispatcher_email: body.dispatcher_email,
-      equipment_types: Array.isArray(body.equipment_types) ? body.equipment_types : [body.equipment_types].filter(Boolean),
-      lanes: body.lanes,
-      hazmat: body.hazmat,
-      owner_operator: body.owner_operator === "yes",
-      coi_provided: !!body.coi_provided,
-      w9_provided: !!body.w9_provided,
-      agreement_provided: !!body.agreement_provided,
-      agreed_to_tracking: !!body.agreed_to_tracking,
-      source: "persistent_intake_link",
-    };
-
-    await query(`
-      INSERT INTO carrier_submissions (
-        broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
-        submitted_by_phone, raw_payload, fmcsa_result, status, agreed_to_terms,
-        submitted_at, decision_reason, internal_flags, auto_rejected, auto_reject_reasons
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11,$12,$13,$14)
-      RETURNING id
-    `, [
-      accountId, cleanMc, carrierId,
-      body.dispatcher_name, body.dispatcher_email, body.dispatcher_phone,
-      JSON.stringify(rawPayload),
-      JSON.stringify({ ...fmcsaResult, checks: verifyChecks }),
-      submissionStatus,
-      true,
-      autoRejected ? autoRejectReasons.join("; ") : isConditional ? conditionalFlags.join("; ") : null,
-      JSON.stringify(internalFlags),
-      autoRejected,
-      JSON.stringify(autoRejectReasons),
-    ]);
-
-    // Activity log
-    await query(`
-      INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata)
-      VALUES ('carrier', $1, 'system', NULL, $2, $3)
-    `, [
-      carrierId,
-      autoRejected ? "auto_rejected_via_persistent_link" : isConditional ? "flagged_for_review_via_persistent_link" : "submitted_via_persistent_link",
-      JSON.stringify({
-        mc_number: cleanMc,
-        broker_slug: slug,
-        auto_rejected: autoRejected,
-        reasons: autoRejected ? autoRejectReasons : conditionalFlags,
-        fmcsa_active: fmcsaResult.active,
-      }),
-    ]);
-
-    res.send(intakeConfirmationPage(autoRejected, isConditional, h(broker.company_name), h(body.legal_name)));
+    // Redirect carrier to the doc upload form
+    const token = triggerData.token as string;
+    res.redirect(`/v/${token}`);
 
   } catch (err) {
     console.error("[INTAKE] Persistent submission error:", err);
-    res.status(500).send(intakeErrorPage("Something went wrong processing your submission. Please try again."));
+    res.status(500).send(intakeErrorPage("Something went wrong. Please try again."));
   }
 });
 
@@ -924,4 +802,134 @@ function intakeErrorPage(message: string): string {
 .card{background:white;border-radius:4px;border:1px solid #E0DAD0;padding:36px 32px;max-width:400px;width:100%;text-align:center}
 h2{font-size:18px;color:#1C2B3A;margin-bottom:10px}p{font-size:14px;color:#6B7A8A;line-height:1.6}</style>
 </head><body><div class="card"><h2>Link unavailable</h2><p>${message}</p></div></body></html>`;
+}
+
+
+function selfServiceIntakePage(slug: string, brokerName: string, error?: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Get Verified — ${h(brokerName)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --slate: #1C2B3A; --amber: #C8892A; --amber2: #E09B35;
+    --cream: #F7F5F0; --cream2: #E8E2D8; --muted: #6B7A8A;
+  }
+  body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: var(--slate); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .container { max-width: 440px; width: 100%; }
+  .logo { font-family: 'Playfair Display', serif; font-size: 22px; color: var(--slate); text-align: center; margin-bottom: 28px; }
+  .logo span { color: var(--amber); }
+  .card { background: white; border-radius: 6px; border: 1px solid var(--cream2); padding: 28px 24px; margin-bottom: 16px; }
+  h1 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 8px; color: var(--slate); }
+  .sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; font-weight: 500; color: var(--slate); margin-bottom: 6px; }
+  .field input { width: 100%; padding: 10px 12px; border: 1px solid var(--cream2); border-radius: 4px; font-size: 15px; font-family: inherit; background: white; }
+  .field input:focus { outline: none; border-color: var(--amber); }
+  .required { color: var(--amber); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .error-banner { background: #FFF0F0; border: 1px solid #F5C6CB; color: #842029; padding: 12px 14px; border-radius: 4px; font-size: 13px; margin-bottom: 16px; }
+  .btn { display: block; width: 100%; padding: 14px; background: var(--amber); color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500; font-family: inherit; cursor: pointer; letter-spacing: 0.02em; }
+  .btn:hover { background: var(--amber2); }
+  .trust { font-size: 12px; color: var(--muted); text-align: center; margin-top: 16px; line-height: 1.5; }
+  .trust strong { color: var(--slate); font-weight: 500; }
+  .fine { font-size: 11px; color: var(--muted); text-align: center; margin-top: 24px; }
+  .steps { display: flex; gap: 12px; margin-bottom: 20px; }
+  .step { flex: 1; text-align: center; padding: 10px 6px; background: var(--cream); border-radius: 4px; }
+  .step-num { font-size: 18px; font-weight: 600; color: var(--amber); }
+  .step-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">Connected<span>Carriers</span></div>
+
+  <div class="card">
+    <h1>Get verified for ${h(brokerName)}</h1>
+    <p class="sub">Provide your MC number and contact info, then upload your documents. Takes about 2 minutes. Once verified, you're cleared for dispatch.</p>
+
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-label">Enter MC#</div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-label">Upload docs</div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-label">Get cleared</div></div>
+    </div>
+
+    ${error ? `<div class="error-banner">${h(error)}</div>` : ""}
+
+    <form method="POST" action="/intake/${h(slug)}">
+      <div class="field">
+        <label>MC Number <span class="required">*</span></label>
+        <input type="text" name="mc_number" required placeholder="e.g. 1234567" pattern="[0-9]+" inputmode="numeric">
+        <div class="hint">Digits only — no "MC" prefix needed</div>
+      </div>
+
+      <div class="field">
+        <label>Your Name</label>
+        <input type="text" name="carrier_name" placeholder="Company or dispatcher name">
+      </div>
+
+      <div class="field">
+        <label>Phone Number <span class="required">*</span></label>
+        <input type="tel" name="carrier_phone" required placeholder="e.g. 555-123-4567">
+        <div class="hint">We'll text you a confirmation when verification is complete</div>
+      </div>
+
+      <div class="field">
+        <label>Email</label>
+        <input type="email" name="carrier_email" placeholder="dispatcher@yourcompany.com">
+      </div>
+
+      <button type="submit" class="btn">Start Verification</button>
+    </form>
+  </div>
+
+  <div class="trust">
+    <strong>Secure verification for dispatch — nothing else.</strong><br>
+    We don't see loads, rates, or shipper relationships.<br>
+    Your documents are used only to confirm you're dispatch-ready.
+  </div>
+
+  <p class="fine">connectedcarriers.org — A HoneXAI product</p>
+</div>
+</body>
+</html>`;
+}
+
+
+function selfServiceRejectionPage(brokerName: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verification Unavailable</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:#F7F5F0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .container{max-width:440px;width:100%;text-align:center}
+  .logo{font-family:'Playfair Display',serif;font-size:22px;color:#1C2B3A;margin-bottom:24px}.logo span{color:#C8892A}
+  .card{background:white;border-radius:6px;border:1px solid #E0DAD0;padding:32px 24px}
+  h2{font-size:18px;color:#1C2B3A;margin-bottom:10px}
+  p{font-size:14px;color:#6B7A8A;line-height:1.6}
+  .icon{font-size:36px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">Connected<span>Carriers</span></div>
+  <div class="card">
+    <div class="icon">⚠</div>
+    <h2>Unable to verify</h2>
+    <p>Your FMCSA operating authority does not meet the requirements for ${h(brokerName)} at this time. This may be due to an inactive MC number, inactive USDOT status, or unauthorized operating authority.</p>
+    <p style="margin-top:12px">If you believe this is an error, contact the broker directly.</p>
+  </div>
+</div>
+</body>
+</html>`;
 }
