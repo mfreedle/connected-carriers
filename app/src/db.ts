@@ -434,9 +434,15 @@ export async function migrateCarrierProfiles() {
       ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS parsed_insurance JSONB;
       ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS parsed_vin TEXT;
       ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS doc_flags JSONB DEFAULT '[]';
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS fmcsa_status TEXT;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS fmcsa_data JSONB;
+      ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS fmcsa_checked_at TIMESTAMPTZ;
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$
   `);
+  // Expand source constraint to include all entry points
+  await query(`ALTER TABLE carrier_profiles DROP CONSTRAINT IF EXISTS carrier_profiles_source_check`);
+  await query(`ALTER TABLE carrier_profiles ADD CONSTRAINT carrier_profiles_source_check CHECK (source IN ('direct','superseded_nudge','broker_invite','interest_upgrade','site','load_apply','load_assign'))`);
   console.log("Carrier profiles migration complete.");
 }
 

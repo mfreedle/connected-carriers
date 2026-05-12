@@ -65,6 +65,69 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       return res.send(profilePage(source || "direct", "You've submitted recently. Please wait before submitting again."));
     }
 
+    // FMCSA check if MC number provided
+    let fmcsaStatus = "not_checked";
+    let fmcsaData: Record<string, unknown> = {};
+    const mcClean = mc_number?.replace(/\D/g, "") || "";
+
+    if (mcClean) {
+      try {
+        const saferUrl = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${mcClean}&action=get_data`;
+        const fmcsaResp = await fetch(saferUrl, { signal: AbortSignal.timeout(10000) });
+        if (fmcsaResp.ok) {
+          const html = await fmcsaResp.text();
+          if (html.includes("No records found") || html.includes("no records found")) {
+            fmcsaStatus = "not_found";
+          } else {
+            // Parse key fields from FMCSA HTML
+            const rowData: Record<string, string> = {};
+            const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+            let trMatch: RegExpExecArray | null;
+            while ((trMatch = trPattern.exec(html)) !== null) {
+              const cells: string[] = [];
+              const tdPattern = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+              let tdMatch: RegExpExecArray | null;
+              while ((tdMatch = tdPattern.exec(trMatch[1])) !== null) {
+                const text = tdMatch[1].replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+                if (text) cells.push(text);
+              }
+              for (let i = 0; i < cells.length - 1; i += 2) {
+                rowData[cells[i].replace(/:?\s*$/, "").trim()] = cells[i + 1].trim();
+              }
+            }
+            fmcsaData = {
+              legal_name: rowData["Legal Name"] || null,
+              dot_number: rowData["USDOT Number"] || null,
+              usdot_status: rowData["USDOT Status"] || null,
+              operating_status: rowData["Operating Authority Status"] || null,
+              safety_rating: rowData["Rating"] || rowData["Safety Rating"] || null,
+              phone: rowData["Phone"] || null,
+              power_units: rowData["Power Units"] || null,
+            };
+            const usdotStatus = String(fmcsaData.usdot_status || "").toUpperCase();
+            const authStatus = String(fmcsaData.operating_status || "").toUpperCase();
+            if (usdotStatus !== "ACTIVE") fmcsaStatus = "inactive";
+            else if (!authStatus.includes("AUTHORIZED")) fmcsaStatus = "not_authorized";
+            else fmcsaStatus = "active";
+          }
+        }
+      } catch (err) {
+        console.error("[PROFILE] FMCSA lookup error:", err);
+        fmcsaStatus = "error";
+      }
+
+      // Reject carriers that fail hard stops
+      if (fmcsaStatus === "not_found") {
+        return res.send(profilePage(source || "direct", "MC number not found in the FMCSA database. Please check and try again."));
+      }
+      if (fmcsaStatus === "inactive") {
+        return res.send(profilePage(source || "direct", "This MC number has an inactive USDOT status. Active authority is required."));
+      }
+      if (fmcsaStatus === "not_authorized") {
+        return res.send(profilePage(source || "direct", "This MC number does not have authorized operating authority. Please check your MC number."));
+      }
+    }
+
     // Upload files to R2 if present
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     let cdl_photo_url: string | null = null, cdl_photo_r2_key: string | null = null;
@@ -116,10 +179,11 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
          vin_photo_url, vin_photo_r2_key,
          insurance_doc_url, insurance_doc_r2_key,
          vin_number, insurance_expiration, cdl_expiration,
-         completion_status, source)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         completion_status, source,
+         fmcsa_status, fmcsa_data, fmcsa_checked_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
     `, [
-      company_name.trim(), mc_number?.replace(/\D/g, "") || null,
+      company_name.trim(), mcClean || null,
       contact_name.trim(), email.trim().toLowerCase(),
       phone?.trim() || null,
       driver_name?.trim() || null, driver_phone?.trim() || null,
@@ -130,6 +194,9 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       insurance_doc_url, insurance_doc_r2_key,
       vin_number, insurance_expiration, cdl_expiration,
       completion, source?.trim() || "direct",
+      fmcsaStatus !== "not_checked" ? fmcsaStatus : null,
+      Object.keys(fmcsaData).length > 0 ? JSON.stringify(fmcsaData) : null,
+      fmcsaStatus !== "not_checked" ? new Date() : null,
     ]);
 
     // Run AI document parsing in background (don't block the response)
