@@ -1516,7 +1516,7 @@ const httpServer = http.createServer(async (req, res) => {
       await query("UPDATE loads SET status = 'covered', assigned_applicant_id = $1 WHERE id = $2", [applicant.id, load.id]);
 
       // Mark the application as assigned with verification info
-      const verifyToken = (verifyResult.token as string) || null;
+      const verifyToken = (results.verify_token as string) || null;
       const verifyStatus = results.action === "fmcsa_rejected" ? "rejected"
         : results.action === "arrival_check_sent" ? "skipped_complete"
         : results.action === "verification_triggered" ? "pending"
