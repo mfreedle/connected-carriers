@@ -548,4 +548,20 @@ export async function migrateVerification() {
   `);
 
   console.log("Verification pipeline migration complete.");
+
+  // ── Password reset codes (SMS-based) ─────────────────────────────
+  await query(`
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES broker_users(id),
+      code VARCHAR(6) NOT NULL,
+      phone TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used BOOLEAN DEFAULT false,
+      attempts INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_prc_user ON password_reset_codes(user_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_prc_code ON password_reset_codes(code)`);
 }
