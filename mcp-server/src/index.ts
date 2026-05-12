@@ -1252,6 +1252,16 @@ const httpServer = http.createServer(async (req, res) => {
       const verifyMap: Record<string, any> = {};
       for (const v of verifications.rows) { verifyMap[v.load_id] = v; }
 
+      // Get carrier verification results for assigned loads
+      const cvResults = await query(`
+        SELECT la.load_id, cv.status as cv_status, cv.result as cv_result, la.verification_status
+        FROM load_applications la
+        LEFT JOIN carrier_verifications cv ON cv.token = la.verification_token
+        WHERE la.assigned_at IS NOT NULL
+      `);
+      const cvMap: Record<number, any> = {};
+      for (const cv of cvResults.rows) { cvMap[cv.load_id] = cv; }
+
       // Enrich loads with pipeline status
       const enriched = loads.rows.map((l: any) => {
         const v = verifyMap[l.load_id];
@@ -1282,8 +1292,27 @@ const httpServer = http.createServer(async (req, res) => {
           pipeline = "ready_to_assign";
           pipeline_detail = interested + " carrier" + (interested !== 1 ? "s" : "") + " interested";
         } else if (l.status === "covered" && !v) {
-          pipeline = "assigned";
-          pipeline_detail = "Assigned — requesting docs";
+          // Load is assigned but no dispatch verification yet — check carrier verification
+          const cv = cvMap[l.id];
+          if (cv?.cv_result === "CLEAR") {
+            pipeline = "clear";
+            pipeline_detail = "Carrier verified — ready to dispatch";
+          } else if (cv?.cv_result === "CAUTION") {
+            pipeline = "caution";
+            pipeline_detail = "Carrier verified with flags — review before dispatch";
+          } else if (cv?.cv_result === "DO_NOT_USE") {
+            pipeline = "do_not_use";
+            pipeline_detail = "Carrier failed verification — do not dispatch";
+          } else if (cv?.verification_status === "skipped_complete") {
+            pipeline = "clear";
+            pipeline_detail = "Carrier profile complete — ready to dispatch";
+          } else if (cv?.verification_status === "pending" || cv?.cv_status === "pending" || cv?.cv_status === "in_progress") {
+            pipeline = "assigned";
+            pipeline_detail = "Assigned — waiting on carrier docs";
+          } else {
+            pipeline = "assigned";
+            pipeline_detail = "Assigned — requesting docs";
+          }
         } else if (apps > 0) {
           pipeline = "has_applicants";
           pipeline_detail = apps + " qualified";
