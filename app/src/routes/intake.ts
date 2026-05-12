@@ -55,7 +55,7 @@ router.get("/intake/links", requireAuth, async (req: AuthenticatedRequest, res: 
     LIMIT 50
   `, [accountId]);
 
-  const BASE_URL = process.env.BASE_URL || `https://github-repo-production-2c39.up.railway.app`;
+  const BASE_URL = process.env.BASE_URL || `https://app.connectedcarriers.org`;
   const csrf = csrfToken(req);
 
   const html = layout({
@@ -324,6 +324,237 @@ router.post("/apply/:token", async (req, res: Response) => {
   }
 });
 
+// ── PUBLIC: Persistent broker intake link (for DAT/Truckstop postings) ──
+// Unlike /apply/:token, this never expires and supports unlimited carriers.
+// Rate-limited by MC number per broker to prevent FMCSA hammering.
+
+router.get("/intake/:slug", async (req, res: Response) => {
+  const { slug } = req.params;
+  try {
+    const result = await query(`
+      SELECT ba.id as broker_account_id, ba.company_name, ba.active, bp.*
+      FROM broker_accounts ba
+      LEFT JOIN broker_policies bp ON bp.broker_account_id = ba.id
+      WHERE ba.slug = $1
+    `, [slug]);
+
+    if (!result.rows.length || !result.rows[0].active) {
+      return res.send(intakeErrorPage("This broker is not currently accepting applications."));
+    }
+
+    const broker = result.rows[0];
+    // Pass slug as the "token" for display purposes, and override formAction
+    res.send(intakeFormPage(slug, broker.company_name, broker, req.query.error as string, `/intake/${h(slug)}`));
+  } catch (err) {
+    console.error("[INTAKE] Persistent link error:", err);
+    res.status(500).send(intakeErrorPage("Something went wrong. Please try again."));
+  }
+});
+
+router.post("/intake/:slug", async (req, res: Response) => {
+  const { slug } = req.params;
+  const body = req.body;
+
+  try {
+    // Load broker + policy by slug
+    const brokerRes = await query(`
+      SELECT ba.id as broker_account_id, ba.company_name, ba.active, bp.*
+      FROM broker_accounts ba
+      LEFT JOIN broker_policies bp ON bp.broker_account_id = ba.id
+      WHERE ba.slug = $1 AND ba.active = true
+    `, [slug]);
+
+    if (!brokerRes.rows.length) {
+      return res.send(intakeErrorPage("This broker is not currently accepting applications."));
+    }
+
+    const broker = brokerRes.rows[0];
+    const policy = broker;
+    const accountId = broker.broker_account_id;
+
+    // Rate limit: max 3 submissions per MC number per broker per 24 hours
+    const mcNumber = (body.mc_number || "").replace(/\D/g, "");
+    if (mcNumber) {
+      const recentCount = await query(
+        `SELECT COUNT(*) as count FROM carrier_submissions
+         WHERE broker_account_id = $1 AND mc_number = $2
+         AND submitted_at > NOW() - INTERVAL '24 hours'`,
+        [accountId, mcNumber]
+      );
+      if (parseInt(recentCount.rows[0].count) >= 3) {
+        return res.send(intakeFormPage(slug, broker.company_name, broker,
+          "This MC number has already been submitted recently. If you need to update your submission, contact the broker directly.",
+          `/intake/${h(slug)}`));
+      }
+    }
+
+    // Basic validation
+    const errors: string[] = [];
+    if (!body.legal_name?.trim()) errors.push("Company name is required.");
+    if (!body.mc_number?.trim()) errors.push("MC number is required.");
+    if (!body.dispatcher_name?.trim()) errors.push("Dispatcher name is required.");
+    if (!body.dispatcher_phone?.trim()) errors.push("Dispatcher phone is required.");
+    if (!body.dispatcher_email?.trim()) errors.push("Dispatcher email is required.");
+    if (!body.agreed_to_terms) errors.push("You must agree to the terms.");
+    if (!body.agreed_to_tracking) errors.push("You must agree to the tracking requirement.");
+    if (policy.coi_required_at_submission && !body.coi_provided) errors.push("Certificate of Insurance is required at submission.");
+
+    if (errors.length) {
+      return res.send(intakeFormPage(slug, broker.company_name, broker, errors.join(" "), `/intake/${h(slug)}`));
+    }
+
+    const cleanMc = body.mc_number.replace(/\D/g, "");
+
+    // Run FMCSA verification
+    let fmcsaResult: Record<string, unknown> = {};
+    let verifyChecks: Record<string, unknown> = {};
+    try {
+      const rawResult = await mcpToolCall("cc_verify_carrier", {
+        mc_number: cleanMc,
+        min_years: policy.minimum_authority_age_days ? Math.floor(policy.minimum_authority_age_days / 365) : undefined,
+      });
+      const parsed = JSON.parse(rawResult);
+      fmcsaResult = parsed.fmcsa || {};
+      verifyChecks = parsed.checks || {};
+    } catch (err) {
+      console.error("FMCSA lookup failed:", err);
+    }
+
+    // Hard-stop evaluation
+    const autoRejectReasons: string[] = [];
+    const internalFlags: Record<string, unknown> = {};
+
+    if (policy.require_mc_active && fmcsaResult.found && !fmcsaResult.active) {
+      autoRejectReasons.push("Inactive MC / FMCSA operating authority");
+    }
+    if (fmcsaResult.found === false) {
+      autoRejectReasons.push("MC number not found in FMCSA database");
+    }
+    if (policy.require_dot_active && fmcsaResult.usdot_status && !String(fmcsaResult.usdot_status).includes("ACTIVE")) {
+      autoRejectReasons.push("DOT number not in good standing");
+    }
+    if (fmcsaResult.safety_rating === "Unsatisfactory") {
+      autoRejectReasons.push("Unsatisfactory FMCSA safety rating");
+    }
+    if (policy.double_brokering_flag_triggers_reject && body.double_brokering_flag) {
+      autoRejectReasons.push("Double brokering flag on record");
+    }
+    if (policy.minimum_authority_age_days && fmcsaResult.years_in_operation !== undefined) {
+      const minYears = policy.minimum_authority_age_days / 365;
+      if ((fmcsaResult.years_in_operation as number) < minYears) {
+        autoRejectReasons.push(`Carrier does not meet minimum time in business (${Math.round(minYears * 12)} months required)`);
+      }
+    }
+
+    const autoRejected = autoRejectReasons.length > 0;
+
+    // Conditional/manual-review flags
+    const conditionalFlags: string[] = [];
+    if (fmcsaResult.safety_rating === "Conditional") {
+      conditionalFlags.push("Conditional FMCSA safety rating — manual review required");
+      internalFlags.conditional_safety_rating = true;
+    }
+    if (!body.w9_provided && policy.require_w9) {
+      conditionalFlags.push("W-9 not provided");
+      internalFlags.missing_w9 = true;
+    }
+    if (!body.agreement_provided && policy.require_signed_agreement) {
+      conditionalFlags.push("Signed carrier agreement not provided");
+      internalFlags.missing_agreement = true;
+    }
+
+    const isConditional = !autoRejected && conditionalFlags.length > 0;
+    const submissionStatus = autoRejected ? "rejected" : isConditional ? "conditional" : "submitted";
+
+    // Upsert carrier
+    const carrierRes = await query(`
+      INSERT INTO carriers (broker_account_id, mc_number, legal_name, dba_name, phone, email,
+        onboarding_status, approval_tier, authority_status, safety_rating_snapshot, last_verified_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+      ON CONFLICT (mc_number) DO UPDATE SET
+        legal_name = EXCLUDED.legal_name,
+        onboarding_status = EXCLUDED.onboarding_status,
+        approval_tier = EXCLUDED.approval_tier,
+        authority_status = EXCLUDED.authority_status,
+        safety_rating_snapshot = EXCLUDED.safety_rating_snapshot,
+        last_verified_at = NOW(),
+        updated_at = NOW()
+      RETURNING id
+    `, [
+      accountId, cleanMc, body.legal_name.trim(), body.dba_name?.trim() || null,
+      body.dispatcher_phone?.trim() || null, body.dispatcher_email?.trim() || null,
+      autoRejected ? "rejected" : isConditional ? "conditional" : "submitted",
+      autoRejected ? "rejected" : isConditional ? "conditional" : "manual_review",
+      fmcsaResult.operating_status || null,
+      fmcsaResult.safety_rating || null,
+    ]);
+
+    const carrierId = carrierRes.rows[0].id;
+
+    // Create submission (no intake_link_id — this is a persistent link)
+    const rawPayload = {
+      legal_name: body.legal_name,
+      mc_number: cleanMc,
+      dot_number: body.dot_number,
+      dispatcher_name: body.dispatcher_name,
+      dispatcher_phone: body.dispatcher_phone,
+      dispatcher_email: body.dispatcher_email,
+      equipment_types: Array.isArray(body.equipment_types) ? body.equipment_types : [body.equipment_types].filter(Boolean),
+      lanes: body.lanes,
+      hazmat: body.hazmat,
+      owner_operator: body.owner_operator === "yes",
+      coi_provided: !!body.coi_provided,
+      w9_provided: !!body.w9_provided,
+      agreement_provided: !!body.agreement_provided,
+      agreed_to_tracking: !!body.agreed_to_tracking,
+      source: "persistent_intake_link",
+    };
+
+    await query(`
+      INSERT INTO carrier_submissions (
+        broker_account_id, mc_number, carrier_id, submitted_by_name, submitted_by_email,
+        submitted_by_phone, raw_payload, fmcsa_result, status, agreed_to_terms,
+        submitted_at, decision_reason, internal_flags, auto_rejected, auto_reject_reasons
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11,$12,$13,$14)
+      RETURNING id
+    `, [
+      accountId, cleanMc, carrierId,
+      body.dispatcher_name, body.dispatcher_email, body.dispatcher_phone,
+      JSON.stringify(rawPayload),
+      JSON.stringify({ ...fmcsaResult, checks: verifyChecks }),
+      submissionStatus,
+      true,
+      autoRejected ? autoRejectReasons.join("; ") : isConditional ? conditionalFlags.join("; ") : null,
+      JSON.stringify(internalFlags),
+      autoRejected,
+      JSON.stringify(autoRejectReasons),
+    ]);
+
+    // Activity log
+    await query(`
+      INSERT INTO activity_logs (subject_type, subject_id, actor_type, actor_id, action, metadata)
+      VALUES ('carrier', $1, 'system', NULL, $2, $3)
+    `, [
+      carrierId,
+      autoRejected ? "auto_rejected_via_persistent_link" : isConditional ? "flagged_for_review_via_persistent_link" : "submitted_via_persistent_link",
+      JSON.stringify({
+        mc_number: cleanMc,
+        broker_slug: slug,
+        auto_rejected: autoRejected,
+        reasons: autoRejected ? autoRejectReasons : conditionalFlags,
+        fmcsa_active: fmcsaResult.active,
+      }),
+    ]);
+
+    res.send(intakeConfirmationPage(autoRejected, isConditional, h(broker.company_name), h(body.legal_name)));
+
+  } catch (err) {
+    console.error("[INTAKE] Persistent submission error:", err);
+    res.status(500).send(intakeErrorPage("Something went wrong processing your submission. Please try again."));
+  }
+});
+
 export default router;
 
 // ── MCP helper ────────────────────────────────────────────────────
@@ -458,7 +689,7 @@ function intakeLinksContent(rows: Record<string, unknown>[], baseUrl: string, cs
 </div>`;
 }
 
-function intakeFormPage(token: string, brokerName: string, policy: Record<string, unknown>, error?: string): string {
+function intakeFormPage(token: string, brokerName: string, policy: Record<string, unknown>, error?: string, formAction?: string): string {
   const equipmentTypes = [
     "Dry Van 53'", "Reefer / Refrigerated 53'", "Flatbed", "Step Deck",
     "RGN / Lowboy", "Power Only", "Sprinter / Cargo Van", "Box Truck",
@@ -539,7 +770,7 @@ function intakeFormPage(token: string, brokerName: string, policy: Record<string
     <p>Complete this form to be considered for loads with ${h(brokerName)}. This typically takes 5–10 minutes. Have your MC number, insurance certificate, and W-9 ready.</p>
   </div>
   ${error ? `<div class="error-banner">⚠ ${error}</div>` : ""}
-  <form method="POST" action="/apply/${token}" id="intake-form">
+  <form method="POST" action="${formAction || `/apply/${token}`}" id="intake-form">
 
     <div class="card">
       <div class="section-title">Company Information</div>
