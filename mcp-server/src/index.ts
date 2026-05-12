@@ -1460,19 +1460,52 @@ const httpServer = http.createServer(async (req, res) => {
         results.message = "Carrier has complete profile. Arrival check sent directly — no doc chase needed.";
 
       } else {
-        // ── STANDARD PATH: Profile incomplete → send doc request with auto-chase
-        const docRequestUrl = `https://app.connectedcarriers.org/profile/carrier?source=load_assign&mc=${applicant.mc_number}`;
+        // ── STANDARD PATH: Profile incomplete → trigger dispatch verification (Chase)
+        // Call the broker app's verify trigger to create a verification record,
+        // send SMS magic link, and start the OCR pipeline.
+        const BROKER_APP = "https://app.connectedcarriers.org";
+        let verifyResult: Record<string, unknown> = {};
+        try {
+          const triggerResp = await fetch(`${BROKER_APP}/api/verify/trigger`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mc_number: applicant.mc_number,
+              carrier_phone: normalizePhone(carrierPhone),
+              carrier_email: applicant.contact_email || undefined,
+              carrier_name: applicant.company_name || undefined,
+              broker_name: load.broker_name || load.broker_email || undefined,
+              broker_phone: load.broker_phone || undefined,
+              broker_email: load.broker_email || undefined,
+            }),
+          });
+          verifyResult = await triggerResp.json() as Record<string, unknown>;
+        } catch (err) {
+          console.error("[ASSIGN] Verify trigger call failed:", err);
+          // Fallback: send doc request to profile form
+          const docRequestUrl = `${BROKER_APP}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`;
+          await sendSms(normalizePhone(carrierPhone),
+            `${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nThis request is time-sensitive — respond within 10 minutes.`
+          );
+        }
 
-        await sendSms(normalizePhone(carrierPhone),
-          `${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nThis request is time-sensitive — respond within 10 minutes.`
-        );
-
-        await sendSms(load.broker_phone,
-          `${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nDoc request sent — waiting on CDL, VIN photo, truck info.\nYou'll get an alert when they respond or if they go quiet.`
-        );
-
-        results.action = "doc_request_sent";
-        results.message = "Carrier profile incomplete. Doc request sent with 10-minute auto-chase.";
+        if (verifyResult.result === "DO_NOT_USE") {
+          // FMCSA failed — notify broker immediately
+          await sendSms(load.broker_phone,
+            `⚠ ${applicant.company_name} (MC ${applicant.mc_number}) — DO NOT USE. FMCSA check failed on assignment. ${(verifyResult.reasons as string[])?.join(". ") || "See report."}`
+          );
+          results.action = "fmcsa_rejected";
+          results.message = "Carrier failed FMCSA check on assignment.";
+          results.reasons = verifyResult.reasons;
+        } else {
+          // Verify trigger sent SMS + magic link to carrier
+          await sendSms(load.broker_phone,
+            `${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nVerification request sent — carrier will upload CDL, insurance, and cab card.\nYou'll get CLEAR, CAUTION, or DO NOT USE when they respond (or if they go quiet).`
+          );
+          results.action = "verification_triggered";
+          results.verify_token = verifyResult.token;
+          results.message = "Verification request sent. Carrier will receive SMS with doc upload link. OCR will run on submission.";
+        }
       }
 
       // Mark load as covered
