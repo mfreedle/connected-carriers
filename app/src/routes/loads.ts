@@ -260,13 +260,36 @@ async function toggleApplicants(loadId, slug) {
       var profileBadge = a.has_profile
         ? '<span style="background:#EAF3DE;color:#3b6d11;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">DISPATCH READY</span>'
         : '<span style="background:#F0EDE7;color:#6b7a8a;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">NEEDS DOCS</span>';
+
+      // Verification result badge (shows after assignment)
+      var verifyBadge = '';
+      if (a.cv_result === 'CLEAR') {
+        verifyBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ CLEAR</span>';
+      } else if (a.cv_result === 'CAUTION') {
+        verifyBadge = '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⚠ CAUTION</span>';
+      } else if (a.cv_result === 'DO_NOT_USE') {
+        verifyBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✗ DO NOT USE</span>';
+      } else if (a.assigned_at && a.verification_status === 'pending') {
+        verifyBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⏳ VERIFYING</span>';
+      } else if (a.assigned_at && a.verification_status === 'skipped_complete') {
+        verifyBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ PROFILE COMPLETE</span>';
+      }
+
+      var assignedLabel = a.assigned_at ? '<div style="font-size:10px;color:#8b5cf6;font-weight:600;margin-top:2px">ASSIGNED</div>' : '';
       var contactInfo = a.contact_name ? (a.contact_name + (a.contact_phone ? ' · ' + a.contact_phone : '')) : '';
+
+      // Report link if verification is complete
+      var reportLink = a.verification_token && a.cv_result
+        ? '<a href="https://app.connectedcarriers.org/v/' + a.verification_token + '/report" target="_blank" style="font-size:10px;color:var(--amber);text-decoration:none;margin-left:6px">View report →</a>'
+        : '';
+
       return '<div style="border-bottom:1px solid var(--cream2);padding-bottom:8px;margin-bottom:8px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;cursor:pointer" onclick="toggleProfile(\\'' + a.mc_number + '\\',\\'' + slug + '\\',' + a.id + ',\\'' + (a.contact_phone || '') + '\\',\\'' + (a.company_name || '').replace(/'/g, '') + '\\',' + (a.has_profile ? 'true' : 'false') + ')">' +
           '<div>' +
             '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + verifyBadge + reportLink + '</div>' +
             (contactInfo ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + contactInfo + '</div>' : '') +
+            assignedLabel +
           '</div>' +
           '<div style="font-size:11px;color:var(--amber);font-weight:500" id="profile-toggle-' + a.mc_number + '">Review Profile ▾</div>' +
         '</div>' +

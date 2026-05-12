@@ -138,6 +138,13 @@ export async function initDb() {
 
   console.error("Database initialized — tables ready");
 
+  // Assignment and verification tracking columns
+  await query("ALTER TABLE load_applications ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ").catch(() => {});
+  await query("ALTER TABLE load_applications ADD COLUMN IF NOT EXISTS verification_token TEXT").catch(() => {});
+  await query("ALTER TABLE load_applications ADD COLUMN IF NOT EXISTS verification_result TEXT").catch(() => {});
+  await query("ALTER TABLE load_applications ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'none'").catch(() => {});
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS assigned_applicant_id INTEGER REFERENCES load_applications(id)").catch(() => {});
+
   // One-time cleanup: remove duplicate applications (keep earliest per MC per load)
   try {
     await query(`

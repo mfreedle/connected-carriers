@@ -1348,10 +1348,14 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
       const apps = await query(
-        `SELECT DISTINCT ON (mc_number) id, mc_number, company_name, contact_name, contact_phone, contact_email,
-                fmcsa_authority, fmcsa_safety, qualification_result, has_profile, created_at
-         FROM load_applications WHERE load_id = $1 AND qualification_result IN ('qualified','review')
-         ORDER BY mc_number, created_at DESC`,
+        `SELECT DISTINCT ON (la.mc_number) la.id, la.mc_number, la.company_name, la.contact_name, la.contact_phone, la.contact_email,
+                la.fmcsa_authority, la.fmcsa_safety, la.qualification_result, la.has_profile, la.created_at,
+                la.assigned_at, la.verification_token, la.verification_status,
+                cv.status as cv_status, cv.result as cv_result, cv.result_reasons as cv_reasons
+         FROM load_applications la
+         LEFT JOIN carrier_verifications cv ON cv.token = la.verification_token
+         WHERE la.load_id = $1 AND la.qualification_result IN ('qualified','review')
+         ORDER BY la.mc_number, la.created_at DESC`,
         [load.id]
       );
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -1508,8 +1512,19 @@ const httpServer = http.createServer(async (req, res) => {
         }
       }
 
-      // Mark load as covered
-      await query("UPDATE loads SET status = 'covered' WHERE id = $1", [load.id]);
+      // Mark load as covered and store assignment reference
+      await query("UPDATE loads SET status = 'covered', assigned_applicant_id = $1 WHERE id = $2", [applicant.id, load.id]);
+
+      // Mark the application as assigned with verification info
+      const verifyToken = (verifyResult.token as string) || null;
+      const verifyStatus = results.action === "fmcsa_rejected" ? "rejected"
+        : results.action === "arrival_check_sent" ? "skipped_complete"
+        : results.action === "verification_triggered" ? "pending"
+        : "none";
+      await query(
+        `UPDATE load_applications SET assigned_at = NOW(), verification_token = $1, verification_status = $2 WHERE id = $3`,
+        [verifyToken, verifyStatus, applicant.id]
+      );
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(results));
