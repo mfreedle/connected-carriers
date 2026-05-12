@@ -27,7 +27,13 @@ const fileFields = upload.fields([
 
 router.get("/profile/carrier", (req: Request, res: Response) => {
   const source = (req.query.source as string) || "direct";
-  res.send(profilePage(source, req.query.error as string, req.query.success as string));
+  const prefill = {
+    mc: (req.query.mc as string) || "",
+    name: (req.query.name as string) || "",
+    phone: (req.query.phone as string) || "",
+    email: (req.query.email as string) || "",
+  };
+  res.send(profilePage(source, req.query.error as string, req.query.success as string, prefill));
 });
 
 // ── POST /profile/carrier ─────────────────────────────────────────
@@ -294,8 +300,9 @@ ${content}
 
 // ── Profile form page ──────────────────────────────────────────
 
-function profilePage(source: string, error?: string, success?: string): string {
+function profilePage(source: string, error?: string, success?: string, prefill?: { mc: string; name: string; phone: string; email: string }): string {
   const isSupersedeNudge = source === "superseded_nudge";
+  const pf = prefill || { mc: "", name: "", phone: "", email: "" };
 
   return pageShell("Carrier Profile", `
 <div class="page">
@@ -326,22 +333,22 @@ function profilePage(source: string, error?: string, success?: string): string {
       </div>
       <div class="field">
         <label>MC number</label>
-        <input type="text" name="mc_number" placeholder="e.g. 1234567" inputmode="numeric">
+        <input type="text" name="mc_number" placeholder="e.g. 1234567" inputmode="numeric" value="${h(pf.mc)}">
         <div class="field-hint">Digits only — no "MC" prefix needed.</div>
       </div>
       <div class="two-col">
         <div class="field">
           <label>Contact name <span class="required">*</span></label>
-          <input type="text" name="contact_name" required placeholder="Full name" autocomplete="name">
+          <input type="text" name="contact_name" required placeholder="Full name" autocomplete="name" value="${h(pf.name)}">
         </div>
         <div class="field">
           <label>Phone</label>
-          <input type="tel" name="phone" placeholder="e.g. 602-555-0100" autocomplete="tel" inputmode="tel">
+          <input type="tel" name="phone" placeholder="e.g. 602-555-0100" autocomplete="tel" inputmode="tel" value="${h(pf.phone)}">
         </div>
       </div>
       <div class="field">
         <label>Email <span class="required">*</span></label>
-        <input type="email" name="email" required placeholder="dispatch@yourcompany.com" autocomplete="email" inputmode="email">
+        <input type="email" name="email" required placeholder="dispatch@yourcompany.com" autocomplete="email" inputmode="email" value="${h(pf.email)}">
       </div>
     </div>
 

@@ -2061,13 +2061,13 @@ function loadApplyPage(load: Record<string, unknown>, slug: string): string {
     <input type="tel" id="int-phone" placeholder="Phone number" inputmode="tel">
     <input type="email" id="int-email" placeholder="Email (optional)">
     <button class="interest-btn" id="interest-btn" onclick="submitInterest()">I'm Interested in This Load</button>
-    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link">Complete your carrier profile for faster qualification →</a>
+    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link" id="profile-link-interest">Complete your carrier profile for faster qualification →</a>
   </div>
 
   <div class="submitted-msg" id="submitted-msg">
     <div class="check">✓</div>
     <p>Your interest has been submitted. The broker will be in touch if they'd like to move forward.</p>
-    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link" style="margin-top:16px">Complete your carrier profile to get cleared faster next time →</a>
+    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link" id="profile-link-submitted" style="margin-top:16px">Complete your carrier profile to get cleared faster next time →</a>
   </div>
 
   <div class="powered">Powered by <a href="https://connectedcarriers.org">Connected Carriers</a></div>
@@ -2075,6 +2075,26 @@ function loadApplyPage(load: Record<string, unknown>, slug: string): string {
 
 <script>
 let mcChecked = '';
+
+function profileUrl(mc, name, phone, email) {
+  const base = 'https://app.connectedcarriers.org/profile/carrier';
+  const params = new URLSearchParams();
+  if (mc) params.set('mc', mc);
+  if (name) params.set('name', name);
+  if (phone) params.set('phone', phone);
+  if (email) params.set('email', email);
+  params.set('source', 'load_apply');
+  const qs = params.toString();
+  return qs ? base + '?' + qs : base;
+}
+
+function updateProfileLinks(mc, name, phone, email) {
+  const url = profileUrl(mc, name, phone, email);
+  const link1 = document.getElementById('profile-link-interest');
+  const link2 = document.getElementById('profile-link-submitted');
+  if (link1) link1.href = url;
+  if (link2) link2.href = url;
+}
 
 function checkMC() {
   const mc = document.getElementById('mc-input').value.replace(/\\D/g, '').trim();
@@ -2101,10 +2121,12 @@ function checkMC() {
       title.textContent = '✓ Qualified — ' + (data.company_name || 'MC ' + mc);
       detail.textContent = 'Authority: ' + data.authority + ' · Safety: ' + data.safety;
       document.getElementById('interest-form').style.display = 'block';
+      updateProfileLinks(mc, '', '', '');
     } else if (data.qualification === 'review') {
       title.textContent = '⚠ Needs Review — ' + (data.company_name || 'MC ' + mc);
       detail.textContent = 'Authority: ' + data.authority + ' · Safety: ' + data.safety + '. The broker may follow up.';
       document.getElementById('interest-form').style.display = 'block';
+      updateProfileLinks(mc, '', '', '');
     } else {
       title.textContent = '✗ Does Not Qualify';
       detail.textContent = data.authority === 'Inactive' ? 'FMCSA authority is not active for this MC number.' : 'This carrier does not meet the requirements for this load.';
@@ -2135,6 +2157,12 @@ function submitInterest() {
   .then(() => {
     document.getElementById('interest-form').style.display = 'none';
     document.getElementById('submitted-msg').style.display = 'block';
+    updateProfileLinks(
+      mcChecked,
+      document.getElementById('int-name').value,
+      document.getElementById('int-phone').value,
+      document.getElementById('int-email').value
+    );
   })
   .catch(() => {
     btn.disabled = false; btn.textContent = "I'm Interested in This Load";
