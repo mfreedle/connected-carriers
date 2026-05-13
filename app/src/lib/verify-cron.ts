@@ -53,19 +53,20 @@ async function runVerificationCron(): Promise<void> {
         (v.reminder_count || 0) < 1 &&
         v.carrier_phone
       ) {
-        const reminderMsg = [
-          `Reminder: ${brokerLabel} is still waiting on your verification.`,
-          ``,
-          `Complete here:`,
-          `${verifyUrl}`,
+	      const reminderMsg = [
+	        `Connected Carriers for ${brokerLabel}: Reminder, verification is still needed before dispatch.`,
+	        ``,
+	        `Complete here:`,
+	        `${verifyUrl}`,
           ``,
           `Or reply to this text with photos of:`,
           `• CDL`,
           `• Insurance (COI)`,
-          `• Cab card`,
-          ``,
-          `No verification = no dispatch.`,
-        ].join("\n");
+	        `• Cab card`,
+	        ``,
+	        `No verification = no dispatch.`,
+	        `Standard message and data rates may apply. Reply STOP to opt out.`,
+	      ].join("\n");
 
         const smsResult = await sendSms(v.carrier_phone, reminderMsg);
         await query(

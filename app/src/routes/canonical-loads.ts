@@ -493,10 +493,10 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
 
           if (carrierPhone) {
             try {
-              const { sendSms } = await import("../lib/sms");
-              await sendSms(carrierPhone,
-                `${broker?.company_name || "A broker"} needs your docs for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${process.env.BASE_URL || "https://app.connectedcarriers.org"}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`
-              );
+	      const { sendSms } = await import("../lib/sms");
+	      await sendSms(carrierPhone,
+	        `Connected Carriers for ${broker?.company_name || "your broker"}: Docs needed for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${process.env.BASE_URL || "https://app.connectedcarriers.org"}/profile/carrier?source=load_assign&mc=${applicant.mc_number}\nStandard message and data rates may apply. Reply STOP to opt out.`
+	      );
             } catch (e) { console.error("[assign] carrier fallback SMS failed:", e); }
           }
 
@@ -713,6 +713,7 @@ router.post("/l/:slug/interest", async (req: Request, res: Response) => {
     const email = (req.body.email || "").trim();
 
     if (!mcRaw) return res.status(400).json({ error: "MC number required." });
+    if (!phone) return res.status(400).json({ error: "Phone number required for SMS updates." });
 
     // Resolve carrier
     const carrier = await findOrCreateCarrier(mcRaw);
@@ -746,7 +747,7 @@ router.post("/l/:slug/interest", async (req: Request, res: Response) => {
 
     // Store carrier consent — SMS is always granted by submitting (per form language)
     // Network reuse is optional (checkbox)
-    const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status.";
+    const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status. Standard message and data rates may apply. Reply STOP to opt out.";
     const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
     const userAgent = (req.headers["user-agent"] as string) || null;
 
@@ -874,7 +875,7 @@ function loadApplyPage(load: Record<string, unknown>): string {
     <input type="tel" id="int-phone" placeholder="Phone number" inputmode="tel">
     <input type="email" id="int-email" placeholder="Email (optional)">
     <div style="margin:12px 0;font-size:11px;color:#6B7A8A;line-height:1.5">
-      By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status. Msg & data rates may apply. Reply STOP to opt out. <a href="/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
+      By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status. Standard message and data rates may apply. Reply STOP to opt out. <a href="https://connectedcarriers.org/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="https://connectedcarriers.org/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
     </div>
     <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;font-size:12px;color:#6B7A8A;cursor:pointer;text-transform:none;letter-spacing:normal">
       <input type="checkbox" id="int-consent" checked style="margin-top:2px;flex-shrink:0">
@@ -984,20 +985,29 @@ async function checkMC() {
 
 async function submitInterest() {
   const btn = document.getElementById('interest-btn');
+  const phone = document.getElementById('int-phone').value.trim();
+  if (!phone) {
+    alert('Enter your phone number so the broker can contact you and send verification updates.');
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Submitting...';
 
   try {
-    await fetch('/l/' + slug + '/interest', {
+    const res = await fetch('/l/' + slug + '/interest', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         mc_number: mcChecked,
         name: document.getElementById('int-name').value,
-        phone: document.getElementById('int-phone').value,
+        phone: phone,
         email: document.getElementById('int-email').value,
         consent_network_reuse: document.getElementById('int-consent').checked
       })
     });
+    if (!res.ok) {
+      const data = await res.json().catch(function(){ return {}; });
+      throw new Error(data.error || 'Error submitting interest.');
+    }
     document.getElementById('interest-form').style.display = 'none';
     document.getElementById('submitted-msg').style.display = 'block';
     updateProfileLinks(
@@ -1009,7 +1019,7 @@ async function submitInterest() {
   } catch (e) {
     btn.disabled = false;
     btn.textContent = "I'm Interested in This Load";
-    alert('Error submitting interest. Please try again.');
+    alert(e.message || 'Error submitting interest. Please try again.');
   }
 }
 </script>

@@ -147,7 +147,7 @@ export async function triggerCarrierVerification(input: VerificationTriggerInput
 
   // Step 5: Send carrier verification request
   const brokerLabel = broker_name || "A broker";
-  const carrierMsg = `Connected Carriers for ${brokerLabel}: Verification required before dispatch.\n\nComplete here: ${verifyUrl}\n\nTakes ~2 min. Msg & data rates may apply. Reply STOP to opt out.`;
+  const carrierMsg = `Connected Carriers for ${brokerLabel}: Verification required before dispatch.\n\nComplete here: ${verifyUrl}\n\nTakes ~2 min. Standard message and data rates may apply. Reply STOP to opt out.`;
 
   let smsSent = false;
   let emailSent = false;

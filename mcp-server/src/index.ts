@@ -792,10 +792,10 @@ const httpServer = http.createServer(async (req, res) => {
       // Notify the superseded driver — let them know, and nudge them to complete their profile
       if (superseded_driver_phone && superseded_driver_phone !== normalizedDriver) {
         const profileUrl = `${BASE_URL}/carrier-profile`;
-        await sendSms(
-          superseded_driver_phone,
-          `Load ${superseded_load} has been assigned to another carrier. No action needed on this load.\nWant to get cleared faster next time? Complete your carrier profile: ${profileUrl}`
-        );
+	        await sendSms(
+	          superseded_driver_phone,
+	          `Connected Carriers: Load ${superseded_load} has been assigned to another carrier. No action needed on this load.\nWant to get cleared faster next time? Complete your carrier profile: ${profileUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
+	        );
         console.error(`[SUPERSEDE] ${superseded_load} superseded — old driver ${superseded_driver_phone} notified`);
       }
 
@@ -831,7 +831,7 @@ const httpServer = http.createServer(async (req, res) => {
       );
 
       const verifyUrl  = `${BASE_URL}/verify/${token}`;
-      const driverSms  = `${load_id} — pickup at ${pickup_address.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`;
+	      const driverSms  = `Connected Carriers: ${load_id} — pickup at ${pickup_address.split(",")[0]}.\nConfirm arrival: ${verifyUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`;
       const smsResult  = await sendSms(normalizedDriver, driverSms);
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -1508,9 +1508,9 @@ const httpServer = http.createServer(async (req, res) => {
       for (const old of existingPending.rows) {
         await query("UPDATE dispatch_verifications SET status = 'superseded' WHERE id = $1", [old.id]);
         if (old.driver_phone !== normalizePhone(carrierPhone)) {
-          await sendSms(old.driver_phone,
-            `Load ${old.load_id} has been assigned to another carrier. No action needed.\nComplete your carrier profile for faster clearance next time: ${BASE_URL}/carrier-profile`
-          );
+	        await sendSms(old.driver_phone,
+	          `Connected Carriers: Load ${old.load_id} has been assigned to another carrier. No action needed.\nComplete your carrier profile for faster clearance next time: ${BASE_URL}/carrier-profile\nStandard message and data rates may apply. Reply STOP to opt out.`
+	        );
         }
       }
 
@@ -1541,9 +1541,9 @@ const httpServer = http.createServer(async (req, res) => {
         );
 
         const verifyUrl = `${BASE_URL}/verify/${verifyToken}`;
-        await sendSms(normalizePhone(carrierPhone),
-          `${verifyLoadId} — pickup at ${load.origin.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`
-        );
+	        await sendSms(normalizePhone(carrierPhone),
+	          `Connected Carriers: ${verifyLoadId} — pickup at ${load.origin.split(",")[0]}.\nConfirm arrival: ${verifyUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
+	        );
 
         await sendSms(load.broker_phone,
           `✓ ${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nProfile complete — arrival check sent directly. No docs to chase.`
@@ -1587,9 +1587,9 @@ const httpServer = http.createServer(async (req, res) => {
         if (!triggerSucceeded) {
           // Fallback: send doc request to profile form
           const docRequestUrl = `${BROKER_APP}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`;
-          await sendSms(normalizePhone(carrierPhone),
-            `${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nThis request is time-sensitive — respond within 10 minutes.`
-          );
+	          await sendSms(normalizePhone(carrierPhone),
+	            `Connected Carriers: ${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
+	          );
           await sendSms(load.broker_phone,
             `${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nDoc request sent — automated verification unavailable, sent carrier to profile form.`
           );
@@ -2533,9 +2533,9 @@ initDb().then(async () => {
         const isSecond = v.reminder_count >= 1;
         const verifyUrl = `${BASE_URL}/verify/${v.token}`;
 
-        const driverMsg = isSecond
-          ? `Still waiting on your arrival confirmation for ${v.load_id}. If we don't hear back shortly, this load may move to another carrier. Confirm here: ${verifyUrl}`
-          : `Reminder: ${v.load_id} — please confirm arrival at ${v.pickup_address.split(",")[0]} when you get there. Tap here: ${verifyUrl}`;
+	        const driverMsg = isSecond
+	          ? `Connected Carriers: Still waiting on your arrival confirmation for ${v.load_id}. If we don't hear back shortly, this load may move to another carrier. Confirm here: ${verifyUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
+	          : `Connected Carriers: Reminder for ${v.load_id} — please confirm arrival at ${v.pickup_address.split(",")[0]} when you get there. Tap here: ${verifyUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`;
 
         const result = await sendSms(v.driver_phone, driverMsg);
 

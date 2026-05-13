@@ -118,7 +118,7 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       await updateCarrierContact(carrier.id, phone?.trim(), email?.trim().toLowerCase());
 
       // Store consent with evidence
-      const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status.";
+      const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status. Standard message and data rates may apply. Reply STOP to opt out.";
       const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
       const userAgent = (req.headers["user-agent"] as string) || null;
 
@@ -530,7 +530,7 @@ function profilePage(source: string, error?: string, success?: string, prefill?:
 
     <div style="margin:20px 0">
       <div style="font-size:11px;color:#6B7A8A;line-height:1.5;margin-bottom:10px">
-        By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status. Msg & data rates may apply. Reply STOP to opt out. <a href="/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
+        By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status. Standard message and data rates may apply. Reply STOP to opt out. <a href="https://connectedcarriers.org/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="https://connectedcarriers.org/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
       </div>
       <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#6B7A8A;cursor:pointer">
         <input type="checkbox" name="consent_network_reuse" value="yes" checked style="margin-top:2px;flex-shrink:0">

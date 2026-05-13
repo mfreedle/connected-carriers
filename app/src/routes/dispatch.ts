@@ -222,7 +222,7 @@ router.post("/dispatch/:id/tracking/send", requireAuth, async (req: Authenticate
     // Send SMS if driver phone exists
     let smsSaved = "tracking_sent";
     if (packet.driver_phone) {
-      const smsBody = `${packet.load_reference ? `Load ${packet.load_reference}: ` : ""}Your broker requires GPS tracking. Tap to confirm: ${trackingUrl}`;
+	      const smsBody = `Connected Carriers${packet.load_reference ? ` for load ${packet.load_reference}` : ""}: Your broker requires GPS tracking. Tap to confirm: ${trackingUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`;
       const smsResult = await sendSms(packet.driver_phone, smsBody);
       await query(`
         UPDATE dispatch_packets SET
@@ -385,7 +385,7 @@ router.post("/dispatch/:id/clear", requireAuth, async (req: AuthenticatedRequest
 
     // Send pickup code SMS if applicable
     if (pickupCode && packet.driver_phone) {
-      const smsBody = `Connected Carriers: Your pickup code for load ${packet.load_reference || packetId} is ${pickupCode}. Present this to the shipper at pickup. Valid until ${pickupCodeExpires ? new Date(pickupCodeExpires).toLocaleString() : "pickup"}.`;
+	      const smsBody = `Connected Carriers: Your pickup code for load ${packet.load_reference || packetId} is ${pickupCode}. Present this to the shipper at pickup. Valid until ${pickupCodeExpires ? new Date(pickupCodeExpires).toLocaleString() : "pickup"}.\nStandard message and data rates may apply. Reply STOP to opt out.`;
       const smsResult = await sendSms(packet.driver_phone, smsBody);
       await query(`
         UPDATE dispatch_packets SET pickup_code_sms_status=$1, pickup_code_sms_sent_at=${smsResult.sent ? "NOW()" : "NULL"}
