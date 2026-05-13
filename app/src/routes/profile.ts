@@ -4,6 +4,7 @@ import { query } from "../db";
 import { h } from "../middleware/security";
 import { uploadToR2, isR2Configured } from "../lib/storage";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
+import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
 
 const router = Router();
 
@@ -67,51 +68,17 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
     }
 
     // FMCSA check if MC number provided
-    let fmcsaStatus = "not_checked";
-    let fmcsaData: Record<string, unknown> = {};
     const mcClean = mc_number?.replace(/\D/g, "") || "";
+    let fmcsaStatus = "not_checked";
+    let fmcsaData: FMCSAResult = { mc_number: mcClean, found: false };
 
     if (mcClean) {
       try {
-        const saferUrl = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${mcClean}&action=get_data`;
-        const fmcsaResp = await fetch(saferUrl, { signal: AbortSignal.timeout(10000) });
-        if (fmcsaResp.ok) {
-          const html = await fmcsaResp.text();
-          if (html.includes("No records found") || html.includes("no records found")) {
-            fmcsaStatus = "not_found";
-          } else {
-            // Parse key fields from FMCSA HTML
-            const rowData: Record<string, string> = {};
-            const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-            let trMatch: RegExpExecArray | null;
-            while ((trMatch = trPattern.exec(html)) !== null) {
-              const cells: string[] = [];
-              const tdPattern = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-              let tdMatch: RegExpExecArray | null;
-              while ((tdMatch = tdPattern.exec(trMatch[1])) !== null) {
-                const text = tdMatch[1].replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-                if (text) cells.push(text);
-              }
-              for (let i = 0; i < cells.length - 1; i += 2) {
-                rowData[cells[i].replace(/:?\s*$/, "").trim()] = cells[i + 1].trim();
-              }
-            }
-            fmcsaData = {
-              legal_name: rowData["Legal Name"] || null,
-              dot_number: rowData["USDOT Number"] || null,
-              usdot_status: rowData["USDOT Status"] || null,
-              operating_status: rowData["Operating Authority Status"] || null,
-              safety_rating: rowData["Rating"] || rowData["Safety Rating"] || null,
-              phone: rowData["Phone"] || null,
-              power_units: rowData["Power Units"] || null,
-            };
-            const usdotStatus = String(fmcsaData.usdot_status || "").toUpperCase();
-            const authStatus = String(fmcsaData.operating_status || "").toUpperCase();
-            if (usdotStatus !== "ACTIVE") fmcsaStatus = "inactive";
-            else if (!authStatus.includes("AUTHORIZED")) fmcsaStatus = "not_authorized";
-            else fmcsaStatus = "active";
-          }
-        }
+        fmcsaData = await lookupFMCSA(mcClean);
+        if (!fmcsaData.found) fmcsaStatus = "not_found";
+        else if (!fmcsaData.active) fmcsaStatus = "inactive";
+        else if (!fmcsaData.authorized) fmcsaStatus = "not_authorized";
+        else fmcsaStatus = "active";
       } catch (err) {
         console.error("[PROFILE] FMCSA lookup error:", err);
         fmcsaStatus = "error";
@@ -138,12 +105,12 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       // Update carrier with FMCSA data if we ran a check
       if (fmcsaStatus === "active" || fmcsaStatus === "inactive" || fmcsaStatus === "not_authorized") {
         await updateCarrierFMCSA(carrier.id, {
-          fmcsa_legal_name: fmcsaData.legal_name as string,
-          dot_number: fmcsaData.dot_number as string,
-          fmcsa_status: fmcsaData.usdot_status as string,
-          authority_status: fmcsaData.operating_status as string,
-          safety_rating: fmcsaData.safety_rating as string,
-          phone: fmcsaData.phone as string,
+          fmcsa_legal_name: fmcsaData.entity_name || fmcsaData.legal_name || undefined,
+          dot_number: fmcsaData.dot_number || fmcsaData.usdot_number || undefined,
+          fmcsa_status: fmcsaData.usdot_status || undefined,
+          authority_status: fmcsaData.operating_status || undefined,
+          safety_rating: fmcsaData.safety_rating || undefined,
+          phone: fmcsaData.phone || undefined,
         });
       }
 
