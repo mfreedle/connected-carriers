@@ -24,6 +24,7 @@ import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from ".
 import { triggerCarrierVerification } from "../services/verification";
 import { createDispatchSignal } from "../services/dispatch-signal";
 import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
+import { sendSms } from "../lib/sms";
 
 const router = Router();
 
@@ -191,7 +192,9 @@ router.get("/api/v2/loads/attention", requireAuth, async (req: AuthenticatedRequ
       }
 
       // Assignment states
-      if (aStatus === "clear") {
+      if (aStatus === "assigned") {
+        items.push({ priority: 2, icon: "🚛", load_id: load.load_id, route, message: "Awaiting driver/truck confirmation", action: "Carrier selecting driver and equipment" });
+      } else if (aStatus === "clear") {
         items.push({ priority: 1, icon: "✅", load_id: load.load_id, route, message: "Carrier verified — clear to dispatch", action: "Dispatch in TMS" });
       } else if (aStatus === "caution") {
         items.push({ priority: 0, icon: "🟡", load_id: load.load_id, route, message: "Carrier verified with flags", action: "Review before dispatch" });
@@ -342,190 +345,224 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
       );
     }
 
-    // Create assignment
+    // Create assignment with confirmation token
+    const confirmationToken = crypto.randomBytes(24).toString("base64url");
     const assignment = await query(`
       INSERT INTO load_assignments
-        (load_id, broker_account_id, carrier_id, load_application_id, assigned_by_user_id, status)
-      VALUES ($1, $2, $3, $4, $5, 'assigned')
+        (load_id, broker_account_id, carrier_id, load_application_id, assigned_by_user_id, status, confirmation_token)
+      VALUES ($1, $2, $3, $4, $5, 'assigned', $6)
       RETURNING id
-    `, [load.id, req.session.brokerAccountId, applicant.carrier_id, applicant.id, req.session.userId]);
+    `, [load.id, req.session.brokerAccountId, applicant.carrier_id, applicant.id, req.session.userId, confirmationToken]);
 
     const assignmentId = assignment.rows[0].id;
+    const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
+    const confirmUrl = `${BASE_URL}/confirm/${confirmationToken}`;
 
-    // Check carrier profile state to decide next step
-    const profileResult = await query(
-      `SELECT id, completion_status FROM carrier_profiles
-       WHERE carrier_id = $1 AND completion_status = 'dispatch_ready'
-       ORDER BY updated_at DESC LIMIT 1`,
+    // Check if carrier has canonical driver/equipment records
+    const driverCount = await query(
+      "SELECT COUNT(*) as count FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active'",
       [applicant.carrier_id]
     );
-    const profileComplete = profileResult.rows.length > 0;
+    const equipCount = await query(
+      "SELECT COUNT(*) as count FROM carrier_equipment WHERE carrier_id = $1 AND status = 'active'",
+      [applicant.carrier_id]
+    );
+    const hasCanonicalPackageRecords = parseInt(driverCount.rows[0].count) > 0 || parseInt(equipCount.rows[0].count) > 0;
 
     let nextAction: string;
     let nextStatus: string;
     let verificationId: number | null = null;
 
-    if (profileComplete) {
-      // ── FAST PATH: Profile dispatch-ready → send arrival check
-      nextAction = "dispatch_signal";
-      nextStatus = "clear";
+    if (hasCanonicalPackageRecords) {
+      // ── CONFIRMATION PATH: carrier has driver/equipment records ──
+      // Send confirmation link — carrier selects driver + truck for this load
+      nextAction = "confirmation_sent";
+      nextStatus = "assigned";
 
-      if (carrierPhone && (load.pickup_address || load.origin)) {
+      // Send carrier the confirmation link
+      if (carrierPhone) {
         try {
-          const signalResult = await createDispatchSignal({
-            load_id: load.load_id,
-            assignment_id: assignmentId,
-            carrier_id: applicant.carrier_id,
-            driver_phone: carrierPhone,
-            broker_phone: broker?.contact_phone || "",
-            mc_number: applicant.mc_number,
-            carrier_name: applicant.company_name || carrier?.fmcsa_legal_name,
-            pickup_address: load.pickup_address || "",
-            pickup_window_start: load.pickup_window_start || undefined,
-            pickup_window_end: load.pickup_window_end || undefined,
-            origin: load.origin,
-          });
-
-          nextStatus = "arrival_pending";
-          nextAction = "arrival_sent";
-
-          // Store dispatch signal reference on assignment
-          await query(
-            "UPDATE load_assignments SET dispatch_signal_id = $1, dispatch_signal_ref = $2, updated_at = NOW() WHERE id = $3",
-            [signalResult.id, signalResult.dispatch_verification_id, assignmentId]
+          await sendSms(carrierPhone,
+            `Connected Carriers for ${broker?.company_name || "your broker"}: Confirm driver and truck for ${load.load_id} (${load.origin} → ${load.destination}). ${confirmUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
           );
-
-          if (broker?.contact_phone) {
-            try {
-              const { sendSms } = await import("../lib/sms");
-              await sendSms(broker.contact_phone,
-                `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — arrival check sent to driver.${signalResult.geocoded ? "" : " ⚠ Could not geocode pickup address."}`
-              );
-            } catch (e) { console.error("[assign] broker signal SMS failed:", e); }
-          }
-        } catch (err) {
-          console.error("[assign] Dispatch signal error:", err);
-          // Signal failed but carrier is still clear — just notify broker
-          if (broker?.contact_phone) {
-            try {
-              const { sendSms } = await import("../lib/sms");
-              await sendSms(broker.contact_phone,
-                `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch. Arrival check could not be sent automatically.`
-              );
-            } catch (e) { console.error("[assign] broker SMS failed:", e); }
-          }
-        }
-      } else {
-        // No phone or no address — clear but no signal
-        if (broker?.contact_phone) {
-          try {
-            const { sendSms } = await import("../lib/sms");
-            await sendSms(broker.contact_phone,
-              `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch.${!carrierPhone ? " No driver phone on file for arrival check." : ""}${!load.pickup_address ? " No pickup address for arrival check." : ""}`
-            );
-          } catch (e) { console.error("[assign] broker SMS failed:", e); }
-        }
+        } catch (e) { console.error("[assign] confirmation SMS failed:", e); }
       }
 
-    } else {
-      // ── STANDARD PATH: Profile incomplete → trigger verification chase
-      nextAction = "verification_chase";
-      nextStatus = "verification_requested";
-
-      if (!carrierPhone && !applicant.contact_email && !carrier?.email_contact) {
-        // No way to contact carrier — mark as documents_pending, broker must follow up manually
-        nextStatus = "documents_pending";
-        nextAction = "manual_followup";
-
-        if (broker?.contact_phone) {
-          try {
-            const { sendSms } = await import("../lib/sms");
-            await sendSms(broker.contact_phone,
-              `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. No carrier phone/email on file — follow up manually to get docs.`
-            );
-          } catch (e) { console.error("[assign] broker SMS failed:", e); }
-        }
-      } else {
-        // Call verification service directly (no HTTP self-fetch)
+      // Notify broker
+      if (broker?.contact_phone) {
         try {
-          const verifyResult = await triggerCarrierVerification({
-            mc_number: applicant.mc_number,
-            carrier_phone: carrierPhone || undefined,
-            carrier_email: applicant.contact_email || carrier?.email_contact || undefined,
-            carrier_name: applicant.company_name || carrier?.fmcsa_legal_name || undefined,
-            broker_name: broker?.company_name || undefined,
-            broker_phone: broker?.contact_phone || undefined,
-            broker_email: broker?.contact_email || undefined,
-            broker_account_id: req.session.brokerAccountId,
-          });
+          await sendSms(broker.contact_phone,
+            `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Carrier confirming driver and truck.`
+          );
+        } catch (e) { console.error("[assign] broker SMS failed:", e); }
+      }
 
-          verificationId = verifyResult.id;
+      // Update load status
+      await query(
+        "UPDATE canonical_loads SET status = 'assigned', updated_at = NOW() WHERE id = $1",
+        [load.id]
+      );
 
-          if (verifyResult.result === "DO_NOT_USE") {
-            nextStatus = "do_not_use";
-            nextAction = "fmcsa_rejected";
+    } else {
+      // ── LEGACY FALLBACK: no driver/equipment records yet ──
+      // Use MC-level profile check. This path phases out as carriers
+      // flow through the confirmation page and build canonical records.
+
+      const profileResult = await query(
+        `SELECT id, completion_status FROM carrier_profiles
+         WHERE carrier_id = $1 AND completion_status = 'dispatch_ready'
+         ORDER BY updated_at DESC LIMIT 1`,
+        [applicant.carrier_id]
+      );
+      const profileComplete = profileResult.rows.length > 0;
+
+      if (profileComplete) {
+        // Legacy fast path: MC-level dispatch ready → arrival signal
+        nextAction = "dispatch_signal";
+        nextStatus = "clear";
+
+        if (carrierPhone && (load.pickup_address || load.origin)) {
+          try {
+            const signalResult = await createDispatchSignal({
+              load_id: load.load_id,
+              assignment_id: assignmentId,
+              carrier_id: applicant.carrier_id,
+              driver_phone: carrierPhone,
+              broker_phone: broker?.contact_phone || "",
+              mc_number: applicant.mc_number,
+              carrier_name: applicant.company_name || carrier?.fmcsa_legal_name,
+              pickup_address: load.pickup_address || "",
+              pickup_window_start: load.pickup_window_start || undefined,
+              pickup_window_end: load.pickup_window_end || undefined,
+              origin: load.origin,
+            });
+
+            nextStatus = "arrival_pending";
+            nextAction = "arrival_sent";
+
+            await query(
+              "UPDATE load_assignments SET dispatch_signal_id = $1, dispatch_signal_ref = $2, updated_at = NOW() WHERE id = $3",
+              [signalResult.id, signalResult.dispatch_verification_id, assignmentId]
+            );
 
             if (broker?.contact_phone) {
               try {
-                const { sendSms } = await import("../lib/sms");
                 await sendSms(broker.contact_phone,
-                  `⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
+                  `Connected Carriers: ✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — arrival check sent to driver.${signalResult.geocoded ? "" : " ⚠ Could not geocode pickup address."}`
                 );
-              } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
+              } catch (e) { console.error("[assign] broker signal SMS failed:", e); }
             }
-          } else {
-            // Verification request sent successfully
+          } catch (err) {
+            console.error("[assign] Dispatch signal error:", err);
             if (broker?.contact_phone) {
               try {
-                const { sendSms } = await import("../lib/sms");
                 await sendSms(broker.contact_phone,
-                  `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
+                  `Connected Carriers: ✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch. Arrival check could not be sent automatically.`
                 );
               } catch (e) { console.error("[assign] broker SMS failed:", e); }
             }
           }
-        } catch (err) {
-          console.error("[assign] Verification service error:", err);
-
-          // Fallback: send carrier to profile form
-          nextStatus = "documents_pending";
-          nextAction = "verification_fallback";
-
-          if (carrierPhone) {
+        } else {
+          if (broker?.contact_phone) {
             try {
-	      const { sendSms } = await import("../lib/sms");
-	      await sendSms(carrierPhone,
-	        `Connected Carriers for ${broker?.company_name || "your broker"}: Docs needed for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${process.env.BASE_URL || "https://app.connectedcarriers.org"}/profile/carrier?source=load_assign&mc=${applicant.mc_number}\nStandard message and data rates may apply. Reply STOP to opt out.`
-	      );
-            } catch (e) { console.error("[assign] carrier fallback SMS failed:", e); }
+              await sendSms(broker.contact_phone,
+                `Connected Carriers: ✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch.${!carrierPhone ? " No driver phone on file for arrival check." : ""}${!load.pickup_address ? " No pickup address for arrival check." : ""}`
+              );
+            } catch (e) { console.error("[assign] broker SMS failed:", e); }
           }
+        }
+
+      } else {
+        // Legacy chase path: trigger verification
+        nextAction = "verification_chase";
+        nextStatus = "verification_requested";
+
+        if (!carrierPhone && !applicant.contact_email && !carrier?.email_contact) {
+          nextStatus = "documents_pending";
+          nextAction = "manual_followup";
 
           if (broker?.contact_phone) {
             try {
-              const { sendSms } = await import("../lib/sms");
               await sendSms(broker.contact_phone,
-                `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Auto-verify unavailable — sent carrier to profile form.`
+                `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. No carrier phone/email on file — follow up manually to get docs.`
               );
-            } catch (e) { console.error("[assign] broker fallback SMS failed:", e); }
+            } catch (e) { console.error("[assign] broker SMS failed:", e); }
+          }
+        } else {
+          try {
+            const verifyResult = await triggerCarrierVerification({
+              mc_number: applicant.mc_number,
+              carrier_phone: carrierPhone || undefined,
+              carrier_email: applicant.contact_email || carrier?.email_contact || undefined,
+              carrier_name: applicant.company_name || carrier?.fmcsa_legal_name || undefined,
+              broker_name: broker?.company_name || undefined,
+              broker_phone: broker?.contact_phone || undefined,
+              broker_email: broker?.contact_email || undefined,
+              broker_account_id: req.session.brokerAccountId,
+            });
+
+            verificationId = verifyResult.id;
+
+            if (verifyResult.result === "DO_NOT_USE") {
+              nextStatus = "do_not_use";
+              nextAction = "fmcsa_rejected";
+
+              if (broker?.contact_phone) {
+                try {
+                  await sendSms(broker.contact_phone,
+                    `Connected Carriers: ⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
+                  );
+                } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
+              }
+            } else {
+              if (broker?.contact_phone) {
+                try {
+                  await sendSms(broker.contact_phone,
+                    `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
+                  );
+                } catch (e) { console.error("[assign] broker SMS failed:", e); }
+              }
+            }
+          } catch (err) {
+            console.error("[assign] Verification service error:", err);
+
+            nextStatus = "documents_pending";
+            nextAction = "verification_fallback";
+
+            if (carrierPhone) {
+              try {
+                await sendSms(carrierPhone,
+                  `Connected Carriers for ${broker?.company_name || "your broker"}: Docs needed for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${BASE_URL}/profile/carrier?source=load_assign&mc=${applicant.mc_number}\nStandard message and data rates may apply. Reply STOP to opt out.`
+                );
+              } catch (e) { console.error("[assign] carrier fallback SMS failed:", e); }
+            }
+
+            if (broker?.contact_phone) {
+              try {
+                await sendSms(broker.contact_phone,
+                  `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Auto-verify unavailable — sent carrier to profile form.`
+                );
+              } catch (e) { console.error("[assign] broker fallback SMS failed:", e); }
+            }
           }
         }
       }
+
+      // Update load status for legacy path
+      const loadStatus = nextStatus === "arrival_pending" ? "arrival_sent"
+        : nextStatus === "clear" ? "clear_to_dispatch"
+        : nextStatus === "do_not_use" ? "do_not_use"
+        : "waiting_on_docs";
+      await query(
+        "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",
+        [loadStatus, load.id]
+      );
     }
 
-    // Update assignment with status and verification reference
+    // Update assignment with final status and verification reference
     await query(
       `UPDATE load_assignments SET status = $1, carrier_verification_id = $2, updated_at = NOW() WHERE id = $3`,
       [nextStatus, verificationId, assignmentId]
-    );
-
-    // Update load status
-    const loadStatus = nextStatus === "arrival_pending" ? "arrival_sent"
-      : nextStatus === "clear" ? "clear_to_dispatch"
-      : nextStatus === "do_not_use" ? "do_not_use"
-      : "waiting_on_docs";
-    await query(
-      "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",
-      [loadStatus, load.id]
     );
 
     res.json({
@@ -534,7 +571,8 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
       carrier: applicant.company_name || applicant.mc_number,
       mc: applicant.mc_number,
       next_action: nextAction,
-      profile_complete: profileComplete,
+      confirmation_url: hasCanonicalPackageRecords ? `/confirm/${confirmationToken}` : undefined,
+      profile_complete: !hasCanonicalPackageRecords ? (nextAction === "dispatch_signal" || nextAction === "arrival_sent") : undefined,
     });
   } catch (err) {
     console.error("[v2/loads/assign]", err);
