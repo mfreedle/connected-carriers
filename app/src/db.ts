@@ -902,7 +902,7 @@ export async function migrateVerification() {
 
   // ── Backfill: carrier_drivers, carrier_equipment, carrier_documents from carrier_profiles ──
   // Runs AFTER carrier_id backfill so profiles have carrier_id set.
-  // Idempotent: uses WHERE NOT EXISTS to avoid duplicates.
+  // Idempotent: checks existing canonical and legacy document rows to avoid duplicates.
   try {
     // 1. Backfill carrier_drivers from profiles with driver data
     const driverProfiles = await query(`
@@ -912,7 +912,6 @@ export async function migrateVerification() {
       WHERE cp.carrier_id IS NOT NULL
         AND cp.driver_name IS NOT NULL AND cp.driver_name != ''
       ORDER BY cp.updated_at DESC
-      LIMIT 200
     `);
     let driversCreated = 0;
     for (const p of driverProfiles.rows) {
@@ -945,7 +944,6 @@ export async function migrateVerification() {
       WHERE cp.carrier_id IS NOT NULL
         AND (cp.vin_number IS NOT NULL OR cp.truck_number IS NOT NULL)
       ORDER BY cp.updated_at DESC
-      LIMIT 200
     `);
     let equipCreated = 0;
     for (const p of equipProfiles.rows) {
@@ -978,14 +976,14 @@ export async function migrateVerification() {
              cp.vin_photo_r2_key, cp.vin_photo_url,
              cp.parsed_cdl, cp.parsed_insurance,
              cp.cdl_expiration, cp.insurance_expiration,
-             cp.driver_name, cp.cdl_number, cp.vin_number
+             cp.driver_name, cp.cdl_number,
+             cp.truck_number, cp.trailer_number, cp.vin_number
       FROM carrier_profiles cp
       WHERE cp.carrier_id IS NOT NULL
         AND (cp.cdl_photo_r2_key IS NOT NULL OR cp.cdl_photo_url IS NOT NULL
              OR cp.insurance_doc_r2_key IS NOT NULL OR cp.insurance_doc_url IS NOT NULL
              OR cp.vin_photo_r2_key IS NOT NULL OR cp.vin_photo_url IS NOT NULL)
       ORDER BY cp.updated_at DESC
-      LIMIT 200
     `);
     let docsCreated = 0;
     const today = new Date();
@@ -1003,8 +1001,17 @@ export async function migrateVerification() {
         if (dResult.rows.length) driverId = dResult.rows[0].id;
       }
 
-      if (p.vin_number) {
-        const eResult = await query(`SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND vin_number = $2 LIMIT 1`, [p.carrier_id, p.vin_number]);
+      if (p.vin_number || p.truck_number) {
+        const eResult = p.vin_number
+          ? await query(`SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND vin_number = $2 LIMIT 1`, [p.carrier_id, p.vin_number])
+          : await query(
+              `SELECT id FROM carrier_equipment
+               WHERE carrier_id = $1
+                 AND COALESCE(truck_number,'') = COALESCE($2,'')
+                 AND COALESCE(trailer_number,'') = COALESCE($3,'')
+               LIMIT 1`,
+              [p.carrier_id, p.truck_number || "", p.trailer_number || ""]
+            );
         if (eResult.rows.length) equipmentId = eResult.rows[0].id;
       }
 
@@ -1022,7 +1029,10 @@ export async function migrateVerification() {
         const r2Key = p.cdl_photo_r2_key || null;
         const fileUrl = p.cdl_photo_url || null;
         const exists = await query(
-          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'cdl' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          `SELECT id FROM carrier_documents
+           WHERE carrier_id = $1
+             AND (doc_type = 'cdl' OR (doc_type IS NULL AND document_type = 'cdl'))
+             AND (COALESCE(r2_key, r2_object_key) = $2 OR ($2 IS NULL AND file_url = $3))`,
           [p.carrier_id, r2Key, fileUrl]
         );
         if (exists.rows.length === 0) {
@@ -1040,7 +1050,10 @@ export async function migrateVerification() {
         const r2Key = p.insurance_doc_r2_key || null;
         const fileUrl = p.insurance_doc_url || null;
         const exists = await query(
-          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'insurance' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          `SELECT id FROM carrier_documents
+           WHERE carrier_id = $1
+             AND (doc_type = 'insurance' OR (doc_type IS NULL AND document_type = 'coi'))
+             AND (COALESCE(r2_key, r2_object_key) = $2 OR ($2 IS NULL AND file_url = $3))`,
           [p.carrier_id, r2Key, fileUrl]
         );
         if (exists.rows.length === 0) {
@@ -1058,7 +1071,10 @@ export async function migrateVerification() {
         const r2Key = p.vin_photo_r2_key || null;
         const fileUrl = p.vin_photo_url || null;
         const exists = await query(
-          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'cab_card' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          `SELECT id FROM carrier_documents
+           WHERE carrier_id = $1
+             AND (doc_type = 'cab_card' OR (doc_type IS NULL AND document_type IN ('cab_card', 'vin_photo')))
+             AND (COALESCE(r2_key, r2_object_key) = $2 OR ($2 IS NULL AND file_url = $3))`,
           [p.carrier_id, r2Key, fileUrl]
         );
         if (exists.rows.length === 0) {
