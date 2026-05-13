@@ -709,6 +709,11 @@ export async function migrateVerification() {
   `);
   await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dispatch_signal_id INTEGER`);
   await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dispatch_signal_ref TEXT`);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS driver_id INTEGER`);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS equipment_id INTEGER`);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS confirmation_token TEXT`);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_la_confirmation_token ON load_assignments(confirmation_token) WHERE confirmation_token IS NOT NULL`).catch(() => {});
   await query(`CREATE INDEX IF NOT EXISTS idx_la_load ON load_assignments(load_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_carrier ON load_assignments(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_broker ON load_assignments(broker_account_id)`);
@@ -744,6 +749,78 @@ export async function migrateVerification() {
   // Expand CHECK constraint
   await query(`ALTER TABLE carrier_consents DROP CONSTRAINT IF EXISTS carrier_consents_consent_type_check`).catch(() => {});
   await query(`ALTER TABLE carrier_consents ADD CONSTRAINT carrier_consents_consent_type_check CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage', 'broker_sms'))`).catch(() => {});
+
+  // ── Carrier drivers (SPINE-0009 + SPINE-0010) ────────────────────
+  // Per-driver record under a carrier MC. Stores current extracted facts.
+  // Document files live in carrier_documents, not here.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_drivers (
+      id SERIAL PRIMARY KEY,
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      driver_name TEXT NOT NULL,
+      driver_phone TEXT,
+      cdl_number TEXT,
+      cdl_state TEXT,
+      cdl_expiration DATE,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'inactive', 'expired')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cd_carrier ON carrier_drivers(carrier_id)`);
+
+  // ── Carrier equipment (SPINE-0009 + SPINE-0010) ──────────────────
+  // Per-truck/trailer record under a carrier MC.
+  // Cab card / truck photo files live in carrier_documents, not here.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_equipment (
+      id SERIAL PRIMARY KEY,
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      truck_number TEXT,
+      vin_number TEXT,
+      trailer_number TEXT,
+      equipment_type TEXT,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'inactive')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_ce_carrier ON carrier_equipment(carrier_id)`);
+
+  // ── Carrier documents (SPINE-0009 + SPINE-0010) ──────────────────
+  // Canonical document storage. Files in R2, metadata here.
+  // Linked to carrier, and optionally to a specific driver or equipment.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_documents (
+      id SERIAL PRIMARY KEY,
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      driver_id INTEGER REFERENCES carrier_drivers(id),
+      equipment_id INTEGER REFERENCES carrier_equipment(id),
+      doc_type TEXT NOT NULL
+        CHECK (doc_type IN ('cdl', 'insurance', 'cab_card', 'truck_photo', 'w9')),
+      r2_key TEXT,
+      file_url TEXT,
+      parsed_data JSONB,
+      expiration_date DATE,
+      status TEXT NOT NULL DEFAULT 'current'
+        CHECK (status IN ('current', 'expiring', 'expired', 'superseded')),
+      source TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_carrier ON carrier_documents(carrier_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_driver ON carrier_documents(driver_id) WHERE driver_id IS NOT NULL`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_equipment ON carrier_documents(equipment_id) WHERE equipment_id IS NOT NULL`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_type ON carrier_documents(doc_type, status)`);
+
+  // ── Add FKs from load_assignments to driver/equipment ────────────
+  // These reference the new tables. Added as ALTER since load_assignments
+  // was created before carrier_drivers/carrier_equipment exist.
+  await query(`ALTER TABLE load_assignments ADD CONSTRAINT fk_la_driver FOREIGN KEY (driver_id) REFERENCES carrier_drivers(id)`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD CONSTRAINT fk_la_equipment FOREIGN KEY (equipment_id) REFERENCES carrier_equipment(id)`).catch(() => {});
 
   // ── Add carrier_id FK to existing tables ─────────────────────────
   await query(`ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
