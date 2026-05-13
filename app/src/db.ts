@@ -577,30 +577,20 @@ export async function migrateVerification() {
   // ══════════════════════════════════════════════════════════════════
 
   // ── Carrier identity (SPINE-0002) ────────────────────────────────
-  // One row per MC number, forever. Not a profile — just identity.
-  await query(`
-    CREATE TABLE IF NOT EXISTS carriers (
-      id SERIAL PRIMARY KEY,
-      mc_number TEXT UNIQUE NOT NULL,
-      dot_number TEXT,
-      fmcsa_legal_name TEXT,
-      fmcsa_status TEXT,
-      authority_status TEXT,
-      safety_rating TEXT,
-      phone TEXT,
-      email TEXT,
-      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      network_status TEXT NOT NULL DEFAULT 'known'
-        CHECK (network_status IN ('known', 'profile_started', 'verified', 'stale', 'blocked')),
-      latest_profile_id INTEGER,
-      latest_verification_id INTEGER,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carriers_mc ON carriers(mc_number)`);
-  await query(`CREATE INDEX IF NOT EXISTS idx_carriers_status ON carriers(network_status)`);
+  // The carriers table already exists (created by MCP with mc_number, dot_number,
+  // company_name, tier, fmcsa_status, verified_at). Add spine columns.
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS fmcsa_legal_name TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS fmcsa_status_text TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS authority_status TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS safety_rating TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS phone_contact TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS email_contact TEXT`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS network_status TEXT DEFAULT 'known'`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS latest_profile_id INTEGER`).catch(() => {});
+  await query(`ALTER TABLE carriers ADD COLUMN IF NOT EXISTS latest_verification_id INTEGER`).catch(() => {});
+  await query(`CREATE INDEX IF NOT EXISTS idx_carriers_network_status ON carriers(network_status)`).catch(() => {});
 
   // ── Canonical loads (SPINE-0001) ─────────────────────────────────
   // Broker-owned. Every load belongs to a broker account.

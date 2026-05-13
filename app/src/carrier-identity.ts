@@ -35,7 +35,7 @@ export async function findOrCreateCarrier(mcNumber: string): Promise<CarrierIden
 
   // Try to find existing
   const existing = await query(
-    `SELECT id, mc_number, fmcsa_legal_name, phone, email, network_status,
+    `SELECT id, mc_number, fmcsa_legal_name, company_name, phone_contact, email_contact, network_status,
             latest_profile_id, latest_verification_id
      FROM carriers WHERE mc_number = $1`,
     [clean]
@@ -50,10 +50,10 @@ export async function findOrCreateCarrier(mcNumber: string): Promise<CarrierIden
     return {
       id: c.id,
       mc_number: c.mc_number,
-      fmcsa_legal_name: c.fmcsa_legal_name,
-      phone: c.phone,
-      email: c.email,
-      network_status: c.network_status,
+      fmcsa_legal_name: c.fmcsa_legal_name || c.company_name,
+      phone: c.phone_contact,
+      email: c.email_contact,
+      network_status: c.network_status || "known",
       latest_profile_id: c.latest_profile_id,
       latest_verification_id: c.latest_verification_id,
       isNew: false,
@@ -65,7 +65,7 @@ export async function findOrCreateCarrier(mcNumber: string): Promise<CarrierIden
     `INSERT INTO carriers (mc_number)
      VALUES ($1)
      ON CONFLICT (mc_number) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
-     RETURNING id, mc_number, fmcsa_legal_name, phone, email, network_status,
+     RETURNING id, mc_number, fmcsa_legal_name, company_name, phone_contact, email_contact, network_status,
                latest_profile_id, latest_verification_id`,
     [clean]
   );
@@ -74,10 +74,10 @@ export async function findOrCreateCarrier(mcNumber: string): Promise<CarrierIden
   return {
     id: c.id,
     mc_number: c.mc_number,
-    fmcsa_legal_name: c.fmcsa_legal_name,
-    phone: c.phone,
-    email: c.email,
-    network_status: c.network_status,
+    fmcsa_legal_name: c.fmcsa_legal_name || c.company_name,
+    phone: c.phone_contact,
+    email: c.email_contact,
+    network_status: c.network_status || "known",
     latest_profile_id: c.latest_profile_id,
     latest_verification_id: c.latest_verification_id,
     isNew: true,
@@ -105,10 +105,10 @@ export async function updateCarrierFMCSA(
 
   if (data.fmcsa_legal_name) { updates.push(`fmcsa_legal_name = $${idx++}`); values.push(data.fmcsa_legal_name); }
   if (data.dot_number) { updates.push(`dot_number = $${idx++}`); values.push(data.dot_number); }
-  if (data.fmcsa_status) { updates.push(`fmcsa_status = $${idx++}`); values.push(data.fmcsa_status); }
+  if (data.fmcsa_status) { updates.push(`fmcsa_status_text = $${idx++}`); values.push(data.fmcsa_status); }
   if (data.authority_status) { updates.push(`authority_status = $${idx++}`); values.push(data.authority_status); }
   if (data.safety_rating) { updates.push(`safety_rating = $${idx++}`); values.push(data.safety_rating); }
-  if (data.phone) { updates.push(`phone = $${idx++}`); values.push(data.phone); }
+  if (data.phone) { updates.push(`phone_contact = $${idx++}`); values.push(data.phone); }
 
   if (updates.length === 0) return;
 
@@ -133,8 +133,8 @@ export async function updateCarrierContact(
   const values: unknown[] = [];
   let idx = 1;
 
-  if (phone) { updates.push(`phone = $${idx++}`); values.push(phone); }
-  if (email) { updates.push(`email = $${idx++}`); values.push(email); }
+  if (phone) { updates.push(`phone_contact = $${idx++}`); values.push(phone); }
+  if (email) { updates.push(`email_contact = $${idx++}`); values.push(email); }
 
   values.push(carrierId);
   await query(
