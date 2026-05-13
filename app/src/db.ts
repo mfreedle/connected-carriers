@@ -811,6 +811,14 @@ export async function migrateVerification() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS driver_id INTEGER REFERENCES carrier_drivers(id)`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS equipment_id INTEGER REFERENCES carrier_equipment(id)`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS doc_type TEXT`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS r2_key TEXT`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS parsed_data JSONB`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS expiration_date DATE`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'current'`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD COLUMN IF NOT EXISTS source TEXT`).catch(() => {});
   await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_carrier ON carrier_documents(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_driver ON carrier_documents(driver_id) WHERE driver_id IS NOT NULL`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_equipment ON carrier_documents(equipment_id) WHERE equipment_id IS NOT NULL`);
