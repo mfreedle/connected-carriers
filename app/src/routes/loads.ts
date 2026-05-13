@@ -215,7 +215,6 @@ ${alertsHtml}
       <div id="qc-link" style="font-size:13px;font-weight:500;color:var(--slate);word-break:break-all;margin-bottom:8px"></div>
       <div style="display:flex;gap:8px">
         <button onclick="copyText(document.getElementById('qc-link').textContent, this)" style="background:var(--amber);color:var(--slate);border:none;padding:5px 12px;border-radius:2px;font-family:var(--sans);font-size:11px;font-weight:500;cursor:pointer">Copy Link</button>
-        <a id="qc-board" href="#" target="_blank" style="font-size:11px;color:var(--amber);text-decoration:none;display:flex;align-items:center">View applicants →</a>
       </div>
     </div>
   </div>
@@ -259,14 +258,13 @@ async function quickCreate() {
   btn.disabled = true; btn.textContent = 'Creating...';
   document.getElementById('qc-status').textContent = '';
   try {
-    var res = await fetch('/api/loads/create', {
+    var res = await fetch('/api/v2/loads/create', {
       method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
-      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined, pickup_address: pickupAddr || undefined, pickup_window: pickupWindow || undefined})
+      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined, pickup_address: pickupAddr || undefined, pickup_window_text: pickupWindow || undefined})
     });
     var data = await res.json();
     if (data.success) {
-      document.getElementById('qc-link').textContent = data.apply_url;
-      document.getElementById('qc-board').href = data.board_url;
+      document.getElementById('qc-link').textContent = location.origin + data.apply_url;
       document.getElementById('qc-result').style.display = 'block';
       document.getElementById('qc-status').textContent = 'Load ' + data.load_id + ' created.';
       document.getElementById('qc-status').style.color = '#10b981';
@@ -284,7 +282,7 @@ async function refreshLoads() {
   var el = document.getElementById('loads-list');
   el.innerHTML = '<div class="empty" style="padding:20px">Loading...</div>';
   try {
-    var res = await fetch('/api/loads/recent');
+    var res = await fetch('/api/v2/loads');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.loads || data.loads.length === 0) {
@@ -295,17 +293,24 @@ async function refreshLoads() {
       data.loads.map(function(l) {
         var pipeColors = {
           posted: {bg:'#6B7A8A',label:'Posted'},
-          has_applicants: {bg:'#3b82f6',label:'Carriers Qualified'},
-          ready_to_assign: {bg:'#C8892A',label:'Call'},
-          assigned: {bg:'#8b5cf6',label:'Waiting on Docs'},
+          carriers_qualified: {bg:'#3b82f6',label:'Carriers Qualified'},
+          ready_to_call: {bg:'#C8892A',label:'Call'},
+          assigned: {bg:'#8b5cf6',label:'Assigned'},
+          waiting_on_docs: {bg:'#8b5cf6',label:'Waiting on Docs'},
+          clear_to_dispatch: {bg:'#10b981',label:'Clear to Dispatch'},
+          review: {bg:'#f59e0b',label:'Review'},
+          do_not_use: {bg:'#ef4444',label:'Do Not Use'},
+          verification_requested: {bg:'#8b5cf6',label:'Waiting on Docs'},
+          documents_pending: {bg:'#8b5cf6',label:'Waiting on Docs'},
           clear: {bg:'#10b981',label:'Clear to Dispatch'},
           caution: {bg:'#f59e0b',label:'Review'},
-          do_not_use: {bg:'#ef4444',label:'Do Not Use'},
           arrival_sent: {bg:'#2563eb',label:'Arrival Sent'},
-          unresponsive: {bg:'#ef4444',label:'No Response'},
-          confirmed: {bg:'#10b981',label:'On Site'},
-          review: {bg:'#f59e0b',label:'Review Location'},
-          alert: {bg:'#ef4444',label:'Location Alert'},
+          arrival_pending: {bg:'#2563eb',label:'Arrival Sent'},
+          arrival_confirmed: {bg:'#10b981',label:'On Site'},
+          arrival_alert: {bg:'#ef4444',label:'Location Alert'},
+          on_site: {bg:'#10b981',label:'On Site'},
+          no_response: {bg:'#ef4444',label:'No Response'},
+          location_alert: {bg:'#ef4444',label:'Location Alert'},
           covered: {bg:'#10b981',label:'Covered'},
           cancelled: {bg:'#6B7A8A',label:'Cancelled'}
         };
@@ -313,7 +318,7 @@ async function refreshLoads() {
         var appCount = parseInt(l.applicant_count) || 0;
         var viewBtn = appCount > 0
           ? '<button onclick="toggleApplicants(\\'' + l.load_id + '\\',\\'' + l.slug + '\\')" class="btn-link" style="border:none;background:none;cursor:pointer;font-family:var(--sans)">' + appCount + ' applicant' + (appCount !== 1 ? 's' : '') + ' ▾</button>'
-          : '<a href="javascript:void(0)" onclick="copyLoadLink(\\'' + MCP + '/load/' + l.slug + '\\')" class="btn-link" style="font-size:11px">Copy link</a>';
+          : '<a href="javascript:void(0)" onclick="copyLoadLink(\\'' + location.origin + '/l/' + l.slug + '\\')" class="btn-link" style="font-size:11px">Copy link</a>';
         var loadLabel = l.broker_ref
           ? '<div style="font-weight:500;font-size:13px;color:var(--slate)">' + l.broker_ref + '</div><div style="font-size:11px;color:var(--muted)"><code>' + l.load_id + '</code></div>'
           : '<code>' + l.load_id + '</code>';
@@ -331,7 +336,7 @@ async function refreshAttention() {
   card.style.display = 'block';
   list.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">Refreshing...</div>';
   try {
-    var res = await fetch('/api/loads/attention');
+    var res = await fetch('/api/v2/loads/attention');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.items || data.items.length === 0) { 
@@ -366,7 +371,7 @@ async function toggleApplicants(loadId, slug) {
   var content = document.getElementById('apps-content-' + loadId);
   content.innerHTML = '<div style="font-size:12px;color:var(--muted)">Loading applicants...</div>';
   try {
-    var res = await fetch('/api/loads/' + loadId + '/applicants');
+    var res = await fetch('/api/v2/loads/' + slug + '/applicants');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.applicants || data.applicants.length === 0) {
@@ -374,37 +379,36 @@ async function toggleApplicants(loadId, slug) {
       return;
     }
     content.innerHTML = data.applicants.map(function(a) {
-      var profileBadge = a.has_profile
+      var profileBadge = a.has_profile || a.network_status === 'verified'
         ? '<span style="background:#EAF3DE;color:#3b6d11;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">DISPATCH READY</span>'
+        : a.network_status === 'profile_started'
+        ? '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">PROFILE STARTED</span>'
         : '<span style="background:#F0EDE7;color:#6b7a8a;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600">NEEDS DOCS</span>';
 
-      // Verification result badge (shows after assignment)
-      var verifyBadge = '';
-      if (a.cv_result === 'CLEAR') {
-        verifyBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ CLEAR</span>';
-      } else if (a.cv_result === 'CAUTION') {
-        verifyBadge = '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⚠ CAUTION</span>';
-      } else if (a.cv_result === 'DO_NOT_USE') {
-        verifyBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✗ DO NOT USE</span>';
-      } else if (a.assigned_at && a.verification_status === 'pending') {
-        verifyBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⏳ VERIFYING</span>';
-      } else if (a.assigned_at && a.verification_status === 'skipped_complete') {
-        verifyBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ PROFILE COMPLETE</span>';
+      // Assignment status badge
+      var assignBadge = '';
+      if (a.assignment_status === 'clear') {
+        assignBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ CLEAR</span>';
+      } else if (a.assignment_status === 'caution') {
+        assignBadge = '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⚠ CAUTION</span>';
+      } else if (a.assignment_status === 'do_not_use') {
+        assignBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✗ DO NOT USE</span>';
+      } else if (a.assignment_status === 'verification_requested' || a.assignment_status === 'documents_pending') {
+        assignBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⏳ VERIFYING</span>';
+      } else if (a.assignment_status === 'arrival_pending') {
+        assignBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">🚛 ARRIVAL SENT</span>';
+      } else if (a.assignment_status === 'arrival_confirmed') {
+        assignBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ ON SITE</span>';
       }
 
-      var assignedLabel = a.assigned_at ? '<div style="font-size:10px;color:#8b5cf6;font-weight:600;margin-top:2px">ASSIGNED</div>' : '';
+      var assignedLabel = a.assignment_id ? '<div style="font-size:10px;color:#8b5cf6;font-weight:600;margin-top:2px">ASSIGNED</div>' : '';
       var contactInfo = a.contact_name ? (a.contact_name + (a.contact_phone ? ' · ' + a.contact_phone : '')) : '';
 
-      // Report link if verification is complete
-      var reportLink = a.verification_token && a.cv_result
-        ? '<a href="https://app.connectedcarriers.org/v/' + a.verification_token + '/report" target="_blank" style="font-size:10px;color:var(--amber);text-decoration:none;margin-left:6px">View report →</a>'
-        : '';
-
       return '<div style="border-bottom:1px solid var(--cream2);padding-bottom:8px;margin-bottom:8px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;cursor:pointer" onclick="toggleProfile(\\'' + a.mc_number + '\\',\\'' + slug + '\\',' + a.id + ',\\'' + (a.contact_phone || '') + '\\',\\'' + (a.company_name || '').replace(/'/g, '') + '\\',' + (a.has_profile ? 'true' : 'false') + ')">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;cursor:pointer" onclick="toggleProfile(\\'' + a.mc_number + '\\',\\'' + slug + '\\',' + a.id + ',\\'' + (a.contact_phone || '') + '\\',\\'' + (a.company_name || a.fmcsa_legal_name || '').replace(/'/g, '') + '\\',' + (a.has_profile || a.network_status === 'verified' ? 'true' : 'false') + ')">' +
           '<div>' +
-            '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + a.fmcsa_authority + ' · Safety: ' + a.fmcsa_safety + ' ' + profileBadge + verifyBadge + reportLink + '</div>' +
+            '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || a.fmcsa_legal_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (a.fmcsa_authority || 'Unknown') + ' · Safety: ' + (a.fmcsa_safety || 'Not Rated') + ' ' + profileBadge + assignBadge + '</div>' +
             (contactInfo ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + contactInfo + '</div>' : '') +
             assignedLabel +
           '</div>' +
@@ -489,7 +493,7 @@ async function assignFromDashboard(slug, appId, phone, name) {
   var btn = event.target;
   btn.disabled = true; btn.textContent = 'Assigning...';
   try {
-    var res = await fetch('/api/loads/' + slug + '/assign', {
+    var res = await fetch('/api/v2/loads/' + slug + '/assign', {
       method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
       body: JSON.stringify({applicant_id: appId, driver_phone: phone.trim()})
     });

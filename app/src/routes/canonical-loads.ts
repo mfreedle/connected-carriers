@@ -145,6 +145,74 @@ router.get("/api/v2/loads", requireAuth, async (req: AuthenticatedRequest, res: 
   }
 });
 
+// ── Attention items (what needs action) ──────────────────────────
+
+router.get("/api/v2/loads/attention", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const loads = await query(`
+      SELECT cl.id, cl.load_id, cl.slug, cl.origin, cl.destination, cl.equipment,
+             cl.pickup_date, cl.status, cl.created_at,
+             COUNT(cla.id) FILTER (WHERE cla.qualification_result IN ('qualified','review')) as applicant_count,
+             COUNT(cla.id) FILTER (WHERE cla.qualification_result = 'qualified' AND cla.contact_phone IS NOT NULL) as interested_count
+      FROM canonical_loads cl
+      LEFT JOIN canonical_load_applications cla ON cla.load_id = cl.id
+      WHERE cl.broker_account_id = $1 AND cl.status != 'cancelled'
+      GROUP BY cl.id
+      ORDER BY cl.created_at DESC
+      LIMIT 30
+    `, [req.session.brokerAccountId]);
+
+    // Get assignment state
+    const assignments = await query(`
+      SELECT la.load_id, la.status as assignment_status
+      FROM load_assignments la
+      WHERE la.broker_account_id = $1 AND la.status NOT IN ('superseded', 'cancelled')
+    `, [req.session.brokerAccountId]);
+    const assignMap: Record<number, string> = {};
+    for (const a of assignments.rows) { assignMap[a.load_id] = a.assignment_status; }
+
+    const items: { priority: number; icon: string; load_id: string; route: string; message: string; action: string }[] = [];
+
+    for (const load of loads.rows) {
+      const route = `${load.origin} → ${load.destination}`;
+      const apps = parseInt(load.applicant_count as string) || 0;
+      const interested = parseInt(load.interested_count as string) || 0;
+      const aStatus = assignMap[load.id as number];
+
+      if (load.status === "posted" && apps === 0) {
+        items.push({ priority: 3, icon: "📭", load_id: load.load_id, route, message: "No applicants yet", action: "Repost or share the load link" });
+      } else if (interested > 0 && !aStatus) {
+        items.push({ priority: 1, icon: "👤", load_id: load.load_id, route, message: `${interested} carrier${interested !== 1 ? "s" : ""} interested`, action: "Review and assign" });
+      } else if (apps > 0 && !interested && !aStatus) {
+        items.push({ priority: 4, icon: "🔍", load_id: load.load_id, route, message: `${apps} qualified — waiting for interest`, action: "Check back soon" });
+      }
+
+      // Assignment states
+      if (aStatus === "clear") {
+        items.push({ priority: 1, icon: "✅", load_id: load.load_id, route, message: "Carrier verified — clear to dispatch", action: "Dispatch in TMS" });
+      } else if (aStatus === "caution") {
+        items.push({ priority: 0, icon: "🟡", load_id: load.load_id, route, message: "Carrier verified with flags", action: "Review before dispatch" });
+      } else if (aStatus === "do_not_use") {
+        items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Carrier failed verification", action: "Reassign" });
+      } else if (aStatus === "verification_requested" || aStatus === "documents_pending") {
+        items.push({ priority: 2, icon: "⏳", load_id: load.load_id, route, message: "Waiting on carrier docs", action: "System will follow up" });
+      } else if (aStatus === "arrival_pending") {
+        items.push({ priority: 2, icon: "📤", load_id: load.load_id, route, message: "Arrival check sent", action: "Waiting for driver" });
+      } else if (aStatus === "arrival_confirmed") {
+        items.push({ priority: 5, icon: "✅", load_id: load.load_id, route, message: "Driver confirmed on site", action: "Clear to load" });
+      } else if (aStatus === "arrival_alert") {
+        items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Driver location alert", action: "Call before loading" });
+      }
+    }
+
+    items.sort((a, b) => a.priority - b.priority);
+    res.json({ items, total_loads: loads.rows.length });
+  } catch (err) {
+    console.error("[v2/loads/attention]", err);
+    res.status(500).json({ error: "Failed to fetch attention items." });
+  }
+});
+
 // ── List applicants for a load ───────────────────────────────────
 
 router.get("/api/v2/loads/:slug/applicants", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
