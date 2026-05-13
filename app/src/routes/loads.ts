@@ -63,77 +63,8 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
 });
 
 // ── Server-side API routes ────────────────────────────────────────
-// Browser calls these. They attach trusted broker context from session
-// before forwarding to MCP. Browser never supplies broker identity.
-
-router.post("/api/loads/create", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const brokerAccount = await query(
-      "SELECT id, company_name, contact_phone, contact_email FROM broker_accounts WHERE id = $1",
-      [req.session.brokerAccountId]
-    );
-    const ba = brokerAccount.rows[0];
-    if (!ba) { res.status(403).json({ error: "Broker account not found" }); return; }
-
-    const body = {
-      ...req.body,
-      broker_account_id: ba.id,
-      broker_name: ba.company_name,
-      broker_phone: ba.contact_phone || "",
-      broker_email: ba.contact_email || "",
-    };
-
-    const resp = await fetch(`${MCP_URL}/load/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    res.status(resp.status).json(data);
-  } catch (err) {
-    console.error("[API] Create load error:", err);
-    res.status(500).json({ error: "Failed to create load" });
-  }
-});
-
-router.get("/api/loads/recent", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const resp = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
-    const data = await resp.json();
-    res.status(resp.status).json(data);
-  } catch (err) {
-    console.error("[API] Loads recent error:", err);
-    res.status(500).json({ error: "Failed to fetch loads" });
-  }
-});
-
-router.get("/api/loads/attention", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const resp = await fetch(`${MCP_URL}/loads/attention?broker_account_id=${req.session.brokerAccountId}`);
-    const data = await resp.json();
-    res.status(resp.status).json(data);
-  } catch (err) {
-    console.error("[API] Loads attention error:", err);
-    res.status(500).json({ error: "Failed to fetch attention items" });
-  }
-});
-
-router.get("/api/loads/:loadId/applicants", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    // Verify this load belongs to the broker before returning applicants
-    const loadCheck = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
-    const loadData = await loadCheck.json() as { loads?: Array<{ load_id: string; slug: string }> };
-    const load = loadData.loads?.find((l: { load_id: string }) => l.load_id === req.params.loadId);
-    if (!load) { res.status(404).json({ error: "Load not found" }); return; }
-
-    const resp = await fetch(`${MCP_URL}/loads/${load.slug}/applicants`);
-    const data = await resp.json();
-    res.status(resp.status).json(data);
-  } catch (err) {
-    console.error("[API] Applicants error:", err);
-    res.status(500).json({ error: "Failed to fetch applicants" });
-  }
-});
+// Old MCP proxy routes removed — dashboard uses v2 canonical routes.
+// Carrier profile proxy kept until profile viewing moves to v2.
 
 router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -143,30 +74,6 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
   } catch (err) {
     console.error("[API] Carrier profile error:", err);
     res.status(500).json({ error: "Failed to fetch carrier profile" });
-  }
-});
-
-router.post("/api/loads/:slug/assign", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    // Verify this load belongs to the logged-in broker before allowing assignment
-    const loadCheck = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
-    const loadData = await loadCheck.json() as { loads?: Array<{ slug: string }> };
-    const load = loadData.loads?.find((l: { slug: string }) => l.slug === req.params.slug);
-    if (!load) {
-      res.status(403).json({ error: "Load not found or not owned by this broker" });
-      return;
-    }
-
-    const resp = await fetch(`${MCP_URL}/load/${req.params.slug}/assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body),
-    });
-    const data = await resp.json();
-    res.status(resp.status).json(data);
-  } catch (err) {
-    console.error("[API] Assign error:", err);
-    res.status(500).json({ error: "Failed to assign carrier" });
   }
 });
 
