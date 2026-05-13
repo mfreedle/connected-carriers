@@ -386,10 +386,32 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
             `Connected Carriers for ${broker?.company_name || "your broker"}: Confirm driver and truck for ${load.load_id} (${load.origin} → ${load.destination}). ${confirmUrl}\nStandard message and data rates may apply. Reply STOP to opt out.`
           );
         } catch (e) { console.error("[assign] confirmation SMS failed:", e); }
+      } else if (applicant.contact_email || carrier?.email_contact) {
+        nextAction = "confirmation_email_pending";
+        nextStatus = "documents_pending";
+
+        if (broker?.contact_phone) {
+          try {
+            await sendSms(broker.contact_phone,
+              `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}, but no carrier phone is on file. Email follow-up is needed: ${confirmUrl}`
+            );
+          } catch (e) { console.error("[assign] broker no-phone SMS failed:", e); }
+        }
+      } else {
+        nextAction = "manual_followup";
+        nextStatus = "documents_pending";
+
+        if (broker?.contact_phone) {
+          try {
+            await sendSms(broker.contact_phone,
+              `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}, but no carrier phone/email is on file. Follow up manually to confirm driver and truck: ${confirmUrl}`
+            );
+          } catch (e) { console.error("[assign] broker manual SMS failed:", e); }
+        }
       }
 
       // Notify broker
-      if (broker?.contact_phone) {
+      if (broker?.contact_phone && nextAction === "confirmation_sent") {
         try {
           await sendSms(broker.contact_phone,
             `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Carrier confirming driver and truck.`
@@ -399,8 +421,8 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
 
       // Update load status
       await query(
-        "UPDATE canonical_loads SET status = 'assigned', updated_at = NOW() WHERE id = $1",
-        [load.id]
+        "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",
+        [nextStatus === "assigned" ? "assigned" : "waiting_on_docs", load.id]
       );
 
     } else {
