@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
+import crypto from "crypto";
 import multer from "multer";
 import { query } from "../db";
 import { h } from "../middleware/security";
 import { uploadToR2, isR2Configured } from "../lib/storage";
-import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
+import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact, findCarrierByMc } from "../carrier-identity";
 import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
 
 const router = Router();
@@ -39,26 +40,38 @@ router.get("/profile/carrier", async (req: Request, res: Response) => {
   };
   let existingProfile: Record<string, unknown> | null = null;
 
-  // If MC provided, look up carrier + existing profile
+  // If MC provided, look up carrier + existing profile (READ-ONLY — no DB creation)
   if (mcParam) {
     try {
-      const carrier = await findOrCreateCarrier(mcParam);
+      const carrier = await findCarrierByMc(mcParam);
 
-      // Pre-fill from carrier identity
-      if (!prefill.name && carrier.fmcsa_legal_name) prefill.name = carrier.fmcsa_legal_name;
-      if (!prefill.phone && carrier.phone) prefill.phone = carrier.phone;
-      if (!prefill.email && carrier.email) prefill.email = carrier.email;
+      if (carrier) {
+        // Pre-fill from carrier identity
+        if (!prefill.name && carrier.fmcsa_legal_name) prefill.name = carrier.fmcsa_legal_name;
+        if (!prefill.phone && carrier.phone) prefill.phone = carrier.phone;
+        if (!prefill.email && carrier.email) prefill.email = carrier.email;
 
-      // Load existing profile if available
-      if (carrier.latest_profile_id) {
-        const profileResult = await query(
-          "SELECT * FROM carrier_profiles WHERE id = $1",
-          [carrier.latest_profile_id]
-        );
+        // Load existing profile — try carrier_id first, then mc_number fallback
+        let profileResult;
+        if (carrier.latest_profile_id) {
+          profileResult = await query("SELECT * FROM carrier_profiles WHERE id = $1", [carrier.latest_profile_id]);
+        }
+        if (!profileResult?.rows?.length) {
+          profileResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mcParam]);
+        }
+        if (profileResult?.rows?.length) {
+          const ep = profileResult.rows[0];
+          existingProfile = ep;
+          if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
+          if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
+          if (!prefill.email && ep.email) prefill.email = ep.email as string;
+        }
+      } else {
+        // No carrier identity — check for legacy profiles by MC number
+        const profileResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mcParam]);
         if (profileResult.rows.length) {
           const ep = profileResult.rows[0];
           existingProfile = ep;
-          // Pre-fill from profile, don't overwrite query params
           if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
           if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
           if (!prefill.email && ep.email) prefill.email = ep.email as string;
@@ -216,6 +229,8 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
     const insurance_expiration = req.body.insurance_expiration || null;
     const cdl_expiration = req.body.cdl_expiration || null;
 
+    const statusToken = crypto.randomBytes(24).toString("base64url");
+
     await query(`
       INSERT INTO carrier_profiles
         (company_name, mc_number, contact_name, email, phone,
@@ -227,8 +242,8 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
          vin_number, insurance_expiration, cdl_expiration,
          completion_status, source,
          fmcsa_status, fmcsa_data, fmcsa_checked_at,
-         carrier_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+         carrier_id, status_token)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
       RETURNING id
     `, [
       company_name.trim(), mcClean || null,
@@ -245,7 +260,7 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       fmcsaStatus !== "not_checked" ? fmcsaStatus : null,
       Object.keys(fmcsaData).length > 0 ? JSON.stringify(fmcsaData) : null,
       fmcsaStatus !== "not_checked" ? new Date() : null,
-      carrierId,
+      carrierId, statusToken,
     ]);
 
     // Update carrier identity with latest profile reference
@@ -342,36 +357,34 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       }
     });
 
-    res.send(profileConfirmationPage(completion, mcClean || undefined));
+    res.send(profileConfirmationPage(completion, statusToken));
   } catch (err) {
     console.error("Carrier profile submission error:", err);
     res.status(500).send(profilePage(source || "direct", "Something went wrong. Please try again."));
   }
 });
 
-// ── GET /carrier/:mc/status — public carrier status page ─────────
+// ── GET /carrier/status/:token — token-gated carrier status page ──
 
-router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
-  const mc = (req.params.mc || "").replace(/\D/g, "");
-  if (!mc) return res.status(400).send(pageShell("Invalid MC", `<div class="page" style="text-align:center;padding:40px"><p>Invalid MC number.</p></div>`));
+router.get("/carrier/status/:token", async (req: Request, res: Response) => {
+  const token = req.params.token;
+  if (!token) return res.status(400).send(pageShell("Invalid", `<div class="page" style="text-align:center;padding:40px"><p>Invalid status link.</p></div>`));
 
   try {
-    const carrier = await findOrCreateCarrier(mc);
+    // Look up profile by status_token
+    const profileResult = await query("SELECT * FROM carrier_profiles WHERE status_token = $1", [token]);
+    if (!profileResult.rows.length) {
+      return res.status(404).send(pageShell("Not Found", `<div class="page" style="text-align:center;padding:40px"><p>Status link not found or expired.</p></div>`));
+    }
+    const profile = profileResult.rows[0];
+    const mc = profile.mc_number || "";
 
-    // Load latest profile
-    let profile: Record<string, unknown> | null = null;
-    if (carrier.latest_profile_id) {
-      const pResult = await query("SELECT * FROM carrier_profiles WHERE id = $1", [carrier.latest_profile_id]);
-      if (pResult.rows.length) profile = pResult.rows[0];
-    }
-    if (!profile) {
-      const pResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mc]);
-      if (pResult.rows.length) profile = pResult.rows[0];
-    }
+    // Load carrier identity (read-only)
+    const carrier = mc ? await findCarrierByMc(mc) : null;
 
     // Load latest verification
     let verification: Record<string, unknown> | null = null;
-    if (carrier.latest_verification_id) {
+    if (carrier?.latest_verification_id) {
       const vResult = await query("SELECT result, status, result_delivered_at FROM carrier_verifications WHERE id = $1", [carrier.latest_verification_id]);
       if (vResult.rows.length) verification = vResult.rows[0];
     }
@@ -380,14 +393,14 @@ router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
     const checks: { label: string; status: string; detail: string }[] = [];
 
     // FMCSA
-    if (carrier.fmcsa_legal_name) {
-      checks.push({ label: "FMCSA Authority", status: "ok", detail: `${carrier.fmcsa_legal_name}` });
+    const companyName = carrier?.fmcsa_legal_name || (profile.company_name as string) || null;
+    if (companyName) {
+      checks.push({ label: "FMCSA Authority", status: "ok", detail: companyName });
     } else {
       checks.push({ label: "FMCSA Authority", status: "unknown", detail: "Not yet checked" });
     }
 
-    if (profile) {
-      checks.push({ label: "CDL Photo", status: profile.cdl_photo_url ? "ok" : "missing", detail: profile.cdl_photo_url ? "On file" : "Not uploaded" });
+    checks.push({ label: "CDL Photo", status: profile.cdl_photo_url ? "ok" : "missing", detail: profile.cdl_photo_url ? "On file" : "Not uploaded" });
       checks.push({ label: "Insurance (COI)", status: profile.insurance_doc_url ? "ok" : "missing", detail: profile.insurance_doc_url ? "On file" : "Not uploaded" });
       checks.push({ label: "VIN / Cab Card Photo", status: profile.vin_photo_url ? "ok" : "missing", detail: profile.vin_photo_url ? "On file" : "Not uploaded" });
       checks.push({ label: "Driver Info", status: profile.driver_name ? "ok" : "missing", detail: profile.driver_name ? String(profile.driver_name) : "Not provided" });
@@ -432,15 +445,14 @@ router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
           }
         }
       }
-    }
 
-    const isReady = profile?.completion_status === "dispatch_ready";
+    const isReady = profile.completion_status === "dispatch_ready";
     const hasMissing = checks.some(c => c.status === "missing" || c.status === "expired");
     const hasWarnings = checks.some(c => c.status === "warning");
 
     const statusIcon = isReady ? "✓" : hasMissing ? "○" : hasWarnings ? "⚠" : "◐";
     const statusColor = isReady ? "#2e7d32" : hasMissing ? "#C8892A" : hasWarnings ? "#f57f17" : "#6B7A8A";
-    const statusLabel = isReady ? "Dispatch-ready" : hasMissing ? "Profile incomplete" : hasWarnings ? "Review needed" : profile ? "Profile on file" : "No profile yet";
+    const statusLabel = isReady ? "Dispatch-ready" : hasMissing ? "Profile incomplete" : hasWarnings ? "Review needed" : "Profile on file";
 
     const checksHtml = checks.map(c => {
       const icon = c.status === "ok" ? "✓" : c.status === "missing" ? "○" : c.status === "expired" ? "✗" : c.status === "warning" ? "⚠" : "?";
@@ -456,7 +468,7 @@ router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
       <div style="text-align:center;margin-bottom:24px">
         <div style="font-size:48px;margin-bottom:12px">${statusIcon}</div>
         <div class="page-eyebrow">MC#${h(mc)}</div>
-        <h1 class="page-title" style="font-size:22px">${h(carrier.fmcsa_legal_name || "Carrier Profile")}</h1>
+        <h1 class="page-title" style="font-size:22px">${h(carrier?.fmcsa_legal_name || (profile.company_name as string) || "Carrier Profile")}</h1>
         <div style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;color:${statusColor};background:${statusColor}15;margin-top:8px">
           ${statusLabel}
         </div>
@@ -468,7 +480,7 @@ router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
 
       ${!isReady ? `
       <a href="/profile/carrier?mc=${h(mc)}&source=status_return" style="display:block;width:100%;padding:14px;background:var(--amber);color:white;border-radius:6px;text-decoration:none;text-align:center;font-size:14px;font-weight:600">
-        ${profile ? "Upload missing docs →" : "Complete your profile →"}
+        Upload missing docs →
       </a>` : `
       <div style="text-align:center;font-size:13px;color:var(--muted);padding:12px 0">
         All documents current. You're ready for dispatch.
@@ -762,9 +774,9 @@ document.getElementById('profile-form').addEventListener('submit', function() {
 
 // ── Confirmation page ──────────────────────────────────────────
 
-function profileConfirmationPage(completion: string, mcNumber?: string): string {
+function profileConfirmationPage(completion: string, statusToken?: string): string {
   const isReady = completion === "dispatch_ready";
-  const statusUrl = mcNumber ? `/carrier/${mcNumber}/status` : null;
+  const statusUrl = statusToken ? `/carrier/status/${statusToken}` : null;
   return pageShell("Profile Submitted", `
 <div class="page" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center">
   <div style="font-size:48px;margin-bottom:20px">${isReady ? "✓" : "◐"}</div>
@@ -778,8 +790,8 @@ function profileConfirmationPage(completion: string, mcNumber?: string): string 
       : "We have your info, but some items are still needed to reach dispatch-ready status. Upload the missing docs to get fully verified."
     }
   </p>
-  ${!isReady && mcNumber ? `
-  <a href="/profile/carrier?mc=${h(mcNumber)}&source=status_return" style="display:inline-block;margin-top:16px;padding:10px 24px;background:var(--amber);color:white;border-radius:4px;text-decoration:none;font-size:14px;font-weight:500">Upload missing docs →</a>
+  ${!isReady && statusUrl ? `
+  <a href="${statusUrl}" style="display:inline-block;margin-top:16px;padding:10px 24px;background:var(--amber);color:white;border-radius:4px;text-decoration:none;font-size:14px;font-weight:500">See what's missing →</a>
   ` : ""}
   ${statusUrl ? `
   <a href="${statusUrl}" style="margin-top:12px;font-size:13px;color:var(--amber);text-decoration:none">Check your status anytime →</a>

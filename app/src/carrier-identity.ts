@@ -22,6 +22,37 @@ export interface CarrierIdentity {
 }
 
 /**
+ * Read-only carrier lookup. Returns null if not found.
+ * Use this for GET routes that should NOT mutate the database.
+ */
+export async function findCarrierByMc(mcNumber: string): Promise<CarrierIdentity | null> {
+  const clean = mcNumber.replace(/\D/g, "");
+  if (!clean) return null;
+
+  const existing = await query(
+    `SELECT id, mc_number, fmcsa_legal_name, company_name, phone_contact, email_contact, network_status,
+            latest_profile_id, latest_verification_id
+     FROM carriers WHERE mc_number = $1`,
+    [clean]
+  );
+
+  if (!existing.rows.length) return null;
+
+  const c = existing.rows[0];
+  return {
+    id: c.id,
+    mc_number: c.mc_number,
+    fmcsa_legal_name: c.fmcsa_legal_name || c.company_name,
+    phone: c.phone_contact,
+    email: c.email_contact,
+    network_status: c.network_status || "known",
+    latest_profile_id: c.latest_profile_id,
+    latest_verification_id: c.latest_verification_id,
+    isNew: false,
+  };
+}
+
+/**
  * Find or create a carrier by MC number.
  *
  * Does NOT run FMCSA — the calling path should write FMCSA data

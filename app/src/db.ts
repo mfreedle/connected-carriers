@@ -748,6 +748,8 @@ export async function migrateVerification() {
   // ── Add carrier_id FK to existing tables ─────────────────────────
   await query(`ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
   await query(`CREATE INDEX IF NOT EXISTS idx_cp_carrier ON carrier_profiles(carrier_id)`).catch(() => {});
+  await query(`ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS status_token TEXT`).catch(() => {});
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cp_status_token ON carrier_profiles(status_token) WHERE status_token IS NOT NULL`).catch(() => {});
   await query(`ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
   await query(`CREATE INDEX IF NOT EXISTS idx_cv_carrier ON carrier_verifications(carrier_id)`).catch(() => {});
 
