@@ -1089,6 +1089,54 @@ export async function migrateVerification() {
     }
     if (docsCreated > 0) console.log(`[BACKFILL] Created ${docsCreated} carrier_documents from profiles.`);
 
+    // 4. Repair linkage: attach unlinked docs to the right driver/equipment
+    // This catches docs that were created before drivers/equipment existed,
+    // or legacy rows that never had driver_id/equipment_id set.
+    let linksRepaired = 0;
+
+    // CDL docs without driver_id — link to the carrier's driver by CDL number or name
+    const unlnkCdl = await query(
+      `SELECT cd.id as doc_id, cd.carrier_id, cd.parsed_data
+       FROM carrier_documents cd
+       WHERE cd.driver_id IS NULL
+         AND (cd.doc_type = 'cdl' OR cd.document_type = 'cdl')
+         AND COALESCE(cd.status, 'current') != 'superseded'
+       LIMIT 200`
+    );
+    for (const doc of unlnkCdl.rows) {
+      // Try to find the driver for this carrier
+      const driver = await query(
+        "SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+        [doc.carrier_id]
+      );
+      if (driver.rows.length) {
+        await query("UPDATE carrier_documents SET driver_id = $1, updated_at = NOW() WHERE id = $2", [driver.rows[0].id, doc.doc_id]);
+        linksRepaired++;
+      }
+    }
+
+    // Cab card / truck photo docs without equipment_id — link to the carrier's equipment
+    const unlnkCab = await query(
+      `SELECT cd.id as doc_id, cd.carrier_id
+       FROM carrier_documents cd
+       WHERE cd.equipment_id IS NULL
+         AND (cd.doc_type IN ('cab_card', 'truck_photo') OR cd.document_type IN ('cab_card', 'truck_photo', 'vin_photo'))
+         AND COALESCE(cd.status, 'current') != 'superseded'
+       LIMIT 200`
+    );
+    for (const doc of unlnkCab.rows) {
+      const equip = await query(
+        "SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+        [doc.carrier_id]
+      );
+      if (equip.rows.length) {
+        await query("UPDATE carrier_documents SET equipment_id = $1, updated_at = NOW() WHERE id = $2", [equip.rows[0].id, doc.doc_id]);
+        linksRepaired++;
+      }
+    }
+
+    if (linksRepaired > 0) console.log(`[BACKFILL] Repaired ${linksRepaired} unlinked carrier_documents.`);
+
   } catch (err) {
     console.error("[BACKFILL] Driver/equipment/document backfill error (non-fatal):", err);
   }

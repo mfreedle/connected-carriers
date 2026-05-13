@@ -11,7 +11,7 @@ import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import multer from "multer";
 import { query } from "../db";
-import { uploadToR2, isR2Configured } from "../lib/storage";
+import { uploadToR2, isR2Configured, getPresignedDownloadUrl } from "../lib/storage";
 import { syncCanonicalCarrierRecords } from "../services/carrier-records";
 import { evaluateDispatchPackage } from "../services/dispatch-evaluation";
 import { createDispatchSignal } from "../services/dispatch-signal";
@@ -246,23 +246,78 @@ router.post("/confirm/:token", upload.fields([
       return res.status(400).send(shell("Error", `<div style="text-align:center;padding:40px"><p>Please select or add a truck.</p></div>`));
     }
 
-    // ── Upload docs ─────────────────────────────────────────────
+    // ── Upload docs + OCR ─────────────────────────────────────────
 
     const files = req.files as Record<string, Express.Multer.File[]>;
-    const docInputs: Array<{ doc_type: "cdl" | "insurance" | "cab_card"; r2_key: string; file_url: string | null }> = [];
+    const docInputs: Array<{ doc_type: "cdl" | "insurance" | "cab_card"; r2_key: string; file_url: string | null; parsed_data?: unknown; expiration_date?: string | null }> = [];
 
     if (isR2Configured()) {
       const mc = a.mc_number || "unknown";
+      const { parseCDL, parseInsurance, parseVINPhoto } = await import("../doc-parser");
+
       for (const [field, docType] of [["cdl", "cdl"], ["insurance", "insurance"], ["cab_card", "cab_card"]] as const) {
         if (files[field]?.[0]) {
           const f = files[field][0];
           const uploaded = await uploadToR2(f.buffer, f.originalname, f.mimetype, `confirm/${mc}`);
-          docInputs.push({ doc_type: docType, r2_key: uploaded.objectKey, file_url: uploaded.fileUrl });
+          const docInput: typeof docInputs[0] = { doc_type: docType, r2_key: uploaded.objectKey, file_url: uploaded.fileUrl || null };
+
+          // Run OCR/parsing
+          try {
+            const presignedUrl = await getPresignedDownloadUrl(uploaded.objectKey, 120);
+
+            if (docType === "cdl" && presignedUrl) {
+              const parsed = await parseCDL(presignedUrl);
+              if (parsed && Object.keys(parsed).length > 0) {
+                docInput.parsed_data = parsed;
+                docInput.expiration_date = parsed.expiration_date || null;
+                // Update driver facts from CDL parse
+                if (driverId) {
+                  const updates: string[] = [];
+                  const vals: unknown[] = [];
+                  let p = 0;
+                  if (parsed.cdl_number) { p++; updates.push(`cdl_number=$${p}`); vals.push(parsed.cdl_number); }
+                  if (parsed.state) { p++; updates.push(`cdl_state=$${p}`); vals.push(parsed.state); }
+                  if (parsed.expiration_date) {
+                    p++; updates.push(`cdl_expiration=$${p}`); vals.push(parsed.expiration_date);
+                    const driverStatus = new Date(parsed.expiration_date) < new Date() ? "expired" : "active";
+                    p++; updates.push(`status=$${p}`); vals.push(driverStatus);
+                  }
+                  if (updates.length > 0) {
+                    updates.push("updated_at=NOW()");
+                    p++; vals.push(driverId);
+                    await query(`UPDATE carrier_drivers SET ${updates.join(", ")} WHERE id=$${p}`, vals);
+                  }
+                }
+                console.log(`[confirm OCR] CDL parsed: ${parsed.driver_name || "?"}, CDL#${parsed.cdl_number || "?"}, exp ${parsed.expiration_date || "?"}`);
+              }
+            } else if (docType === "insurance" && presignedUrl) {
+              const parsed = await parseInsurance(presignedUrl);
+              if (parsed && Object.keys(parsed).length > 0) {
+                docInput.parsed_data = parsed;
+                docInput.expiration_date = parsed.expiration_date || null;
+                console.log(`[confirm OCR] Insurance parsed: ${parsed.insurance_company || "?"}, exp ${parsed.expiration_date || "?"}, ${(parsed.vins || []).length} VINs`);
+              }
+            } else if (docType === "cab_card" && presignedUrl) {
+              const parsed = await parseVINPhoto(presignedUrl);
+              if (parsed?.vin) {
+                docInput.parsed_data = { vin: parsed.vin };
+                // Update equipment VIN from cab card parse
+                if (equipmentId) {
+                  await query("UPDATE carrier_equipment SET vin_number = COALESCE(vin_number, $1), updated_at = NOW() WHERE id = $2", [parsed.vin, equipmentId]);
+                }
+                console.log(`[confirm OCR] Cab card VIN parsed: ${parsed.vin}`);
+              }
+            }
+          } catch (ocrErr) {
+            console.error(`[confirm OCR] ${docType} parse error (non-fatal):`, ocrErr);
+          }
+
+          docInputs.push(docInput);
         }
       }
     }
 
-    // Sync all docs via canonical utility
+    // Sync all docs via canonical utility (with parsed data included)
     if (docInputs.length > 0) {
       await syncCanonicalCarrierRecords({
         carrier_id: a.carrier_id,
