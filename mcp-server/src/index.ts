@@ -1514,6 +1514,7 @@ const httpServer = http.createServer(async (req, res) => {
         // send SMS magic link, and start the OCR pipeline.
         const BROKER_APP = "https://app.connectedcarriers.org";
         let verifyResult: Record<string, unknown> = {};
+        let triggerSucceeded = false;
         try {
           const triggerResp = await fetch(`${BROKER_APP}/api/verify/trigger`, {
             method: "POST",
@@ -1528,17 +1529,28 @@ const httpServer = http.createServer(async (req, res) => {
               broker_email: load.broker_email || undefined,
             }),
           });
-          verifyResult = await triggerResp.json() as Record<string, unknown>;
+          if (triggerResp.ok) {
+            verifyResult = await triggerResp.json() as Record<string, unknown>;
+            triggerSucceeded = true;
+          } else {
+            console.error("[ASSIGN] Verify trigger returned", triggerResp.status);
+          }
         } catch (err) {
           console.error("[ASSIGN] Verify trigger call failed:", err);
+        }
+
+        if (!triggerSucceeded) {
           // Fallback: send doc request to profile form
           const docRequestUrl = `${BROKER_APP}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`;
           await sendSms(normalizePhone(carrierPhone),
             `${applicant.company_name} — you've been assigned ${load.load_id} (${load.origin} → ${load.destination}).\nWe need CDL photo, VIN photo, and truck info to clear this load.\nSubmit now: ${docRequestUrl}\nThis request is time-sensitive — respond within 10 minutes.`
           );
-        }
-
-        if (verifyResult.result === "DO_NOT_USE") {
+          await sendSms(load.broker_phone,
+            `${applicant.company_name} (MC ${applicant.mc_number}) assigned to ${load.load_id}.\nDoc request sent — automated verification unavailable, sent carrier to profile form.`
+          );
+          results.action = "doc_request_fallback";
+          results.message = "Verification trigger failed. Sent carrier to profile form as fallback.";
+        } else if (verifyResult.result === "DO_NOT_USE") {
           // FMCSA failed — notify broker immediately
           await sendSms(load.broker_phone,
             `⚠ ${applicant.company_name} (MC ${applicant.mc_number}) — DO NOT USE. FMCSA check failed on assignment. ${(verifyResult.reasons as string[])?.join(". ") || "See report."}`
@@ -1565,6 +1577,7 @@ const httpServer = http.createServer(async (req, res) => {
       const verifyStatus = results.action === "fmcsa_rejected" ? "rejected"
         : results.action === "arrival_check_sent" ? "skipped_complete"
         : results.action === "verification_triggered" ? "pending"
+        : results.action === "doc_request_fallback" ? "fallback"
         : "none";
       await query(
         `UPDATE load_applications SET assigned_at = NOW(), verification_token = $1, verification_status = $2 WHERE id = $3`,
