@@ -60,7 +60,7 @@ export async function evaluateDispatchPackage(
       } else if (auth && !auth.includes("AUTHORIZED")) {
         blockers.push(`Operating authority: ${c.authority_status}`);
         items.push({ check: "FMCSA authority", status: "expired", detail: `Authority: ${c.authority_status}` });
-      } else if (!usdot && !auth) {
+      } else if (!usdot || !auth) {
         items.push({ check: "FMCSA authority", status: "missing", detail: "Not yet checked" });
         missing.push("FMCSA authority not verified");
       } else {
@@ -81,8 +81,8 @@ export async function evaluateDispatchPackage(
   } else {
     try {
       const driverResult = await query(
-        "SELECT driver_name, driver_phone, cdl_number, cdl_expiration, status FROM carrier_drivers WHERE id = $1",
-        [driver_id]
+        "SELECT driver_name, driver_phone, cdl_number, cdl_expiration, status FROM carrier_drivers WHERE id = $1 AND carrier_id = $2",
+        [driver_id, carrier_id]
       );
       if (!driverResult.rows.length) {
         missing.push("Driver record not found");
@@ -124,7 +124,10 @@ export async function evaluateDispatchPackage(
       } else {
         const doc = cdlResult.rows[0];
         const exp = doc.expiration_date || doc.expires_at;
-        if (exp) {
+        if (doc.status === "expired") {
+          blockers.push("CDL is expired");
+          items.push({ check: "CDL document", status: "expired", detail: "Marked expired" });
+        } else if (exp) {
           const expDate = new Date(exp);
           if (expDate < today) {
             blockers.push("CDL is expired");
@@ -153,8 +156,8 @@ export async function evaluateDispatchPackage(
   } else {
     try {
       const equipResult = await query(
-        "SELECT truck_number, vin_number, trailer_number, status FROM carrier_equipment WHERE id = $1",
-        [equipment_id]
+        "SELECT truck_number, vin_number, trailer_number, status FROM carrier_equipment WHERE id = $1 AND carrier_id = $2",
+        [equipment_id, carrier_id]
       );
       if (!equipResult.rows.length) {
         missing.push("Equipment record not found");
@@ -218,7 +221,10 @@ export async function evaluateDispatchPackage(
     } else {
       const doc = insResult.rows[0];
       const exp = doc.expiration_date || doc.expires_at;
-      if (exp) {
+      if (doc.status === "expired") {
+        blockers.push("Insurance is expired");
+        items.push({ check: "Insurance", status: "expired", detail: "Marked expired" });
+      } else if (exp) {
         const expDate = new Date(exp);
         if (expDate < today) {
           blockers.push("Insurance is expired");
@@ -236,7 +242,7 @@ export async function evaluateDispatchPackage(
       // ── 7. VIN match (if insurance + equipment both have VIN data) ──
       if (equipment_id && doc.parsed_data) {
         try {
-          const equipResult = await query("SELECT vin_number FROM carrier_equipment WHERE id = $1", [equipment_id]);
+          const equipResult = await query("SELECT vin_number FROM carrier_equipment WHERE id = $1 AND carrier_id = $2", [equipment_id, carrier_id]);
           const vin = equipResult.rows[0]?.vin_number;
           if (vin) {
             const parsed = typeof doc.parsed_data === "string" ? JSON.parse(doc.parsed_data) : doc.parsed_data;
