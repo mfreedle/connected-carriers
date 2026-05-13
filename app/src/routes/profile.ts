@@ -116,6 +116,18 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
 
       // Update carrier contact info
       await updateCarrierContact(carrier.id, phone?.trim(), email?.trim().toLowerCase());
+
+      // Store consent if granted
+      if (req.body.consent_network_reuse === "yes") {
+        try {
+          await query(
+            `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, granted_at)
+             VALUES ($1, 'network_profile_reuse', true, $2, NOW())
+             ON CONFLICT DO NOTHING`,
+            [carrier.id, source?.trim() || "direct"]
+          );
+        } catch (e) { console.error("[profile] Consent storage error:", e); }
+      }
     }
 
     // Upload files to R2 if present
@@ -504,6 +516,13 @@ function profilePage(source: string, error?: string, success?: string, prefill?:
         <label>Lanes and regions you run</label>
         <textarea name="lanes_or_regions" placeholder="e.g. CA→TX, Pacific Northwest, Southeast, national…"></textarea>
       </div>
+    </div>
+
+    <div style="margin:20px 0">
+      <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#6B7A8A;cursor:pointer">
+        <input type="checkbox" name="consent_network_reuse" value="yes" checked style="margin-top:2px;flex-shrink:0">
+        <span>Save my carrier profile so brokers using Connected Carriers can qualify me faster. I can opt out anytime.</span>
+      </label>
     </div>
 
     <button type="submit" class="submit-btn" id="profile-submit">Submit Profile →</button>

@@ -265,6 +265,30 @@ router.get("/api/v2/loads/:slug/applicants", requireAuth, async (req: Authentica
   }
 });
 
+// ── Cancel load ──────────────────────────────────────────────────
+
+router.post("/api/v2/loads/:slug/cancel", requireAuth, verifyCsrf, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await query(
+      "UPDATE canonical_loads SET status = 'cancelled', updated_at = NOW() WHERE slug = $1 AND broker_account_id = $2 RETURNING load_id",
+      [req.params.slug, req.session.brokerAccountId]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: "Load not found." });
+
+    // Supersede any active assignments
+    await query(
+      `UPDATE load_assignments SET status = 'cancelled', updated_at = NOW()
+       WHERE load_id = (SELECT id FROM canonical_loads WHERE slug = $1) AND status NOT IN ('superseded', 'cancelled')`,
+      [req.params.slug]
+    );
+
+    res.json({ success: true, load_id: result.rows[0].load_id });
+  } catch (err) {
+    console.error("[v2/loads/cancel]", err);
+    res.status(500).json({ error: "Failed to cancel load." });
+  }
+});
+
 // ── Assign carrier ───────────────────────────────────────────────
 
 router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: AuthenticatedRequest, res: Response) => {
@@ -720,6 +744,19 @@ router.post("/l/:slug/interest", async (req: Request, res: Response) => {
       [loadRow.id]
     );
 
+    // Store carrier consent if granted
+    const consentGranted = req.body.consent_network_reuse !== false;
+    if (consentGranted) {
+      try {
+        await query(
+          `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, granted_at)
+           VALUES ($1, 'network_profile_reuse', true, 'load_apply', NOW())
+           ON CONFLICT DO NOTHING`,
+          [carrier.id]
+        );
+      } catch (e) { console.error("[interest] Consent storage error:", e); }
+    }
+
     // Notify broker via SMS if phone is on file
     if (loadRow.broker_phone) {
       try {
@@ -826,6 +863,10 @@ function loadApplyPage(load: Record<string, unknown>): string {
     <input type="text" id="int-name" placeholder="Your name">
     <input type="tel" id="int-phone" placeholder="Phone number" inputmode="tel">
     <input type="email" id="int-email" placeholder="Email (optional)">
+    <label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0;font-size:12px;color:#6B7A8A;cursor:pointer;text-transform:none;letter-spacing:normal">
+      <input type="checkbox" id="int-consent" checked style="margin-top:2px;flex-shrink:0">
+      <span>Save my carrier info so brokers using Connected Carriers can qualify me faster. I can opt out anytime.</span>
+    </label>
     <button class="interest-btn" id="interest-btn" onclick="submitInterest()">I'm Interested in This Load</button>
     <a href="/profile/carrier" class="profile-link" id="profile-link-interest">Complete your carrier profile for faster qualification →</a>
   </div>
@@ -940,7 +981,8 @@ async function submitInterest() {
         mc_number: mcChecked,
         name: document.getElementById('int-name').value,
         phone: document.getElementById('int-phone').value,
-        email: document.getElementById('int-email').value
+        email: document.getElementById('int-email').value,
+        consent_network_reuse: document.getElementById('int-consent').checked
       })
     });
     document.getElementById('interest-form').style.display = 'none';
