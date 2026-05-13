@@ -366,10 +366,9 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
           nextAction = "arrival_sent";
 
           // Store dispatch signal reference on assignment
-          // Note: dispatch_signal_id on load_assignments stores the dispatch_verification_id string
           await query(
-            "UPDATE load_assignments SET dispatch_signal_id = NULL, updated_at = NOW() WHERE id = $1",
-            [assignmentId]
+            "UPDATE load_assignments SET dispatch_signal_id = $1, dispatch_signal_ref = $2, updated_at = NOW() WHERE id = $3",
+            [signalResult.id, signalResult.dispatch_verification_id, assignmentId]
           );
 
           if (broker?.contact_phone) {

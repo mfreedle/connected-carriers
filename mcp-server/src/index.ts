@@ -1749,7 +1749,28 @@ const httpServer = http.createServer(async (req, res) => {
 
       // ── GEOFENCE BOUNCE: if driver is outside the geofence, don't confirm ──
       // Token stays active so they can try again when closer
+      // But notify the broker so they're not blind
       if (fence_result === "red" && distance_miles !== null) {
+        // Notify broker about the location alert
+        try {
+          await sendSms(v.broker_phone,
+            `⚠ ${v.load_id} — Driver attempted arrival confirmation ${Math.round(distance_miles * 100) / 100} miles from pickup. Too far to confirm. Driver told to try again when closer.`
+          );
+          // Update canonical assignment to alert state
+          await query(
+            `UPDATE load_assignments SET status = 'arrival_alert', updated_at = NOW()
+             WHERE dispatch_signal_ref = $1 AND status = 'arrival_pending'`,
+            [v.load_id]
+          );
+          await query(
+            `UPDATE canonical_loads SET status = 'location_alert', updated_at = NOW()
+             WHERE id = (SELECT load_id FROM load_assignments WHERE dispatch_signal_ref = $1 LIMIT 1)`,
+            [v.load_id]
+          );
+        } catch (err) {
+          console.error("[VERIFY] Red bounce notification error (non-fatal):", err);
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           confirmed: false,
@@ -1786,6 +1807,32 @@ const httpServer = http.createServer(async (req, res) => {
          WHERE token = $6`,
         [confirmed_at, lat || null, lng || null, distance_miles, fence_result, token]
       );
+
+      // Update canonical assignment and load status (shared DB)
+      const assignmentStatus = fence_result === "green" ? "arrival_confirmed"
+        : fence_result === "yellow" ? "arrival_alert"
+        : "arrival_confirmed"; // shouldn't reach here due to red bounce above
+      const loadStatusCanon = fence_result === "green" ? "on_site"
+        : fence_result === "yellow" ? "location_alert"
+        : "on_site";
+
+      try {
+        // Find assignment by dispatch_signal_ref matching this dispatch verification's load_id
+        await query(
+          `UPDATE load_assignments SET status = $1, updated_at = NOW()
+           WHERE dispatch_signal_ref = $2 AND status IN ('arrival_pending', 'clear')`,
+          [assignmentStatus, v.load_id]
+        );
+        // Update canonical_loads via the assignment's load_id
+        await query(
+          `UPDATE canonical_loads SET status = $1, updated_at = NOW()
+           WHERE id = (SELECT load_id FROM load_assignments WHERE dispatch_signal_ref = $2 LIMIT 1)`,
+          [loadStatusCanon, v.load_id]
+        );
+      } catch (err) {
+        // Non-fatal — canonical tables may not exist yet on some deploys
+        console.error("[VERIFY] Canonical status update error (non-fatal):", err);
+      }
 
       const brokerSms = buildBrokerSms(v.load_id, distance_miles, fence_result, confirmed_at, timing_flag);
       const notified  = await sendSms(v.broker_phone, brokerSms);

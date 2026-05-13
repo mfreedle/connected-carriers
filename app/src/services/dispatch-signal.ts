@@ -70,6 +70,7 @@ export interface DispatchSignalInput {
 // ── Result ─────────────────────────────────────────────────────────
 
 export interface DispatchSignalResult {
+  id: number;                        // dispatch_verifications.id (DB row)
   dispatch_verification_id: string;  // the generated load_id on dispatch_verifications
   token: string;
   verify_url: string;
@@ -95,12 +96,13 @@ export async function createDispatchSignal(input: DispatchSignalInput): Promise<
   const coords = await geocodeAddress(address);
 
   // Create dispatch_verifications record (shared DB — MCP reads this for /verify/:token)
-  await query(
+  const dvResult = await query(
     `INSERT INTO dispatch_verifications
      (load_id, token, driver_phone, broker_phone, mc_number,
       pickup_address, pickup_window_start, pickup_window_end,
       geo_center_lat, geo_center_lng, fmcsa_company)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING id`,
     [
       dispatchLoadId, token,
       driver_phone, broker_phone,
@@ -111,6 +113,8 @@ export async function createDispatchSignal(input: DispatchSignalInput): Promise<
     ]
   );
 
+  const dbId = dvResult.rows[0].id;
+
   // Driver arrival confirmation URL (served by MCP's /verify/:token route)
   const verifyUrl = `${MCP_URL}/verify/${token}`;
 
@@ -119,6 +123,7 @@ export async function createDispatchSignal(input: DispatchSignalInput): Promise<
   const smsResult = await sendSms(driver_phone, driverMsg);
 
   return {
+    id: dbId,
     dispatch_verification_id: dispatchLoadId,
     token,
     verify_url: verifyUrl,

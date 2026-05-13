@@ -697,6 +697,7 @@ export async function migrateVerification() {
       assigned_by_user_id INTEGER REFERENCES broker_users(id),
       carrier_verification_id INTEGER,
       dispatch_signal_id INTEGER,
+      dispatch_signal_ref TEXT,
       status TEXT NOT NULL DEFAULT 'assigned'
         CHECK (status IN ('assigned', 'verification_requested', 'documents_pending',
                           'clear', 'caution', 'do_not_use',
