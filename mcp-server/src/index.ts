@@ -1820,7 +1820,7 @@ const httpServer = http.createServer(async (req, res) => {
         // Find assignment by dispatch_signal_ref matching this dispatch verification's load_id
         await query(
           `UPDATE load_assignments SET status = $1, updated_at = NOW()
-           WHERE dispatch_signal_ref = $2 AND status IN ('arrival_pending', 'clear')`,
+           WHERE dispatch_signal_ref = $2 AND status IN ('arrival_pending', 'arrival_alert', 'clear')`,
           [assignmentStatus, v.load_id]
         );
         // Update canonical_loads via the assignment's load_id
