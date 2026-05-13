@@ -10,6 +10,18 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
   const userName = req.session.userName || "";
   const userRole = req.session.userRole || "";
 
+  // Check if broker has given SMS consent
+  let needsBrokerSmsConsent = false;
+  try {
+    const consentCheck = await query(
+      `SELECT id FROM carrier_consents
+       WHERE broker_account_id = $1 AND consent_type = 'broker_sms' AND granted = true
+       LIMIT 1`,
+      [req.session.brokerAccountId]
+    );
+    needsBrokerSmsConsent = consentCheck.rows.length === 0;
+  } catch { /* table may not exist yet */ }
+
   // Check for expiring docs across all carrier profiles
   let docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [];
   try {
@@ -55,7 +67,7 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
     title: "My Loads",
     userName,
     userRole,
-    content: loadsPageContent(docAlerts, csrfToken(req)),
+    content: loadsPageContent(docAlerts, csrfToken(req), needsBrokerSmsConsent),
   });
 
   res.send(html);
@@ -64,6 +76,31 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
 // ── Server-side API routes ────────────────────────────────────────
 // Old MCP proxy routes removed — dashboard uses v2 canonical routes.
 // Carrier profile is now a direct query, no MCP proxy.
+
+router.post("/api/broker/sms-consent", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const broker = await query(
+      "SELECT id, contact_phone FROM broker_accounts WHERE id = $1",
+      [req.session.brokerAccountId]
+    );
+    if (!broker.rows.length) return res.status(403).json({ error: "Broker not found" });
+
+    const consentText = "I agree to receive SMS notifications from Connected Carriers about carrier applications, verification results, dispatch status, and load updates.";
+    const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+    const userAgent = (req.headers["user-agent"] as string) || null;
+
+    await query(
+      `INSERT INTO carrier_consents (broker_account_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, granted_at)
+       VALUES ($1, 'broker_sms', true, 'dashboard_banner', $2, $3, $4, $5, NOW())`,
+      [req.session.brokerAccountId, broker.rows[0].contact_phone || null, consentText, ipAddress, userAgent]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[broker sms consent]", err);
+    res.status(500).json({ error: "Failed to store consent" });
+  }
+});
 
 router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -103,7 +140,16 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
 
 export default router;
 
-function loadsPageContent(docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [], csrf: string = ""): string {
+function loadsPageContent(docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [], csrf: string = "", showSmsConsent: boolean = false): string {
+  const smsConsentBanner = showSmsConsent ? `
+<div class="card" id="sms-consent-banner" style="border-left:3px solid var(--amber);margin-bottom:20px">
+  <div class="card-title" style="margin:0 0 8px 0;padding:0;border:0;color:var(--amber)">SMS notifications</div>
+  <p style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">
+    Connected Carriers sends you text messages when carriers apply to your loads, when verification results come in, and when drivers confirm arrival. By continuing, you agree to receive these SMS notifications.
+    Msg & data rates may apply. Reply STOP to opt out. <a href="https://connectedcarriers.org/terms.html" target="_blank" style="color:var(--amber)">Terms</a> & <a href="https://connectedcarriers.org/privacy.html" target="_blank" style="color:var(--amber)">Privacy</a>.
+  </p>
+  <button onclick="acceptSmsConsent()" style="background:var(--amber);color:white;border:none;padding:8px 20px;border-radius:2px;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">I agree — send me notifications</button>
+</div>` : "";
   const alertsHtml = docAlerts.length > 0 ? `
 <div class="card" style="border-left:3px solid #a32d2d;margin-bottom:20px">
   <div class="card-title" style="margin:0 0 10px 0;padding:0;border:0;color:#a32d2d">Carrier doc alerts</div>
@@ -120,6 +166,8 @@ function loadsPageContent(docAlerts: { company: string; mc: string; issue: strin
 </div>
 
 ${alertsHtml}
+
+${smsConsentBanner}
 
 <!-- TWO ACTION CARDS -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -441,6 +489,19 @@ async function assignFromDashboard(slug, appId, phone, name) {
   } catch(e) {
     btn.textContent = 'Error';
     btn.disabled = false;
+  }
+}
+
+async function acceptSmsConsent() {
+  try {
+    await fetch('/api/broker/sms-consent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF}
+    });
+    var banner = document.getElementById('sms-consent-banner');
+    if (banner) banner.style.display = 'none';
+  } catch(e) {
+    alert('Could not save consent. Please try again.');
   }
 }
 
