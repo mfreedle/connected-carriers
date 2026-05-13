@@ -744,18 +744,28 @@ router.post("/l/:slug/interest", async (req: Request, res: Response) => {
       [loadRow.id]
     );
 
-    // Store carrier consent if granted
-    const consentGranted = req.body.consent_network_reuse !== false;
-    if (consentGranted) {
-      try {
+    // Store carrier consent — SMS is always granted by submitting (per form language)
+    // Network reuse is optional (checkbox)
+    const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status.";
+    const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+    const userAgent = (req.headers["user-agent"] as string) || null;
+
+    try {
+      // SMS consent — always granted by submission
+      await query(
+        `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, load_id, granted_at)
+         VALUES ($1, 'sms_verification', true, 'load_apply', $2, $3, $4, $5, $6, NOW())`,
+        [carrier.id, phone || null, consentText, ipAddress, userAgent, loadRow.id]
+      );
+      // Network reuse consent — optional
+      if (req.body.consent_network_reuse !== false) {
         await query(
-          `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, granted_at)
-           VALUES ($1, 'network_profile_reuse', true, 'load_apply', NOW())
-           ON CONFLICT DO NOTHING`,
-          [carrier.id]
+          `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, ip_address, user_agent, load_id, granted_at)
+           VALUES ($1, 'network_profile_reuse', true, 'load_apply', $2, $3, $4, $5, NOW())`,
+          [carrier.id, phone || null, ipAddress, userAgent, loadRow.id]
         );
-      } catch (e) { console.error("[interest] Consent storage error:", e); }
-    }
+      }
+    } catch (e) { console.error("[interest] Consent storage error:", e); }
 
     // Notify broker via SMS if phone is on file
     if (loadRow.broker_phone) {
@@ -863,9 +873,12 @@ function loadApplyPage(load: Record<string, unknown>): string {
     <input type="text" id="int-name" placeholder="Your name">
     <input type="tel" id="int-phone" placeholder="Phone number" inputmode="tel">
     <input type="email" id="int-email" placeholder="Email (optional)">
-    <label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0;font-size:12px;color:#6B7A8A;cursor:pointer;text-transform:none;letter-spacing:normal">
+    <div style="margin:12px 0;font-size:11px;color:#6B7A8A;line-height:1.5">
+      By submitting, I agree to receive SMS messages from Connected Carriers and/or the broker about this load, document verification, and dispatch status. Msg & data rates may apply. Reply STOP to opt out. <a href="/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
+    </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;font-size:12px;color:#6B7A8A;cursor:pointer;text-transform:none;letter-spacing:normal">
       <input type="checkbox" id="int-consent" checked style="margin-top:2px;flex-shrink:0">
-      <span>Save my carrier info so brokers using Connected Carriers can qualify me faster. I can opt out anytime.</span>
+      <span>Save my carrier info so brokers using Connected Carriers can qualify me faster.</span>
     </label>
     <button class="interest-btn" id="interest-btn" onclick="submitInterest()">I'm Interested in This Load</button>
     <a href="/profile/carrier" class="profile-link" id="profile-link-interest">Complete your carrier profile for faster qualification →</a>

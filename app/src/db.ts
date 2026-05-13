@@ -718,18 +718,32 @@ export async function migrateVerification() {
   await query(`
     CREATE TABLE IF NOT EXISTS carrier_consents (
       id SERIAL PRIMARY KEY,
-      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      carrier_id INTEGER REFERENCES carriers(id),
+      broker_account_id INTEGER REFERENCES broker_accounts(id),
       consent_type TEXT NOT NULL
-        CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage')),
+        CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage', 'broker_sms')),
       granted BOOLEAN NOT NULL DEFAULT true,
       source TEXT NOT NULL,
+      phone TEXT,
+      consent_text TEXT,
       ip_address TEXT,
+      user_agent TEXT,
+      load_id INTEGER,
       granted_at TIMESTAMPTZ DEFAULT NOW(),
       revoked_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_cc_carrier ON carrier_consents(carrier_id)`);
+  // Add columns to existing table if it was created before this migration
+  await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS phone TEXT`).catch(() => {});
+  await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS consent_text TEXT`).catch(() => {});
+  await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS user_agent TEXT`).catch(() => {});
+  await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS load_id INTEGER`).catch(() => {});
+  await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS broker_account_id INTEGER REFERENCES broker_accounts(id)`).catch(() => {});
+  // Expand CHECK constraint
+  await query(`ALTER TABLE carrier_consents DROP CONSTRAINT IF EXISTS carrier_consents_consent_type_check`).catch(() => {});
+  await query(`ALTER TABLE carrier_consents ADD CONSTRAINT carrier_consents_consent_type_check CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage', 'broker_sms'))`).catch(() => {});
 
   // ── Add carrier_id FK to existing tables ─────────────────────────
   await query(`ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});

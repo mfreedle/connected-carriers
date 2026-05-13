@@ -117,17 +117,27 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       // Update carrier contact info
       await updateCarrierContact(carrier.id, phone?.trim(), email?.trim().toLowerCase());
 
-      // Store consent if granted
-      if (req.body.consent_network_reuse === "yes") {
-        try {
+      // Store consent with evidence
+      const consentText = "By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status.";
+      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+      const userAgent = (req.headers["user-agent"] as string) || null;
+
+      try {
+        // SMS consent — always granted by submission
+        await query(
+          `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, granted_at)
+           VALUES ($1, 'sms_verification', true, $2, $3, $4, $5, $6, NOW())`,
+          [carrier.id, source?.trim() || "direct", phone?.trim() || null, consentText, ipAddress, userAgent]
+        );
+        // Network reuse — optional
+        if (req.body.consent_network_reuse === "yes") {
           await query(
-            `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, granted_at)
-             VALUES ($1, 'network_profile_reuse', true, $2, NOW())
-             ON CONFLICT DO NOTHING`,
-            [carrier.id, source?.trim() || "direct"]
+            `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, ip_address, user_agent, granted_at)
+             VALUES ($1, 'network_profile_reuse', true, $2, $3, $4, $5, NOW())`,
+            [carrier.id, source?.trim() || "direct", phone?.trim() || null, ipAddress, userAgent]
           );
-        } catch (e) { console.error("[profile] Consent storage error:", e); }
-      }
+        }
+      } catch (e) { console.error("[profile] Consent storage error:", e); }
     }
 
     // Upload files to R2 if present
@@ -519,9 +529,12 @@ function profilePage(source: string, error?: string, success?: string, prefill?:
     </div>
 
     <div style="margin:20px 0">
+      <div style="font-size:11px;color:#6B7A8A;line-height:1.5;margin-bottom:10px">
+        By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status. Msg & data rates may apply. Reply STOP to opt out. <a href="/terms.html" target="_blank" style="color:#C8892A">Terms</a> & <a href="/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
+      </div>
       <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#6B7A8A;cursor:pointer">
         <input type="checkbox" name="consent_network_reuse" value="yes" checked style="margin-top:2px;flex-shrink:0">
-        <span>Save my carrier profile so brokers using Connected Carriers can qualify me faster. I can opt out anytime.</span>
+        <span>Save my carrier profile so brokers using Connected Carriers can qualify me faster.</span>
       </label>
     </div>
 

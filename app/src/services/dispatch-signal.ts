@@ -119,7 +119,7 @@ export async function createDispatchSignal(input: DispatchSignalInput): Promise<
   const verifyUrl = `${MCP_URL}/verify/${token}`;
 
   // Send driver SMS
-  const driverMsg = `${load_id} — pickup at ${address.split(",")[0]}.\nConfirm arrival when you get there: ${verifyUrl}\nThis request is time-sensitive.`;
+  const driverMsg = `Connected Carriers: ${load_id} — pickup at ${address.split(",")[0]}.\nConfirm arrival: ${verifyUrl}\nReply STOP to opt out.`;
   const smsResult = await sendSms(driver_phone, driverMsg);
 
   return {
