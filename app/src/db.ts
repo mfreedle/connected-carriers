@@ -900,5 +900,182 @@ export async function migrateVerification() {
     console.error("[BACKFILL] Error (non-fatal):", err);
   }
 
+  // ── Backfill: carrier_drivers, carrier_equipment, carrier_documents from carrier_profiles ──
+  // Runs AFTER carrier_id backfill so profiles have carrier_id set.
+  // Idempotent: uses WHERE NOT EXISTS to avoid duplicates.
+  try {
+    // 1. Backfill carrier_drivers from profiles with driver data
+    const driverProfiles = await query(`
+      SELECT cp.carrier_id, cp.driver_name, cp.driver_phone,
+             cp.cdl_number, cp.cdl_state, cp.cdl_expiration
+      FROM carrier_profiles cp
+      WHERE cp.carrier_id IS NOT NULL
+        AND cp.driver_name IS NOT NULL AND cp.driver_name != ''
+      ORDER BY cp.updated_at DESC
+      LIMIT 200
+    `);
+    let driversCreated = 0;
+    for (const p of driverProfiles.rows) {
+      // Dedupe: prefer carrier_id + cdl_number, fall back to carrier_id + name + phone
+      const existsResult = p.cdl_number
+        ? await query(
+            `SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND cdl_number = $2`,
+            [p.carrier_id, p.cdl_number]
+          )
+        : await query(
+            `SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND LOWER(driver_name) = LOWER($2) AND COALESCE(driver_phone,'') = COALESCE($3,'')`,
+            [p.carrier_id, p.driver_name, p.driver_phone || ""]
+          );
+      if (existsResult.rows.length === 0) {
+        const driverStatus = p.cdl_expiration && new Date(p.cdl_expiration) < new Date() ? "expired" : "active";
+        await query(
+          `INSERT INTO carrier_drivers (carrier_id, driver_name, driver_phone, cdl_number, cdl_state, cdl_expiration, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [p.carrier_id, p.driver_name, p.driver_phone || null, p.cdl_number || null, p.cdl_state || null, p.cdl_expiration || null, driverStatus]
+        );
+        driversCreated++;
+      }
+    }
+    if (driversCreated > 0) console.log(`[BACKFILL] Created ${driversCreated} carrier_drivers from profiles.`);
+
+    // 2. Backfill carrier_equipment from profiles with VIN or truck data
+    const equipProfiles = await query(`
+      SELECT cp.carrier_id, cp.truck_number, cp.vin_number, cp.trailer_number
+      FROM carrier_profiles cp
+      WHERE cp.carrier_id IS NOT NULL
+        AND (cp.vin_number IS NOT NULL OR cp.truck_number IS NOT NULL)
+      ORDER BY cp.updated_at DESC
+      LIMIT 200
+    `);
+    let equipCreated = 0;
+    for (const p of equipProfiles.rows) {
+      // Dedupe: prefer carrier_id + vin_number, fall back to carrier_id + truck_number + trailer_number
+      const existsResult = p.vin_number
+        ? await query(
+            `SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND vin_number = $2`,
+            [p.carrier_id, p.vin_number]
+          )
+        : await query(
+            `SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND COALESCE(truck_number,'') = COALESCE($2,'') AND COALESCE(trailer_number,'') = COALESCE($3,'')`,
+            [p.carrier_id, p.truck_number || "", p.trailer_number || ""]
+          );
+      if (existsResult.rows.length === 0) {
+        await query(
+          `INSERT INTO carrier_equipment (carrier_id, truck_number, vin_number, trailer_number, status)
+           VALUES ($1, $2, $3, $4, 'active')`,
+          [p.carrier_id, p.truck_number || null, p.vin_number || null, p.trailer_number || null]
+        );
+        equipCreated++;
+      }
+    }
+    if (equipCreated > 0) console.log(`[BACKFILL] Created ${equipCreated} carrier_equipment from profiles.`);
+
+    // 3. Backfill carrier_documents from profiles with R2 keys or URLs
+    const docProfiles = await query(`
+      SELECT cp.id as profile_id, cp.carrier_id, cp.mc_number,
+             cp.cdl_photo_r2_key, cp.cdl_photo_url,
+             cp.insurance_doc_r2_key, cp.insurance_doc_url,
+             cp.vin_photo_r2_key, cp.vin_photo_url,
+             cp.parsed_cdl, cp.parsed_insurance,
+             cp.cdl_expiration, cp.insurance_expiration,
+             cp.driver_name, cp.cdl_number, cp.vin_number
+      FROM carrier_profiles cp
+      WHERE cp.carrier_id IS NOT NULL
+        AND (cp.cdl_photo_r2_key IS NOT NULL OR cp.cdl_photo_url IS NOT NULL
+             OR cp.insurance_doc_r2_key IS NOT NULL OR cp.insurance_doc_url IS NOT NULL
+             OR cp.vin_photo_r2_key IS NOT NULL OR cp.vin_photo_url IS NOT NULL)
+      ORDER BY cp.updated_at DESC
+      LIMIT 200
+    `);
+    let docsCreated = 0;
+    const today = new Date();
+    const thirtyDays = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    for (const p of docProfiles.rows) {
+      // Look up the driver_id and equipment_id we may have just created
+      let driverId: number | null = null;
+      let equipmentId: number | null = null;
+
+      if (p.cdl_number || p.driver_name) {
+        const dResult = p.cdl_number
+          ? await query(`SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND cdl_number = $2 LIMIT 1`, [p.carrier_id, p.cdl_number])
+          : await query(`SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND LOWER(driver_name) = LOWER($2) LIMIT 1`, [p.carrier_id, p.driver_name]);
+        if (dResult.rows.length) driverId = dResult.rows[0].id;
+      }
+
+      if (p.vin_number) {
+        const eResult = await query(`SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND vin_number = $2 LIMIT 1`, [p.carrier_id, p.vin_number]);
+        if (eResult.rows.length) equipmentId = eResult.rows[0].id;
+      }
+
+      // Helper to compute freshness status
+      const freshness = (expDate: string | null): string => {
+        if (!expDate) return "current";
+        const exp = new Date(expDate);
+        if (exp < today) return "expired";
+        if (exp < thirtyDays) return "expiring";
+        return "current";
+      };
+
+      // CDL document
+      if (p.cdl_photo_r2_key || p.cdl_photo_url) {
+        const r2Key = p.cdl_photo_r2_key || null;
+        const fileUrl = p.cdl_photo_url || null;
+        const exists = await query(
+          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'cdl' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          [p.carrier_id, r2Key, fileUrl]
+        );
+        if (exists.rows.length === 0) {
+          await query(
+            `INSERT INTO carrier_documents (carrier_id, driver_id, doc_type, document_type, r2_key, r2_object_key, file_url, parsed_data, expiration_date, expires_at, status, source)
+             VALUES ($1, $2, 'cdl', 'cdl', $3, $3, $4, $5, $6, $6, $7, 'backfill')`,
+            [p.carrier_id, driverId, r2Key, fileUrl, p.parsed_cdl ? JSON.stringify(p.parsed_cdl) : null, p.cdl_expiration || null, freshness(p.cdl_expiration)]
+          );
+          docsCreated++;
+        }
+      }
+
+      // Insurance document (doc_type='insurance', document_type='coi' for legacy compat)
+      if (p.insurance_doc_r2_key || p.insurance_doc_url) {
+        const r2Key = p.insurance_doc_r2_key || null;
+        const fileUrl = p.insurance_doc_url || null;
+        const exists = await query(
+          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'insurance' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          [p.carrier_id, r2Key, fileUrl]
+        );
+        if (exists.rows.length === 0) {
+          await query(
+            `INSERT INTO carrier_documents (carrier_id, doc_type, document_type, r2_key, r2_object_key, file_url, parsed_data, expiration_date, expires_at, status, source)
+             VALUES ($1, 'insurance', 'coi', $2, $2, $3, $4, $5, $5, $6, 'backfill')`,
+            [p.carrier_id, r2Key, fileUrl, p.parsed_insurance ? JSON.stringify(p.parsed_insurance) : null, p.insurance_expiration || null, freshness(p.insurance_expiration)]
+          );
+          docsCreated++;
+        }
+      }
+
+      // Cab card / VIN photo document
+      if (p.vin_photo_r2_key || p.vin_photo_url) {
+        const r2Key = p.vin_photo_r2_key || null;
+        const fileUrl = p.vin_photo_url || null;
+        const exists = await query(
+          `SELECT id FROM carrier_documents WHERE carrier_id = $1 AND doc_type = 'cab_card' AND (r2_key = $2 OR ($2 IS NULL AND file_url = $3))`,
+          [p.carrier_id, r2Key, fileUrl]
+        );
+        if (exists.rows.length === 0) {
+          await query(
+            `INSERT INTO carrier_documents (carrier_id, equipment_id, doc_type, document_type, r2_key, r2_object_key, file_url, status, source)
+             VALUES ($1, $2, 'cab_card', 'cab_card', $3, $3, $4, 'current', 'backfill')`,
+            [p.carrier_id, equipmentId, r2Key, fileUrl]
+          );
+          docsCreated++;
+        }
+      }
+    }
+    if (docsCreated > 0) console.log(`[BACKFILL] Created ${docsCreated} carrier_documents from profiles.`);
+
+  } catch (err) {
+    console.error("[BACKFILL] Driver/equipment/document backfill error (non-fatal):", err);
+  }
+
   console.log("Canonical tables migration complete.");
 }
