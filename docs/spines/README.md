@@ -72,6 +72,8 @@ This avoids building a new carrier identity layer across two separate data owner
 
 ## Spine Set
 
+### Infrastructure Spines (built)
+
 1. [Broker Load Spine](SPINE-0001-broker-load.md)
 2. [Carrier Identity Spine](SPINE-0002-carrier-identity.md)
 3. [Carrier Profile Spine](SPINE-0003-carrier-profile.md)
@@ -79,6 +81,28 @@ This avoids building a new carrier identity layer across two separate data owner
 5. [Verification and Document Chase Spine](SPINE-0005-verification-chase.md)
 6. [Dispatch Signal Spine](SPINE-0006-dispatch-signal.md)
 7. [Trust, Ownership, and Access Spine](SPINE-0007-trust-ownership-access.md)
+
+### Product Spines (the wedge)
+
+8. [Inbound Carrier Filter](SPINE-0008-inbound-carrier-filter.md) — **the front door**
+   Kate posts a load on DAT. Unknown carriers enter their MC. CC screens them before Kate wastes time. Built and smoke tested.
+
+9. [Dispatch Package](SPINE-0009-dispatch-package.md) — **per-load readiness**
+   Kate assigns a carrier. The carrier confirms driver, truck, and docs for THIS load. CC verifies the dispatch package. Partially built (company level works, driver/equipment level not yet modeled).
+
+10. [Carrier Master Record](SPINE-0010-carrier-master-record.md) — **CC's memory**
+    Every carrier interaction makes the next load faster. CC remembers MCs, drivers, trucks, docs, and results so nobody repeats work. Partially built (MC level exists, driver/equipment tables needed).
+
+### Positioning
+
+CC does not replace Carrier411 or Tai TMS.
+
+- **Carrier411** monitors carriers Kate already works with (authority, insurance, safety, compliance changes)
+- **Tai TMS** manages load execution (quoting, booking, tracking, invoicing, carrier onboarding)
+- **Connected Carriers** filters unknown inbound carriers and verifies the dispatch package for each load
+
+Carrier411 and Tai manage carriers Kate already knows.
+CC filters the ones she hasn't met yet — before she wastes time on them.
 
 ## Design Rules Across All Spines
 
