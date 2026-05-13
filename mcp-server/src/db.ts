@@ -114,6 +114,9 @@ export async function initDb() {
   `);
   // Add broker_ref column if table already exists
   await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_ref TEXT").catch(() => {});
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_account_id INTEGER").catch(() => {});
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_name TEXT").catch(() => {});
+  await query("CREATE INDEX IF NOT EXISTS idx_loads_broker ON loads(broker_account_id)").catch(() => {});
 
   await query(`
     CREATE TABLE IF NOT EXISTS load_applications (

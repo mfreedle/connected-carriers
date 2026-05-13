@@ -61,6 +61,105 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
   res.send(html);
 });
 
+// ── Server-side API routes ────────────────────────────────────────
+// Browser calls these. They attach trusted broker context from session
+// before forwarding to MCP. Browser never supplies broker identity.
+
+router.post("/api/loads/create", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const brokerAccount = await query(
+      "SELECT id, company_name, contact_phone, contact_email FROM broker_accounts WHERE id = $1",
+      [req.session.brokerAccountId]
+    );
+    const ba = brokerAccount.rows[0];
+    if (!ba) { res.status(403).json({ error: "Broker account not found" }); return; }
+
+    const body = {
+      ...req.body,
+      broker_account_id: ba.id,
+      broker_name: ba.company_name,
+      broker_phone: ba.contact_phone || "",
+      broker_email: ba.contact_email || "",
+    };
+
+    const resp = await fetch(`${MCP_URL}/load/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Create load error:", err);
+    res.status(500).json({ error: "Failed to create load" });
+  }
+});
+
+router.get("/api/loads/recent", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const resp = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Loads recent error:", err);
+    res.status(500).json({ error: "Failed to fetch loads" });
+  }
+});
+
+router.get("/api/loads/attention", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const resp = await fetch(`${MCP_URL}/loads/attention?broker_account_id=${req.session.brokerAccountId}`);
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Loads attention error:", err);
+    res.status(500).json({ error: "Failed to fetch attention items" });
+  }
+});
+
+router.get("/api/loads/:loadId/applicants", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Verify this load belongs to the broker before returning applicants
+    const loadCheck = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
+    const loadData = await loadCheck.json() as { loads?: Array<{ load_id: string; slug: string }> };
+    const load = loadData.loads?.find((l: { load_id: string }) => l.load_id === req.params.loadId);
+    if (!load) { res.status(404).json({ error: "Load not found" }); return; }
+
+    const resp = await fetch(`${MCP_URL}/loads/${load.slug}/applicants`);
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Applicants error:", err);
+    res.status(500).json({ error: "Failed to fetch applicants" });
+  }
+});
+
+router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const resp = await fetch(`${MCP_URL}/carrier/${req.params.mc}/profile`);
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Carrier profile error:", err);
+    res.status(500).json({ error: "Failed to fetch carrier profile" });
+  }
+});
+
+router.post("/api/loads/:slug/assign", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const resp = await fetch(`${MCP_URL}/load/${req.params.slug}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error("[API] Assign error:", err);
+    res.status(500).json({ error: "Failed to assign carrier" });
+  }
+});
+
 export default router;
 
 function loadsPageContent(mcpUrl: string, docAlerts: { company: string; mc: string; issue: string; severity: string }[] = []): string {
@@ -145,7 +244,7 @@ async function quickCreate() {
   btn.disabled = true; btn.textContent = 'Creating...';
   document.getElementById('qc-status').textContent = '';
   try {
-    var res = await fetch(MCP + '/load/create', {
+    var res = await fetch('/api/loads/create', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined})
     });
@@ -170,7 +269,7 @@ async function refreshLoads() {
   var el = document.getElementById('loads-list');
   el.innerHTML = '<div class="empty" style="padding:20px">Loading...</div>';
   try {
-    var res = await fetch(MCP + '/loads/recent');
+    var res = await fetch('/api/loads/recent');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.loads || data.loads.length === 0) {
@@ -217,7 +316,7 @@ async function refreshAttention() {
   card.style.display = 'block';
   list.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--muted)">Refreshing...</div>';
   try {
-    var res = await fetch(MCP + '/loads/attention');
+    var res = await fetch('/api/loads/attention');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.items || data.items.length === 0) { 
@@ -252,7 +351,7 @@ async function toggleApplicants(loadId, slug) {
   var content = document.getElementById('apps-content-' + loadId);
   content.innerHTML = '<div style="font-size:12px;color:var(--muted)">Loading applicants...</div>';
   try {
-    var res = await fetch(MCP + '/loads/' + loadId + '/applicants');
+    var res = await fetch('/api/loads/' + loadId + '/applicants');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
     if (!data.applicants || data.applicants.length === 0) {
@@ -312,7 +411,7 @@ async function toggleProfile(mc, slug, appId, phone, companyName, hasProfile) {
   toggle.textContent = 'Close ▴';
   el.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0">Loading profile...</div>';
   try {
-    var res = await fetch(MCP + '/carrier/' + mc + '/profile');
+    var res = await fetch('/api/carrier/' + mc + '/profile');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
 
@@ -375,7 +474,7 @@ async function assignFromDashboard(slug, appId, phone, name) {
   var btn = event.target;
   btn.disabled = true; btn.textContent = 'Assigning...';
   try {
-    var res = await fetch(MCP + '/load/' + slug + '/assign', {
+    var res = await fetch('/api/loads/' + slug + '/assign', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({applicant_id: appId, driver_phone: phone.trim()})
     });

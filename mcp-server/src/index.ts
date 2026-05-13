@@ -866,7 +866,7 @@ const httpServer = http.createServer(async (req, res) => {
     setCors(res);
     try {
       const body = JSON.parse((await readBody(req)).toString());
-      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email, broker_ref } = body;
+      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email, broker_ref, broker_account_id, broker_name } = body;
 
       if (!origin || !destination || !equipment) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -878,9 +878,10 @@ const httpServer = http.createServer(async (req, res) => {
       const slug = crypto.randomBytes(4).toString("hex").toUpperCase();
 
       await query(
-        `INSERT INTO loads (load_id, slug, broker_ref, broker_phone, broker_email, origin, destination, equipment, pickup_date, rate_note, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `INSERT INTO loads (load_id, slug, broker_ref, broker_phone, broker_email, broker_account_id, broker_name, origin, destination, equipment, pickup_date, rate_note, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [load_id, slug, broker_ref?.trim() || null, normalizePhone(broker_phone || ""), broker_email || null,
+         broker_account_id || null, broker_name || null,
          origin, destination, equipment, pickup_date || null, rate_note || null, notes || null]
       );
 
@@ -1145,9 +1146,15 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // ── GET /loads/attention — prioritized action items across all loads
-  if (req.method === "GET" && url === "/loads/attention") {
+  if (req.method === "GET" && url.startsWith("/loads/attention")) {
     setCors(res);
     try {
+      const parsedUrl = new URL(req.url || "", `http://${req.headers.host}`);
+      const brokerAccountId = parsedUrl.searchParams.get("broker_account_id");
+
+      const brokerFilter = brokerAccountId ? "WHERE l.broker_account_id = $1" : "";
+      const params = brokerAccountId ? [parseInt(brokerAccountId)] : [];
+
       // Get all recent loads with applicant counts
       const loads = await query(`
         SELECT l.id, l.load_id, l.slug, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
@@ -1155,10 +1162,11 @@ const httpServer = http.createServer(async (req, res) => {
                COUNT(la.id) FILTER (WHERE la.qualification_result = 'qualified' AND la.contact_phone IS NOT NULL) as interested_count
         FROM loads l
         LEFT JOIN load_applications la ON la.load_id = l.id
+        ${brokerFilter}
         GROUP BY l.id
         ORDER BY l.created_at DESC
         LIMIT 30
-      `);
+      `, params);
 
       // Get dispatch verifications with pending/confirmed status
       const verifications = await query(`
@@ -1227,19 +1235,27 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // ── GET /loads/recent — list recent loads with applicant counts
-  if (req.method === "GET" && url === "/loads/recent") {
+  if (req.method === "GET" && url.startsWith("/loads/recent")) {
     setCors(res);
     try {
+      // Parse broker_account_id from query string for scoping
+      const parsedUrl = new URL(req.url || "", `http://${req.headers.host}`);
+      const brokerAccountId = parsedUrl.searchParams.get("broker_account_id");
+
+      const brokerFilter = brokerAccountId ? "WHERE l.broker_account_id = $1" : "";
+      const params = brokerAccountId ? [parseInt(brokerAccountId)] : [];
+
       const loads = await query(`
-        SELECT l.load_id, l.slug, l.broker_ref, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
+        SELECT l.id, l.load_id, l.slug, l.broker_ref, l.origin, l.destination, l.equipment, l.pickup_date, l.status, l.created_at,
                COUNT(la.id) FILTER (WHERE la.qualification_result IN ('qualified','review')) as applicant_count,
                COUNT(la.id) FILTER (WHERE la.qualification_result = 'qualified' AND la.contact_phone IS NOT NULL) as interested_count
         FROM loads l
         LEFT JOIN load_applications la ON la.load_id = l.id
+        ${brokerFilter}
         GROUP BY l.id
         ORDER BY l.created_at DESC
         LIMIT 50
-      `);
+      `, params);
 
       // Get latest dispatch verification for each load
       const verifications = await query(`
