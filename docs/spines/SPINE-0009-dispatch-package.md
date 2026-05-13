@@ -18,6 +18,8 @@ The per-load dispatch package: the specific driver, truck, trailer, and document
 
 **Kate assigns the carrier. The carrier confirms the driver and equipment. CC verifies the dispatch package.**
 
+Kate should not normally choose the driver or truck. She chooses the carrier/company. The carrier confirms which driver and equipment are actually taking the load. Kate only sees the resulting decision and any plain-language exceptions.
+
 ## Flow
 
 1. Kate clicks "Assign Carrier" on her dashboard
@@ -66,7 +68,6 @@ carrier_drivers
   cdl_number
   cdl_state
   cdl_expiration
-  cdl_photo_r2_key
   status: active | inactive | expired
   created_at, updated_at
 
@@ -88,11 +89,24 @@ carrier_documents
   equipment_id → carrier_equipment (nullable)
   doc_type: cdl | insurance | cab_card | truck_photo | w9
   r2_key
+  display_url or signed-url metadata (if needed)
   parsed_data JSONB
   expiration_date
   status: current | expiring | expired | superseded
   created_at, updated_at
 ```
+
+## Document Ownership Rule
+
+Do not store uploaded document files directly "in" the driver or equipment row as the canonical source. Store document metadata and the R2 key in `carrier_documents`, then link it to the thing it proves.
+
+- CDL document → `carrier_documents.driver_id`
+- CDL number/state/expiration extracted from that document → `carrier_drivers`
+- Cab card / truck photo → `carrier_documents.equipment_id`
+- VIN extracted from cab card/photo → `carrier_equipment`
+- Insurance COI → `carrier_documents.carrier_id`, with VIN coverage details linked or derived for equipment checks
+
+This keeps driver and equipment rows small and durable, while document records can be superseded, expire, or be re-OCR'd without rewriting identity records.
 
 ## Assignment Flow (Target)
 
@@ -115,3 +129,4 @@ Kate assigns carrier (MC level)
 - The system should know what's missing and ask only for that
 - "Dispatch ready" means: this driver, this truck, this load — not just "this MC has docs"
 - Kate sees the dispatch package status, not raw doc data
+- Driver/equipment selection belongs to the carrier confirmation flow; broker override is an exception path, not the default.

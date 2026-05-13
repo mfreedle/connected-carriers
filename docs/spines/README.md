@@ -93,6 +93,10 @@ This avoids building a new carrier identity layer across two separate data owner
 10. [Carrier Master Record](SPINE-0010-carrier-master-record.md) — **CC's memory**
     Every carrier interaction makes the next load faster. CC remembers MCs, drivers, trucks, docs, and results so nobody repeats work. Partially built (MC level exists, driver/equipment tables needed).
 
+### Document Storage Rule
+
+Uploaded files should be represented by `carrier_documents`, not stored directly as fields on driver or equipment rows. Driver/equipment rows store the current extracted facts and status; document rows store the file key, parsed data, source, expiration, and supersession history.
+
 ### Positioning
 
 CC does not replace Carrier411 or Tai TMS.

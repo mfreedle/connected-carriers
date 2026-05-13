@@ -14,7 +14,7 @@ Carrier411 monitors carriers Kate already knows. Tai manages carriers already in
 
 ## The Wedge
 
-CC flips the work. The carrier clicks Kate's link, enters their MC, and the system screens them instantly. By the time Kate looks at her dashboard, the unqualified carriers are already gone. She's only seeing carriers who passed the FMCSA gate and expressed real interest.
+CC flips the work. The carrier clicks Kate's link, enters their MC, and the system screens them instantly. By the time Kate looks at her dashboard, the worst-fit carriers are filtered or clearly marked. She's primarily working from carriers who passed the FMCSA gate and expressed real interest.
 
 **Kate didn't make a single phone call or run a single lookup to get there.**
 
@@ -27,8 +27,8 @@ CC flips the work. The carrier clicks Kate's link, enters their MC, and the syst
 5. Carrier enters MC number
 6. System runs instant FMCSA check:
    - Active authority? Active USDOT? Safety rating?
-   - If not qualified: "Not Qualified" — carrier sees why, Kate never sees them
-   - If qualified: carrier sees "Qualified" and can submit interest
+   - If not qualified: "Not Qualified" — carrier sees why, Kate does not need to chase them
+   - If qualified: carrier sees "FMCSA PASS" and can submit interest
 7. Carrier submits name + phone + email
 8. Kate gets an SMS: "New carrier interest on HX-0513-19EE"
 9. Kate's dashboard shows ranked applicants:
@@ -54,7 +54,8 @@ CC flips the work. The carrier clicks Kate's link, enters their MC, and the syst
 ## Design Rules
 
 - The carrier does the work, not Kate
-- Unqualified carriers never reach Kate's dashboard
+- Unqualified carriers should not become Kate's next action
 - The apply page should feel like checking on a load, not joining a platform
-- FMCSA check is a gate, not a compliance tool — Carrier411 handles ongoing monitoring
+- FMCSA check is a gate, not a full compliance approval — Carrier411 may still be used for deeper due diligence and ongoing monitoring
 - Contact info is captured on interest, not on MC check (don't ask for data before showing value)
+- The broker-facing label must not imply dispatch readiness. Use "FMCSA PASS - Need Documents" or equivalent until the dispatch package is verified.

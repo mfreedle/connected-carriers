@@ -81,6 +81,23 @@ carrier_documents (not built)
   Status: current | expiring | expired | superseded.
 ```
 
+## Where Documents Live
+
+Uploaded files should live in object storage, with `carrier_documents` as the canonical database record for each file. Driver and equipment rows should store the current facts extracted from documents, not own the document file itself.
+
+Example:
+
+- A CDL upload creates a `carrier_documents` row with `doc_type = cdl`, `driver_id`, R2 key, parsed data, expiration date, and status.
+- `carrier_drivers` stores the current CDL number, state, expiration, and verification status derived from the latest current CDL document.
+- A later CDL upload supersedes the old document row and updates the driver facts.
+
+Same pattern:
+
+- Insurance COI belongs at the carrier/company level, with VIN coverage parsed into document data or a future coverage table.
+- Cab card / truck photo belongs to equipment.
+- W-9 belongs to carrier/company.
+- Arrival confirmation belongs to the load assignment/dispatch signal, not the carrier master.
+
 ## Freshness Rules
 
 | Document | Check | Action |
@@ -104,12 +121,12 @@ carrier_documents (not built)
 ## Design Rules
 
 - CC is not a compliance tool — it's a readiness cache
-- Don't duplicate Carrier411's job (ongoing monitoring) — CC checks at the moment of the load
+- Don't duplicate Carrier411's job (ongoing monitoring) — CC checks at the moment of the load and remembers what it learned
 - Don't duplicate Tai's job (carrier master in TMS) — CC remembers what Tai doesn't see
 - The carrier should never re-upload a current document
 - The system should tell the carrier exactly what's missing, not show a blank form
 - Broker-specific decisions (Kate rejected this carrier) stay broker-scoped
-- Network-wide data (CDL photo, VIN) is carrier-owned and reusable across brokers (with consent)
+- Network-wide data (driver facts, equipment facts, document metadata, and reusable documents) is carrier-owned and reusable across brokers only with consent
 - Every data point should have a source and timestamp — not just "on file" but "uploaded May 12, 2026 via load apply for HX-0513-D9A2"
 
 ## Bridge to Tai/Carrier411 (Future)
