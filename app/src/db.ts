@@ -707,6 +707,8 @@ export async function migrateVerification() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dispatch_signal_id INTEGER`);
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dispatch_signal_ref TEXT`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_load ON load_assignments(load_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_carrier ON load_assignments(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_broker ON load_assignments(broker_account_id)`);

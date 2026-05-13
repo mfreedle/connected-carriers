@@ -70,7 +70,7 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
     const mc = req.params.mc.replace(/\D/g, "");
     if (!mc) return res.json({ found: false });
 
-    // Prefer lookup by carrier_id via carriers table, fall back to mc_number
+    // Prefer the canonical carrier-linked profile, with legacy mc_number fallback.
     const profile = await query(
       `SELECT cp.company_name, cp.mc_number, cp.contact_name, cp.email, cp.phone,
               cp.driver_name, cp.driver_phone, cp.truck_number, cp.trailer_number,
@@ -82,8 +82,12 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
               c.network_status, c.fmcsa_legal_name
        FROM carrier_profiles cp
        LEFT JOIN carriers c ON c.id = cp.carrier_id
-       WHERE cp.mc_number = $1
-       ORDER BY cp.updated_at DESC LIMIT 1`,
+       WHERE cp.carrier_id = (SELECT id FROM carriers WHERE mc_number = $1)
+          OR cp.mc_number = $1
+       ORDER BY
+         CASE WHEN cp.carrier_id = (SELECT id FROM carriers WHERE mc_number = $1) THEN 0 ELSE 1 END,
+         cp.updated_at DESC
+       LIMIT 1`,
       [mc]
     );
 
