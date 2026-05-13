@@ -173,17 +173,19 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
       if (!doc.r2_key && !doc.file_url) continue;
 
       try {
+        const legacyDocTypes = legacyDocumentTypes(doc.doc_type);
+
         // Check for existing doc with same key (both canonical and legacy columns)
         const existsCheck = await query(
           `SELECT id FROM carrier_documents
            WHERE carrier_id = $1
              AND (
                (doc_type = $2 AND (r2_key = $3 OR ($3 IS NULL AND file_url = $4)))
-               OR (document_type = $5 AND (r2_object_key = $3 OR ($3 IS NULL AND file_url = $4)))
+               OR (document_type = ANY($5::text[]) AND (r2_object_key = $3 OR ($3 IS NULL AND file_url = $4)))
              )`,
           [carrier_id, doc.doc_type,
            doc.r2_key || null, doc.file_url || null,
-           doc.doc_type === "insurance" ? "coi" : doc.doc_type]
+           legacyDocTypes]
         );
 
         if (existsCheck.rows.length > 0) {
@@ -200,6 +202,7 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
           }
           // Set canonical columns if not yet set
           p++; updates.push(`doc_type=COALESCE(doc_type,$${p})`); vals.push(doc.doc_type);
+          p++; updates.push(`status=COALESCE(status,$${p})`); vals.push(freshness(doc.expiration_date));
           if (doc.r2_key) { p++; updates.push(`r2_key=COALESCE(r2_key,$${p})`); vals.push(doc.r2_key); }
           if (driver_id && doc.doc_type === "cdl") { p++; updates.push(`driver_id=COALESCE(driver_id,$${p})`); vals.push(driver_id); }
           if (equipment_id && (doc.doc_type === "cab_card" || doc.doc_type === "truck_photo")) {
@@ -211,26 +214,28 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
         }
 
         // Supersede existing docs of the same type within the correct scope
-        const legacyDocType = doc.doc_type === "insurance" ? "coi" : doc.doc_type;
+        const legacyDocType = preferredLegacyDocumentType(doc.doc_type);
         if (doc.doc_type === "cdl" && driver_id) {
           // Supersede CDL docs for this specific driver only
           await query(
             `UPDATE carrier_documents SET status='superseded', updated_at=NOW()
-             WHERE carrier_id=$1 AND driver_id=$2 AND (doc_type='cdl' OR document_type='cdl') AND status='current'`,
+             WHERE carrier_id=$1 AND driver_id=$2 AND (doc_type='cdl' OR document_type='cdl') AND COALESCE(status,'current')='current'`,
             [carrier_id, driver_id]
           );
         } else if ((doc.doc_type === "cab_card" || doc.doc_type === "truck_photo") && equipment_id) {
           // Supersede cab card/truck photo for this specific equipment only
           await query(
             `UPDATE carrier_documents SET status='superseded', updated_at=NOW()
-             WHERE carrier_id=$1 AND equipment_id=$2 AND (doc_type IN ('cab_card','truck_photo') OR document_type IN ('cab_card','truck_photo')) AND status='current'`,
+             WHERE carrier_id=$1 AND equipment_id=$2
+               AND (doc_type IN ('cab_card','truck_photo') OR document_type IN ('cab_card','truck_photo','vin_photo'))
+               AND COALESCE(status,'current')='current'`,
             [carrier_id, equipment_id]
           );
         } else if (doc.doc_type === "insurance") {
           // Supersede insurance at the carrier level
           await query(
             `UPDATE carrier_documents SET status='superseded', updated_at=NOW()
-             WHERE carrier_id=$1 AND (doc_type='insurance' OR document_type='coi') AND status='current'`,
+             WHERE carrier_id=$1 AND (doc_type='insurance' OR document_type='coi') AND COALESCE(status,'current')='current'`,
             [carrier_id]
           );
         }
@@ -263,4 +268,14 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
   }
 
   return { driver_id, equipment_id, documents_created };
+}
+
+function legacyDocumentTypes(docType: DocumentInput["doc_type"]): string[] {
+  if (docType === "insurance") return ["coi"];
+  if (docType === "cab_card") return ["cab_card", "vin_photo"];
+  return [docType];
+}
+
+function preferredLegacyDocumentType(docType: DocumentInput["doc_type"]): string {
+  return legacyDocumentTypes(docType)[0];
 }
