@@ -15,7 +15,7 @@ This ADR is now interpreted through the product spine architecture in `docs/spin
 The broker journey is:
 
 1. Broker posts a load in the dashboard.
-2. System stores the load in the broker app database and generates a shareable `/load/:slug` link.
+2. System stores the load in the broker app database and generates a shareable `/l/:slug` link.
 3. Broker posts that link on DAT, Truckstop, or another load board.
 4. Carriers qualify themselves by entering MC number.
 5. System resolves carrier identity and links each application to `carrier_id`.
@@ -29,7 +29,7 @@ The broker journey is:
 13. Carrier receives an SMS magic link requesting required dispatch documents if the profile is incomplete or stale.
 14. OCR and rule checks run.
 15. Broker receives CLEAR, CAUTION, or DO NOT USE tied to the specific load assignment.
-16. If CLEAR, broker dispatches the carrier in Port TMS or the broker's TMS of record.
+16. If CLEAR, broker dispatches the carrier in Tai TMS or the broker's TMS of record.
 
 This is the product promise: Filter, Chase, Signal.
 
@@ -49,7 +49,7 @@ Some existing load and application behavior is prototype-owned by MCP. That is n
 - Assignment should become first-class through `load_assignments` before pilot hardening.
 - Verification results must be tied back to a specific assignment in the broker dashboard.
 - Dispatch signal must tie back to a specific load assignment and exact pickup location.
-- The dashboard does not yet present a complete assignment state machine from applicant to dispatch-ready to on-site/no-response.
+- The dashboard presents the current Filter -> Chase -> Signal state, but driver/equipment-level dispatch package states still need to be modeled.
 
 ## Required Assignment States
 
@@ -69,8 +69,8 @@ An assigned carrier should move through these states:
 
 ## Implementation Notes
 
-- On assignment, check whether the carrier has a dispatch-ready profile.
-- If the profile is complete, skip document chase and proceed to dispatch clearance or arrival signal.
+- On assignment, check whether the carrier has a current dispatch package for the selected driver/equipment. Until driver/equipment are modeled, the prototype uses MC-level profile completeness as a temporary fast path.
+- If the dispatch package is complete, skip document chase and proceed to dispatch clearance or arrival signal.
 - If the profile is incomplete, call `/api/verify/trigger` with load, broker, carrier, and contact context.
 - Store the verification token/result against `load_assignments`, not only against the carrier.
 - Surface CLEAR, CAUTION, or DO NOT USE in the load applicants view and the load detail view.

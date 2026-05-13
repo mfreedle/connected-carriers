@@ -267,7 +267,7 @@ Richer statuses (dispatch_ready for a specific broker, CLEAR on a specific load)
 ## What This Does NOT Include
 
 - **Carrier login / carrier portal.** Not needed for pilot. MC + magic link is enough.
-- **Carrier status page post-submission.** Good idea, not blocking pilot. Can be added as a `/carrier/:mc/status` page later.
+- **Carrier status page post-submission.** Status pages must be token-gated. Do not expose profile or verification state at `/carrier/:mc/status`.
 - **Broker-specific carrier notes / blacklist.** Important eventually, lives on a future `broker_carrier_notes` table, not on `carriers`.
 - **Assignment as a first-class table.** Current representation (loads.assigned_applicant_id + load_applications.assigned_at) works for pilot. A `load_assignments` table may be needed later to support reassignment, multiple dispatch attempts, and audit trail.
 - **Consent checkbox for network reuse.** Noted as required before network reuse is real. Add to profile form and load apply form: "Save my profile so brokers using Connected Carriers can qualify me faster."

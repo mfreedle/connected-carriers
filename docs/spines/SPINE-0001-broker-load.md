@@ -34,7 +34,7 @@ These tables should live in the broker app database. MCP may serve public load p
 
 1. Broker enters load details.
 2. System stores broker ownership.
-3. System generates a public `/load/:slug` link.
+3. System generates a public `/l/:slug` link.
 4. Broker posts the link to DAT, Truckstop, or another board.
 5. Carriers apply through the link.
 6. Broker dashboard shows applicants on the load.
@@ -103,7 +103,7 @@ The broker dashboard must answer:
 ## Current Gaps To Resolve
 
 - Move canonical `loads` and `load_applications` out of MCP ownership and into broker app ownership.
-- Public `/load/:slug` should be served by the broker app or proxy to broker-app-owned APIs.
+- Public `/l/:slug` should be served by the broker app. Older `/load/:slug` links may redirect through MCP as compatibility.
 - Pickup window should be structured enough for reminder and alert logic.
 - Arrival signal must tie back to the original load/assignment.
 - The public board should be clearly a read-only preview or removed from broker workflow.

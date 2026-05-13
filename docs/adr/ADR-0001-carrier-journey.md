@@ -18,17 +18,17 @@ A carrier can reach dispatch readiness through three paths:
 
 A carrier sees a load on DAT, Truckstop, or another load board with a Connected Carriers link.
 
-1. Carrier opens `/load/:slug` on the public carrier-facing load page. This may be served by the broker app directly or by MCP as a thin public edge.
+1. Carrier opens `/l/:slug` on the public carrier-facing load page. Older `/load/:slug` links may redirect through MCP as a compatibility edge.
 2. Carrier enters MC number.
 3. System resolves or creates canonical carrier identity in `carriers`.
 4. FMCSA verification runs immediately and updates carrier identity.
-5. If qualified, carrier submits name, phone, and email to express interest.
+5. If the carrier passes the FMCSA gate, carrier submits name, phone, and email to express interest.
 6. A `load_applications` row is created in the broker app database and linked to `carrier_id`.
 7. Broker receives an SMS notification when broker phone is present.
-8. Carrier appears as a qualified applicant for that load.
+8. Carrier appears as an `FMCSA PASS - Need Documents` applicant for that load.
 9. Carrier is prompted to complete a persistent profile for faster qualification on future loads.
 
-This is the lightweight gate. The carrier is qualified for the load, but may not yet be dispatch-ready.
+This is the lightweight gate. The carrier passed the first legitimacy screen, but is not dispatch-ready until a dispatch package is verified.
 
 ### Path B - Broker-Direct
 
@@ -55,19 +55,19 @@ A carrier finds Connected Carriers without a specific load or broker assignment.
 4. System resolves or creates canonical carrier identity.
 5. FMCSA and document checks run.
 6. A persistent `carrier_profiles` record is created or updated and linked to `carrier_id`.
-7. When the carrier later applies to a broker's load, the system recognizes `carrier_id` and shows the carrier as dispatch-ready when profile requirements are met.
+7. When the carrier later applies to a broker's load, the system recognizes `carrier_id`, but dispatch readiness still depends on the selected driver/equipment package for that load.
 
 This path supports the network flywheel: the more carriers pre-verify, the faster every broker's workflow becomes.
 
 ## Data Continuity Rule
 
-Data captured at any step must pass forward. If a carrier already provided MC number, name, phone, and email on the load apply page, any subsequent profile or verification form must pre-fill those fields.
+Data captured at any step should pass forward through trusted paths. If a carrier already provided MC number, name, phone, and email on the load apply page, subsequent profile or verification forms should pre-fill those fields when the carrier follows a tokenized or otherwise trusted link.
 
-Never ask for the same information twice when the system already has it.
+Never ask for the same information twice when the system already has it and the current user is authorized to see it.
 
 ## Existing Behavior
 
-- `/load/:slug` works: FMCSA check runs and interest is captured.
+- `/l/:slug` works: FMCSA check runs and interest is captured.
 - `/profile/carrier` works: document uploads save to `carrier_profiles`.
 - `/intake/:slug` works: broker-directed intake starts verification.
 - `/v/:token` works: document upload, OCR, and result delivery exist.
@@ -76,16 +76,14 @@ Some existing behavior lives in MCP from the prototype. That is not the target o
 
 ## Gaps
 
-- Canonical `carriers` identity does not yet exist.
-- Load apply and load application data still live in MCP in the prototype.
-- Load apply does not consistently pass captured MC, name, phone, and email into the profile form.
-- Carrier-direct profile submission does not fully participate in the same identity, FMCSA, OCR, and freshness model as broker-directed verification.
-- Network profile reuse needs explicit carrier consent before it is treated as real.
+- Driver and equipment are not yet modeled as reusable records under a carrier.
+- The prototype still has MC-level profile fast paths that must be replaced by dispatch-package checks.
+- Carrier-direct profile submission participates in carrier identity, but sensitive returning-carrier prefill must remain token-gated.
+- Some MCP compatibility routes remain and should not regain canonical ownership.
 
 ## Implementation Notes
 
-- Add query params or a short-lived token from `/load/:slug` to `/profile/carrier` so profile fields pre-fill.
-- Prefer a token over raw query params if sensitive data expands beyond MC/contact basics.
+- Use tokenized links for sensitive returning-carrier prefill. MC-only links may prefill public company/FMCSA information, but not phone, email, driver, truck, VIN, or document status.
 - Use cleaned MC number only to resolve canonical carrier identity. Use `carrier_id` as the durable internal key for profile reuse, applications, and verifications.
-- Treat `carrier_profiles.completion_status = 'dispatch_ready'` as the signal that a carrier can skip document chase for future load assignments.
+- Do not treat MC-level `carrier_profiles.completion_status = 'dispatch_ready'` as sufficient once driver/equipment are modeled. The target rule is: skip chase only when the carrier confirms a current driver and current equipment for the load.
 - Move canonical load application writes into the broker app database. MCP should call broker-app-owned APIs if it remains in the public route.

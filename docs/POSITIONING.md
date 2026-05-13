@@ -1,19 +1,19 @@
 # Connected Carriers — Positioning Guide
-**Version:** 1.0 — April 24, 2026  
-**Status:** Locked. Do not deviate without explicit decision.
+**Version:** 2.0 — May 13, 2026  
+**Status:** Current product positioning. Update only with explicit product decision.
 
 ---
 
 ## 1. Core Position
 
 **One sentence:**  
-Highway helps you approve carriers. Connected Carriers makes sure nothing gets missed before dispatch.
+Connected Carriers filters unknown inbound carriers before brokers waste time on them, then verifies the dispatch package before pickup.
 
 **Category:**  
-Dispatch Clearance Layer
+Inbound Carrier Filter + Dispatch Package Readiness
 
 **What that means:**  
-The step between carrier approval and load execution that no tool currently owns. We ensure completeness and readiness — not verification or compliance.
+The front door between a DAT/load-board posting and the broker's real workflow. Unknown carriers self-screen, the broker sees filtered interest, and the selected carrier confirms the driver/truck package for the load.
 
 ---
 
@@ -21,40 +21,38 @@ The step between carrier approval and load execution that no tool currently owns
 
 **We are:**
 - The dispatch clearance layer
-- The step between approval and dispatch
+- The inbound carrier filter for posted loads
+- The dispatch package readiness layer
 - Operational infrastructure for brokers
-- A system that ensures nothing is missing before dispatch
+- A system that ensures the selected driver/truck/docs are current before dispatch
 
 **We are not:**
 - A compliance platform
-- A carrier verification tool
+- A replacement for Carrier411, Highway, RMIS, MyCarrierPackets, or Tai TMS
 - A TMS replacement
-- A competitor to Highway, RMIS, or MyCarrierPackets
+- A system of record for load execution or carrier payment
 
 **The distinction that matters:**  
-"Approved" ≠ "ready to dispatch." We own the gap between those two states.
+"FMCSA pass" ≠ "ready to dispatch." We own the front-door filter and the dispatch-package gap.
 
 ---
 
 ## 3. Word Guardrails
 
-### Banned Words (never use in any copy, UI, or conversation)
-- verify / verified / verification
-- validate / validated / validation
-- approve / approved / approval (when referring to Connected Carriers only)
-
-> **Exception:** "Approve" is allowed when referring to Highway or the approval step in the broker workflow. It is NOT allowed when describing what Connected Carriers does.
-- authenticate / authentication
-- confirm identity
-- enforce compliance
-- qualify / qualification
+### Avoid Unless Precisely Scoped
+- approved / approval, when implying Connected Carriers replaces Carrier411/Tai approval
+- compliant / compliance platform
+- identity verification, when implying legal identity proofing
+- dispatch-ready, unless tied to a specific driver/equipment/load package
 
 ### Allowed Language (use these instead)
-- in / on file / current
-- complete / nothing missing
+- FMCSA pass / FMCSA gate
+- filtered interest
+- current / on file
+- complete dispatch package / nothing missing
 - ready / cleared
 - before dispatch / before pickup
-- no surprises / nothing slips through
+- no surprises / less chasing
 - up-to-date
 - in one place
 
@@ -64,9 +62,9 @@ The step between carrier approval and load execution that no tool currently owns
 
 Three ideas that should show up everywhere, in different forms:
 
-1. **"Nothing gets missed before dispatch"** — the functional promise
-2. **"No surprises at pickup"** — the emotional reassurance
-3. **"Fits into the tools you already use"** — the adoption answer
+1. **"Filter the unknowns before Kate starts calling"** — the front-door promise
+2. **"Confirm this driver and this truck for this load"** — the dispatch-package promise
+3. **"Fits beside Carrier411 and Tai"** — the adoption answer
 
 ---
 
@@ -75,16 +73,16 @@ Three ideas that should show up everywhere, in different forms:
 These are locked. Use them verbatim or adapt tone — never change meaning.
 
 ### Master Positioning Line
-> Highway helps you approve carriers. Connected Carriers makes sure nothing gets missed before dispatch.
+> DAT brings the interest. Connected Carriers filters it. Tai runs the load.
 
 ### Tagline
-> Approve in Highway. Clear in Connected Carriers. Dispatch the load.
+> Filter first. Chase less. Dispatch cleaner.
 
 ### Hero Headline
-> Stop chasing carriers between booking and pickup.
+> Stop sorting unknown carriers by hand.
 
 ### Hero Subline
-> The step between approval and dispatch — finally handled.
+> Add one link to your posting. Let carriers self-screen before they become your problem.
 
 ### Pricing Line
 > One bad load costs thousands. This costs $99.
@@ -103,15 +101,15 @@ These are locked. Use them verbatim or adapt tone — never change meaning.
 ## 6. How It Works (Filter. Chase. Signal.)
 
 ### The three steps:
-1. **Filter** — Clean up the inbound noise
+1. **Filter** — Unknown carriers self-screen through the load link
 2. **Chase** — Get what's missing without phone tag
 3. **Signal** — Know if anything changed before pickup
 
 ### Critical clarification:
-"Filter" means filtering inbound noise (emails, responses, junk) — **not** filtering or qualifying carriers. That's Highway's job.
+"Filter" means first-pass inbound carrier screening for a posted load. It is not a replacement for Carrier411/Tai approval or long-term compliance monitoring.
 
 **Safe subcopy:**  
-"Filter the inbound noise — not the carrier."
+"Filter inbound carrier interest before it becomes phone work."
 
 ---
 
@@ -119,28 +117,32 @@ These are locked. Use them verbatim or adapt tone — never change meaning.
 
 | Step | Tool | Role |
 |------|------|------|
-| Approve carrier | Highway | Approval / Identity |
-| Clear for dispatch | Connected Carriers | Dispatch Clearance |
-| Execute load | Your system | Execution |
+| Step | Tool | Role |
+|------|------|------|
+| Find interest | DAT / load board | Marketplace |
+| Filter inbound carriers | Connected Carriers | First-pass load-specific screen |
+| Monitor known carriers | Carrier411 / similar | Deeper due diligence and ongoing monitoring |
+| Clear dispatch package | Connected Carriers | Driver/truck/docs for this load |
+| Execute load | Tai TMS / broker TMS | Operational system of record |
 
-**Rule:** Always position CC as the middle layer. Never above Highway. Never replacing TMS. We complete the stack — we don't compete with it.
+**Rule:** CC owns the front door and dispatch package readiness. It should fit beside Carrier411 and Tai, not claim to replace either.
 
 ---
 
 ## 8. Do / Don't Examples
 
 ### ❌ Bad (drifts into Highway's lane)
-- "We verify insurance before dispatch"
-- "Driver identity confirmed against MC record"
-- "Carrier validated and approved"
-- "Compliance checks completed"
+- "We replace Carrier411"
+- "Carrier approved by Connected Carriers"
+- "Compliance monitoring handled"
+- "Any driver under this MC is dispatch-ready"
 
 ### ✅ Good (stays in our lane)
-- "Up-to-date insurance on file before dispatch"
-- "Driver and dispatch details in before pickup"
-- "Setup packet complete — nothing missing"
-- "Everything signed and in one place"
-- "Ready to roll — no last-minute chasing"
+- "FMCSA pass before Kate starts calling"
+- "Carrier confirms driver and truck for this load"
+- "Only missing or stale docs get chased"
+- "Clear, Review, or Do Not Use tied to the load"
+- "Ready to roll with this driver and this truck"
 
 ### ❌ Bad (sounds like we replace tools)
 - "Replace your manual workflow"
@@ -157,16 +159,16 @@ These are locked. Use them verbatim or adapt tone — never change meaning.
 ## 9. FAQ Positioning (safe versions)
 
 **Do I need to replace my TMS?**  
-No. Connected Carriers fits into your existing workflow. Keep using your system — this handles what happens between approval and dispatch.
+No. Connected Carriers fits into your existing workflow. Keep using Tai or your TMS — this handles inbound filtering and dispatch package readiness.
 
 **Do carriers need an app?**  
 No. Carriers just tap a link and respond. No app. No login. Works on any phone.
 
 **How do you know a carrier is ready?**  
-We make sure everything required is in and current before dispatch — so nothing gets missed at the last minute.
+First we run the MC through the FMCSA gate. After assignment, the carrier confirms the driver and truck for the load, and we check the current dispatch package.
 
 **Is this a compliance platform?**  
-No. Tools like Highway handle approval. Connected Carriers handles what happens after — making sure everything is in before the load moves.
+No. Carrier411/Tai-style tools remain useful for deeper due diligence and carrier management. Connected Carriers filters unknown inbound carriers and verifies the selected dispatch package for the load.
 
 **How does document chasing work?**  
 We replace phone tag with a simple link. Carriers send what's missing, and the system follows up automatically until everything is in.

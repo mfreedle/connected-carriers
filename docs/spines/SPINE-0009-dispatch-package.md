@@ -23,9 +23,9 @@ Kate should not normally choose the driver or truck. She chooses the carrier/com
 ## Flow
 
 1. Kate clicks "Assign Carrier" on her dashboard
-2. System checks: does this carrier have a current dispatch-ready profile?
-   - **Yes (fast path):** Driver/truck/docs on file and current → arrival signal sent immediately
-   - **No (chase path):** Carrier gets SMS/email with a magic link
+2. System checks: does this carrier have a current dispatch package for this load?
+   - **Yes (fast path):** Selected driver/truck/docs are on file and current → arrival signal sent immediately
+   - **No (chase path):** Carrier gets SMS/email with a magic link to confirm or update the package
 3. Carrier clicks the link and confirms or provides:
    - Driver name + phone
    - CDL (photo upload if not on file)

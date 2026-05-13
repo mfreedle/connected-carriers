@@ -6,7 +6,7 @@
 
 ## What This Is
 
-Connected Carriers is a carrier qualification and onboarding platform for freight brokers. It handles the full carrier screening lifecycle — from initial qualification through dispatch verification — with automated FMCSA verification, tier assignment, and performance tracking.
+Connected Carriers is the front-door carrier filter for freight brokers. Brokers post a load with a Connected Carriers link, unknown carriers self-screen by MC number, and the broker sees qualified interest before wasting time on manual lookups. The system also remembers reusable carrier, driver, equipment, document, and dispatch-readiness data so repeat loads get faster.
 
 **Live:** [connectedcarriers.org](https://connectedcarriers.org)
 
@@ -25,7 +25,7 @@ Connected Carriers is a carrier qualification and onboarding platform for freigh
 
 | Tier | Who | What Happens |
 |------|-----|--------------|
-| **Tier 1 — Preferred** | In Port TMS + 3+ loads + clean history | Bypasses screening, pre-approved |
+| **Tier 1 — Preferred** | In the broker's TMS + 3+ loads + clean history | Bypasses screening, pre-approved |
 | **Tier 2 — Approved** | New carrier, passes all hard stops | Standard onboarding, team notified |
 | **Tier 3 — Conditional** | Passes minimums, needs review | Manual review queue, team alerted |
 | **Rejected** | Fails any auto-disqualifier | Instant rejection, optional auto-response |
@@ -35,10 +35,10 @@ Connected Carriers is a carrier qualification and onboarding platform for freigh
 ## Product Roadmap
 
 ```
-Layer 1 (NOW):  Carrier qualification portal
-Layer 2 (NEXT): Performance memory per carrier per load
-Layer 3:        Network intelligence across multiple brokers
-Layer 4:        Load marketplace for pre-screened carriers
+Layer 1 (NOW):  Inbound carrier filter for posted loads
+Layer 2 (NEXT): Dispatch package confirmation: carrier confirms driver/truck for this load
+Layer 3:        Carrier master record: reusable drivers, equipment, documents, freshness
+Layer 4:        Tai/Carrier411 bridge and network intelligence
 ```
 
 ---
@@ -46,8 +46,8 @@ Layer 4:        Load marketplace for pre-screened carriers
 ## Stack
 
 - **Landing page:** Static HTML (Railway — auto-deploy from main branch)
-- **Carrier intake:** Google Form → Google Sheet
-- **Verification:** FMCSA SAFER API, CargoNet, Highway
+- **Carrier intake:** Broker-app load links and profile/verification forms
+- **Verification:** FMCSA checks, document upload/OCR, dispatch package rules
 - **Agent platform:** Built on [mfreedle/agent-platform](https://github.com/mfreedle/agent-platform) patterns
 - **Skills:** [mfreedle/claude-skills](https://github.com/mfreedle/claude-skills)
 
@@ -67,7 +67,7 @@ connected-carriers/
   docs/
     HANDOFF.md                  — project handoff and context doc
     carrier_tiers.md            — tier system design
-    verification_layer.md       — FMCSA + CargoNet + Highway architecture
+    spines/                     — product and data-model spines
     competitive_landscape.md    — market analysis
   .claude/
     CLAUDE.md                   — agent governance doc
@@ -96,4 +96,3 @@ Skills reference: [mfreedle/claude-skills](https://github.com/mfreedle/claude-sk
 ---
 
 *A HoneXAI product — built April 2026*
-
