@@ -2137,6 +2137,9 @@ function loadApplyPage(load: Record<string, unknown>, slug: string): string {
   .submitted-msg { display: none; text-align: center; margin-top: 16px; }
   .submitted-msg .check { font-size: 36px; margin-bottom: 8px; }
   .submitted-msg p { font-size: 14px; color: #6b7a8a; }
+  .submitted-msg .docs-cta { display: block; width: 100%; padding: 14px; background: #C8892A; border: none; border-radius: 6px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; text-align: center; margin-top: 16px; }
+  .submitted-msg .docs-cta:hover { background: #E09B35; }
+  .submitted-msg .docs-hint { font-size: 12px; color: #6b7a8a; margin-top: 8px; }
   .powered { text-align: center; font-size: 11px; color: #6b7a8a; margin-top: 20px; }
   .powered a { color: #C8892A; text-decoration: none; }
 </style>
@@ -2172,8 +2175,10 @@ function loadApplyPage(load: Record<string, unknown>, slug: string): string {
 
   <div class="submitted-msg" id="submitted-msg">
     <div class="check">✓</div>
-    <p>Your interest has been submitted. The broker will be in touch if they'd like to move forward.</p>
-    <a href="https://app.connectedcarriers.org/profile/carrier" class="profile-link" id="profile-link-submitted" style="margin-top:16px">Complete your carrier profile to get cleared faster next time →</a>
+    <p>You're qualified. The broker has your info.</p>
+    <p style="margin-top:8px;color:#1C2B3A;font-weight:500;font-size:15px">Submit your docs now to get dispatched first.</p>
+    <a href="https://app.connectedcarriers.org/profile/carrier" class="docs-cta" id="profile-link-submitted">Upload CDL, Insurance & Cab Card →</a>
+    <div class="docs-hint">Carriers with docs on file get assigned before those without. Takes 2 minutes.</div>
   </div>
 
   <div class="powered">Powered by <a href="https://connectedcarriers.org">Connected Carriers</a></div>
