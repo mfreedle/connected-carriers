@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { layout } from "../views/layout";
 import { query } from "../db";
-import { csrfToken } from "../middleware/security";
+import { csrfToken, verifyCsrf } from "../middleware/security";
 
 const router = Router();
 
@@ -77,7 +77,7 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
 // Old MCP proxy routes removed — dashboard uses v2 canonical routes.
 // Carrier profile is now a direct query, no MCP proxy.
 
-router.post("/api/broker/sms-consent", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/api/broker/sms-consent", requireAuth, verifyCsrf, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const broker = await query(
       "SELECT id, contact_phone FROM broker_accounts WHERE id = $1",
@@ -494,10 +494,11 @@ async function assignFromDashboard(slug, appId, phone, name) {
 
 async function acceptSmsConsent() {
   try {
-    await fetch('/api/broker/sms-consent', {
+    var res = await fetch('/api/broker/sms-consent', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF}
     });
+    if (!res.ok) throw new Error('Failed to save consent');
     var banner = document.getElementById('sms-consent-banner');
     if (banner) banner.style.display = 'none';
   } catch(e) {
