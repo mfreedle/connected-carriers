@@ -866,7 +866,7 @@ const httpServer = http.createServer(async (req, res) => {
     setCors(res);
     try {
       const body = JSON.parse((await readBody(req)).toString());
-      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email, broker_ref, broker_account_id, broker_name } = body;
+      const { origin, destination, equipment, pickup_date, rate_note, notes, broker_phone, broker_email, broker_ref, broker_account_id, broker_name, pickup_address, pickup_window } = body;
 
       if (!origin || !destination || !equipment) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -878,11 +878,12 @@ const httpServer = http.createServer(async (req, res) => {
       const slug = crypto.randomBytes(4).toString("hex").toUpperCase();
 
       await query(
-        `INSERT INTO loads (load_id, slug, broker_ref, broker_phone, broker_email, broker_account_id, broker_name, origin, destination, equipment, pickup_date, rate_note, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        `INSERT INTO loads (load_id, slug, broker_ref, broker_phone, broker_email, broker_account_id, broker_name, origin, destination, equipment, pickup_date, pickup_address, pickup_window, rate_note, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [load_id, slug, broker_ref?.trim() || null, normalizePhone(broker_phone || ""), broker_email || null,
          broker_account_id || null, broker_name || null,
-         origin, destination, equipment, pickup_date || null, rate_note || null, notes || null]
+         origin, destination, equipment, pickup_date || null, pickup_address || null, pickup_window || null,
+         rate_note || null, notes || null]
       );
 
       const applyUrl = `${BASE_URL}/load/${slug}`;
@@ -1423,14 +1424,28 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
       const apps = await query(
-        `SELECT DISTINCT ON (la.mc_number) la.id, la.mc_number, la.company_name, la.contact_name, la.contact_phone, la.contact_email,
+        `SELECT * FROM (
+          SELECT DISTINCT ON (la.mc_number) la.id, la.mc_number, la.company_name, la.contact_name, la.contact_phone, la.contact_email,
                 la.fmcsa_authority, la.fmcsa_safety, la.qualification_result, la.has_profile, la.created_at,
                 la.assigned_at, la.verification_token, la.verification_status,
                 cv.status as cv_status, cv.result as cv_result, cv.result_reasons as cv_reasons
          FROM load_applications la
          LEFT JOIN carrier_verifications cv ON cv.token = la.verification_token
          WHERE la.load_id = $1 AND la.qualification_result IN ('qualified','review')
-         ORDER BY la.mc_number, la.created_at DESC`,
+         ORDER BY la.mc_number, la.created_at DESC
+        ) deduped
+        ORDER BY
+          CASE
+            WHEN cv_result = 'CLEAR' THEN 0
+            WHEN verification_status = 'skipped_complete' THEN 1
+            WHEN has_profile = true AND qualification_result = 'qualified' THEN 2
+            WHEN qualification_result = 'qualified' AND contact_phone IS NOT NULL THEN 3
+            WHEN qualification_result = 'qualified' THEN 4
+            WHEN qualification_result = 'review' AND contact_phone IS NOT NULL THEN 5
+            WHEN qualification_result = 'review' THEN 6
+            ELSE 7
+          END,
+          created_at ASC`,
         [load.id]
       );
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -1510,7 +1525,7 @@ const httpServer = http.createServer(async (req, res) => {
         // ── FAST PATH: Profile complete → skip doc chase, go straight to arrival check
         const verifyLoadId = `CC-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
         const verifyToken = crypto.randomBytes(32).toString("hex");
-        const coords = await geocodeAddress(load.origin);
+        const coords = await geocodeAddress(load.pickup_address || load.origin);
 
         await query(
           `INSERT INTO dispatch_verifications

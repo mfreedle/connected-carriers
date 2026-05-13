@@ -116,6 +116,8 @@ export async function initDb() {
   await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_ref TEXT").catch(() => {});
   await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_account_id INTEGER").catch(() => {});
   await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS broker_name TEXT").catch(() => {});
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_address TEXT").catch(() => {});
+  await query("ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_window TEXT").catch(() => {});
   await query("CREATE INDEX IF NOT EXISTS idx_loads_broker ON loads(broker_account_id)").catch(() => {});
 
   await query(`

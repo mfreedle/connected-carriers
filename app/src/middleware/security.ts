@@ -44,10 +44,10 @@ export function csrfField(req: Request): string {
 }
 
 // Middleware: validates _csrf on state-changing POST routes
-// Apply to all broker POST routes (not public intake form)
+// Checks body._csrf (form posts) OR X-CSRF-Token header (JSON API calls)
 export function verifyCsrf(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   if (req.method !== "POST") return next();
-  const submitted = req.body?._csrf;
+  const submitted = req.body?._csrf || req.headers["x-csrf-token"];
   const expected = req.session?.csrfToken;
   if (!submitted || !expected || submitted !== expected) {
     return res.status(403).send("Invalid or missing CSRF token. Please go back and try again.");

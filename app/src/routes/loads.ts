@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { layout } from "../views/layout";
 import { query } from "../db";
+import { csrfToken } from "../middleware/security";
 
 const router = Router();
 const MCP_URL = process.env.MCP_SERVER_URL || "https://cc-mcp-server-production.up.railway.app";
@@ -55,7 +56,7 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
     title: "My Loads",
     userName,
     userRole,
-    content: loadsPageContent(MCP_URL, docAlerts),
+    content: loadsPageContent(MCP_URL, docAlerts, csrfToken(req)),
   });
 
   res.send(html);
@@ -171,7 +172,7 @@ router.post("/api/loads/:slug/assign", requireAuth, async (req: AuthenticatedReq
 
 export default router;
 
-function loadsPageContent(mcpUrl: string, docAlerts: { company: string; mc: string; issue: string; severity: string }[] = []): string {
+function loadsPageContent(mcpUrl: string, docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [], csrf: string = ""): string {
   const alertsHtml = docAlerts.length > 0 ? `
 <div class="card" style="border-left:3px solid #a32d2d;margin-bottom:20px">
   <div class="card-title" style="margin:0 0 10px 0;padding:0;border:0;color:#a32d2d">Carrier doc alerts</div>
@@ -201,9 +202,11 @@ ${alertsHtml}
       <div class="form-field"><label class="field-label">Origin</label><input class="field-input" id="qc-origin" placeholder="Tacoma, WA"></div>
       <div class="form-field"><label class="field-label">Destination</label><input class="field-input" id="qc-dest" placeholder="Dallas, TX"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="form-field"><label class="field-label">Pickup address</label><input class="field-input" id="qc-pickup-addr" placeholder="1234 Industrial Blvd, Tacoma, WA 98402"><div style="font-size:10px;color:var(--muted);margin-top:2px">Exact address for arrival geofence — not just the city</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
       <div class="form-field"><label class="field-label">Equipment</label><input class="field-input" id="qc-equip" placeholder="53' Dry Van"></div>
       <div class="form-field"><label class="field-label">Pickup date</label><input class="field-input" id="qc-date" placeholder="April 20"></div>
+      <div class="form-field"><label class="field-label">Pickup window</label><input class="field-input" id="qc-window" placeholder="e.g. 6am–10am"></div>
     </div>
     <button class="btn-primary" onclick="quickCreate()" id="qc-btn" style="width:100%">Create Load Link</button>
     <div id="qc-status" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center"></div>
@@ -241,6 +244,7 @@ ${alertsHtml}
 
 <script>
 var MCP = '${mcpUrl}';
+var CSRF = '${csrf}';
 
 async function quickCreate() {
   var ref = document.getElementById('qc-ref').value.trim();
@@ -248,14 +252,16 @@ async function quickCreate() {
   var dest = document.getElementById('qc-dest').value.trim();
   var equip = document.getElementById('qc-equip').value.trim();
   var date = document.getElementById('qc-date').value.trim();
+  var pickupAddr = document.getElementById('qc-pickup-addr').value.trim();
+  var pickupWindow = document.getElementById('qc-window').value.trim();
   if (!origin || !dest || !equip) { document.getElementById('qc-status').textContent = 'Origin, destination, and equipment required.'; document.getElementById('qc-status').style.color='#ef4444'; return; }
   var btn = document.getElementById('qc-btn');
   btn.disabled = true; btn.textContent = 'Creating...';
   document.getElementById('qc-status').textContent = '';
   try {
     var res = await fetch('/api/loads/create', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined})
+      method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
+      body: JSON.stringify({origin: origin, destination: dest, equipment: equip, pickup_date: date, broker_ref: ref || undefined, pickup_address: pickupAddr || undefined, pickup_window: pickupWindow || undefined})
     });
     var data = await res.json();
     if (data.success) {
@@ -484,7 +490,7 @@ async function assignFromDashboard(slug, appId, phone, name) {
   btn.disabled = true; btn.textContent = 'Assigning...';
   try {
     var res = await fetch('/api/loads/' + slug + '/assign', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
+      method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
       body: JSON.stringify({applicant_id: appId, driver_phone: phone.trim()})
     });
     var data = await res.json();

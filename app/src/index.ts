@@ -70,11 +70,11 @@ app.use("/", trackingRoutes); // public /track/:token routes
 app.use("/", teamRoutes);      // team management + public invite acceptance
 app.use("/", profileRoutes);   // public /profile/carrier route
 app.use("/", billingRoutes);   // /billing page + /api/billing/* endpoints
-app.use("/", loadsRoutes);    // /loads page (My Loads dashboard)
 app.use("/", verifyRoutes);   // /v/:token carrier verification + /api/verify/* endpoints
 
 // Broker routes — CSRF verification on all POSTs
 app.use(verifyCsrf);
+app.use("/", loadsRoutes);    // /loads page + /api/loads/* (broker-only, mutating)
 app.use("/", dashboardRoutes);
 app.use("/", carrierRoutes);
 app.use("/", settingsRoutes);
