@@ -1182,6 +1182,16 @@ const httpServer = http.createServer(async (req, res) => {
         verifyMap[v.load_id] = v;
       }
 
+      // Get carrier verification results for assigned loads
+      const cvResults = await query(`
+        SELECT la.load_id, cv.status as cv_status, cv.result as cv_result, la.verification_status
+        FROM load_applications la
+        LEFT JOIN carrier_verifications cv ON cv.token = la.verification_token
+        WHERE la.assigned_at IS NOT NULL
+      `);
+      const cvMap: Record<number, any> = {};
+      for (const cv of cvResults.rows) { cvMap[cv.load_id] = cv; }
+
       const items: { priority: number; icon: string; load_id: string; route: string; message: string; action: string }[] = [];
 
       for (const load of loads.rows) {
@@ -1217,6 +1227,26 @@ const httpServer = http.createServer(async (req, res) => {
             items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: `Confirmed ${v.distance_miles ? (Math.round(v.distance_miles * 100) / 100) + " mi" : "far"} from pickup — something changed`, action: "Do not release — call carrier" });
           } else if (v.status === "confirmed" && v.geofence_result === "green") {
             items.push({ priority: 5, icon: "✅", load_id: load.load_id, route, message: "Arrival confirmed — on site", action: "Clear to load" });
+          }
+        }
+
+        // Check carrier verification states on assigned loads
+        if (load.status === "covered" && !v) {
+          const cv = cvMap[load.id];
+          if (cv?.cv_result === "CLEAR") {
+            items.push({ priority: 1, icon: "✅", load_id: load.load_id, route, message: "Carrier verified — clear to dispatch", action: "Dispatch in TMS" });
+          } else if (cv?.cv_result === "CAUTION") {
+            items.push({ priority: 0, icon: "🟡", load_id: load.load_id, route, message: "Carrier verified with flags — review before dispatch", action: "Open report and review flags" });
+          } else if (cv?.cv_result === "DO_NOT_USE") {
+            items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Carrier failed verification — do not dispatch", action: "Reassign this load" });
+          } else if (cv?.verification_status === "fallback") {
+            items.push({ priority: 1, icon: "⚠️", load_id: load.load_id, route, message: "Auto-verify failed — carrier sent to profile form", action: "Follow up with carrier" });
+          } else if (cv?.verification_status === "pending" || cv?.cv_status === "pending" || cv?.cv_status === "in_progress") {
+            items.push({ priority: 2, icon: "⏳", load_id: load.load_id, route, message: "Waiting on carrier docs", action: "System will follow up automatically" });
+          } else if (cv?.verification_status === "skipped_complete") {
+            items.push({ priority: 1, icon: "✅", load_id: load.load_id, route, message: "Carrier profile complete — clear to dispatch", action: "Dispatch in TMS" });
+          } else {
+            items.push({ priority: 2, icon: "📋", load_id: load.load_id, route, message: "Assigned — verification status unknown", action: "Check applicant details" });
           }
         }
       }
@@ -2319,12 +2349,7 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
         </div>
       </div>
       <div class="app-actions">
-        <div>
-          <input type="tel" class="phone-input" id="phone-${a.id}" value="${a.contact_phone || ""}" placeholder="Driver phone" style="width:130px;padding:6px 8px;border:1px solid #e8e4de;border-radius:4px;font-size:12px;margin-bottom:6px;display:block">
-          <button class="assign-btn" onclick="assignCarrier('${slug}', ${a.id}, document.getElementById('phone-${a.id}').value, '${String(a.company_name || "").replace(/'/g, "\\'")}')">
-            ${a.has_profile ? "Assign → Arrival Check" : "Assign → Send Doc Request"}
-          </button>
-        </div>
+        <a href="https://app.connectedcarriers.org/loads" style="font-size:12px;color:#C8892A;text-decoration:none">Sign in to assign →</a>
       </div>
     </div>`).join("");
 
@@ -2375,52 +2400,10 @@ function loadBoardPage(load: Record<string, unknown>, applicants: Record<string,
     <div class="meta">${load.equipment}${load.pickup_date ? " · Pickup: " + load.pickup_date : ""}</div>
   </div>
   <div class="count"><span>${applicants.length}</span> qualified carrier${applicants.length !== 1 ? "s" : ""}</div>
-  <div id="assigned-msg" class="assigned-msg">
-    <h3 id="assigned-title">✓ Carrier Assigned</h3>
-    <p id="assigned-detail"></p>
-    <p id="assigned-action" style="font-weight:500;color:#3b6d11"></p>
-    <div class="next-steps" id="assigned-next">
-      <a href="https://app.connectedcarriers.org/loads">← Back to my loads</a> to see status updates
-    </div>
-  </div>
   ${appRows || '<div class="empty">No qualified carriers yet. Share your load link and check back.</div>'}
 </div>
 <script>
-async function assignCarrier(slug, appId, phone, name) {
-  if (!phone || !phone.trim()) {
-    alert('Enter the driver phone number to send the arrival check or doc request.');
-    return;
-  }
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Assigning...';
-  try {
-    const res = await fetch('/load/' + slug + '/assign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ applicant_id: appId, driver_phone: phone.trim() })
-    });
-    const data = await res.json();
-    if (data.assigned) {
-      document.getElementById('assigned-msg').style.display = 'block';
-      document.getElementById('assigned-title').textContent = '✓ ' + (data.carrier || name) + ' Assigned';
-      document.getElementById('assigned-detail').textContent = data.message;
-      if (data.action === 'arrival_check_sent') {
-        document.getElementById('assigned-action').textContent = 'Arrival check sent to driver. You\\'ll get a signal when they confirm.';
-      } else if (data.action === 'doc_request_sent') {
-        document.getElementById('assigned-action').textContent = 'Doc request sent. System will follow up at 10 and 20 minutes.';
-      }
-      document.getElementById('app-' + appId).style.opacity = '0.4';
-      btn.textContent = 'Assigned ✓';
-    } else {
-      btn.textContent = data.error || 'Error — try again';
-      btn.disabled = false;
-    }
-  } catch(e) {
-    btn.textContent = 'Error — try again';
-    btn.disabled = false;
-  }
-}
+// Assignment removed from public board
 </script>
 </body>
 </html>`;

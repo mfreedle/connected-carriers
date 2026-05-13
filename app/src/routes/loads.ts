@@ -147,6 +147,15 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
 
 router.post("/api/loads/:slug/assign", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    // Verify this load belongs to the logged-in broker before allowing assignment
+    const loadCheck = await fetch(`${MCP_URL}/loads/recent?broker_account_id=${req.session.brokerAccountId}`);
+    const loadData = await loadCheck.json() as { loads?: Array<{ slug: string }> };
+    const load = loadData.loads?.find((l: { slug: string }) => l.slug === req.params.slug);
+    if (!load) {
+      res.status(403).json({ error: "Load not found or not owned by this broker" });
+      return;
+    }
+
     const resp = await fetch(`${MCP_URL}/load/${req.params.slug}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
