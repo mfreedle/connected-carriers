@@ -281,7 +281,8 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
         console.log(`[VERIFY] Updated carrier profile #${profileId} for MC#${mc}`);
       }
     } else {
-      // Create new profile with carrier_id
+      // Create new profile with carrier_id and status_token
+      const profileStatusToken = crypto.randomBytes(24).toString("base64url");
       const ins = await query(`
         INSERT INTO carrier_profiles (company_name, mc_number, contact_name, email, phone,
           driver_name, driver_phone, vin_number,
@@ -289,8 +290,8 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
           parsed_cdl, parsed_insurance, parsed_vin,
           cdl_number, cdl_state, cdl_expiration,
           insurance_expiration, insurance_company, insurance_policy_number, insurance_vins,
-          doc_flags, completion_status, source, carrier_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'dispatch_ready','direct',$23)
+          doc_flags, completion_status, source, carrier_id, status_token)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'dispatch_ready','direct',$23,$24)
         RETURNING id
       `, [
         (fmcsa.legal_name as string) || v.carrier_name || `MC#${mc}`,
@@ -316,6 +317,7 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
         v.insurance_vins ? JSON.stringify(v.insurance_vins) : "[]",
         v.doc_flags ? JSON.stringify(v.doc_flags) : "[]",
         carrierId,
+        profileStatusToken,
       ]);
       const profileId = ins.rows[0].id;
       await query(`UPDATE carrier_verifications SET carrier_profile_id=$1 WHERE id=$2`, [profileId, v.id]);

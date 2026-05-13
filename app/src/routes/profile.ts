@@ -31,6 +31,7 @@ const fileFields = upload.fields([
 router.get("/profile/carrier", async (req: Request, res: Response) => {
   const source = (req.query.source as string) || "direct";
   const mcParam = (req.query.mc as string || "").replace(/\D/g, "");
+  const tokenParam = (req.query.token as string) || "";
 
   let prefill: Record<string, string> = {
     mc: mcParam,
@@ -39,43 +40,35 @@ router.get("/profile/carrier", async (req: Request, res: Response) => {
     email: (req.query.email as string) || "",
   };
   let existingProfile: Record<string, unknown> | null = null;
+  let hasValidToken = false;
 
-  // If MC provided, look up carrier + existing profile (READ-ONLY — no DB creation)
-  if (mcParam) {
+  // Token-based access: if token matches a profile's status_token, allow full prefill
+  if (tokenParam) {
+    try {
+      const tokenResult = await query("SELECT * FROM carrier_profiles WHERE status_token = $1", [tokenParam]);
+      if (tokenResult.rows.length) {
+        hasValidToken = true;
+        const ep = tokenResult.rows[0];
+        existingProfile = ep;
+        if (!prefill.mc && ep.mc_number) prefill.mc = ep.mc_number as string;
+        if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
+        if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
+        if (!prefill.email && ep.email) prefill.email = ep.email as string;
+      }
+    } catch (err) {
+      console.error("[profile GET] Token lookup error:", err);
+    }
+  }
+
+  // MC-only lookup: only prefill FMCSA/company-level info (public data)
+  // Sensitive fields (phone, email, driver, docs) require a valid token
+  if (mcParam && !hasValidToken) {
     try {
       const carrier = await findCarrierByMc(mcParam);
-
       if (carrier) {
-        // Pre-fill from carrier identity
+        // Only company name from FMCSA — this is public info
         if (!prefill.name && carrier.fmcsa_legal_name) prefill.name = carrier.fmcsa_legal_name;
-        if (!prefill.phone && carrier.phone) prefill.phone = carrier.phone;
-        if (!prefill.email && carrier.email) prefill.email = carrier.email;
-
-        // Load existing profile — try carrier_id first, then mc_number fallback
-        let profileResult;
-        if (carrier.latest_profile_id) {
-          profileResult = await query("SELECT * FROM carrier_profiles WHERE id = $1", [carrier.latest_profile_id]);
-        }
-        if (!profileResult?.rows?.length) {
-          profileResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mcParam]);
-        }
-        if (profileResult?.rows?.length) {
-          const ep = profileResult.rows[0];
-          existingProfile = ep;
-          if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
-          if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
-          if (!prefill.email && ep.email) prefill.email = ep.email as string;
-        }
-      } else {
-        // No carrier identity — check for legacy profiles by MC number
-        const profileResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mcParam]);
-        if (profileResult.rows.length) {
-          const ep = profileResult.rows[0];
-          existingProfile = ep;
-          if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
-          if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
-          if (!prefill.email && ep.email) prefill.email = ep.email as string;
-        }
+        // Do NOT prefill phone, email, driver info, or doc status from MC alone
       }
     } catch (err) {
       console.error("[profile GET] Carrier lookup error:", err);
