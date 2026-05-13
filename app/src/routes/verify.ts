@@ -243,6 +243,7 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
 
       // Set carrier_id if not already set
       if (carrierId) { p++; updates.push(`carrier_id=$${p}`); vals.push(carrierId); }
+      p++; updates.push(`status_token=COALESCE(status_token, $${p})`); vals.push(crypto.randomBytes(24).toString("base64url"));
 
       if (v.driver_name) { p++; updates.push(`driver_name=$${p}`); vals.push(v.driver_name); }
       if (v.driver_phone) { p++; updates.push(`driver_phone=$${p}`); vals.push(v.driver_phone); }
