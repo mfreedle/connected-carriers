@@ -1094,7 +1094,9 @@ export async function migrateVerification() {
     // or legacy rows that never had driver_id/equipment_id set.
     let linksRepaired = 0;
 
-    // CDL docs without driver_id — link to the carrier's driver by CDL number or name
+    // CDL docs without driver_id — link only on a confident match.
+    // If a carrier has multiple active drivers and the doc lacks parsed CDL data,
+    // leave it unlinked so we do not attach a CDL to the wrong person.
     const unlnkCdl = await query(
       `SELECT cd.id as doc_id, cd.carrier_id, cd.parsed_data
        FROM carrier_documents cd
@@ -1104,20 +1106,43 @@ export async function migrateVerification() {
        LIMIT 200`
     );
     for (const doc of unlnkCdl.rows) {
-      // Try to find the driver for this carrier
-      const driver = await query(
-        "SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
-        [doc.carrier_id]
-      );
-      if (driver.rows.length) {
+      const parsed = typeof doc.parsed_data === "string" ? JSON.parse(doc.parsed_data || "{}") : (doc.parsed_data || {});
+      const parsedCdlNumber = parsed.cdl_number || parsed.license_number || null;
+      const parsedDriverName = parsed.driver_name || parsed.name || null;
+
+      let driver;
+      if (parsedCdlNumber) {
+        driver = await query(
+          "SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active' AND cdl_number = $2 LIMIT 1",
+          [doc.carrier_id, parsedCdlNumber]
+        );
+      }
+      if (!driver?.rows?.length && parsedDriverName) {
+        driver = await query(
+          "SELECT id FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active' AND LOWER(driver_name) = LOWER($2) LIMIT 1",
+          [doc.carrier_id, parsedDriverName]
+        );
+      }
+      if (!driver?.rows?.length) {
+        driver = await query(
+          `SELECT id FROM carrier_drivers
+           WHERE carrier_id = $1 AND status = 'active'
+             AND (SELECT COUNT(*) FROM carrier_drivers WHERE carrier_id = $1 AND status = 'active') = 1
+           LIMIT 1`,
+          [doc.carrier_id]
+        );
+      }
+
+      if (driver?.rows?.length) {
         await query("UPDATE carrier_documents SET driver_id = $1, updated_at = NOW() WHERE id = $2", [driver.rows[0].id, doc.doc_id]);
         linksRepaired++;
       }
     }
 
-    // Cab card / truck photo docs without equipment_id — link to the carrier's equipment
+    // Cab card / truck photo docs without equipment_id — link only on VIN match
+    // or when the carrier has exactly one active equipment record.
     const unlnkCab = await query(
-      `SELECT cd.id as doc_id, cd.carrier_id
+      `SELECT cd.id as doc_id, cd.carrier_id, cd.parsed_data
        FROM carrier_documents cd
        WHERE cd.equipment_id IS NULL
          AND (cd.doc_type IN ('cab_card', 'truck_photo') OR cd.document_type IN ('cab_card', 'truck_photo', 'vin_photo'))
@@ -1125,11 +1150,27 @@ export async function migrateVerification() {
        LIMIT 200`
     );
     for (const doc of unlnkCab.rows) {
-      const equip = await query(
-        "SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
-        [doc.carrier_id]
-      );
-      if (equip.rows.length) {
+      const parsed = typeof doc.parsed_data === "string" ? JSON.parse(doc.parsed_data || "{}") : (doc.parsed_data || {});
+      const parsedVin = parsed.vin || parsed.vin_number || null;
+
+      let equip;
+      if (parsedVin) {
+        equip = await query(
+          "SELECT id FROM carrier_equipment WHERE carrier_id = $1 AND status = 'active' AND vin_number = $2 LIMIT 1",
+          [doc.carrier_id, parsedVin]
+        );
+      }
+      if (!equip?.rows?.length) {
+        equip = await query(
+          `SELECT id FROM carrier_equipment
+           WHERE carrier_id = $1 AND status = 'active'
+             AND (SELECT COUNT(*) FROM carrier_equipment WHERE carrier_id = $1 AND status = 'active') = 1
+           LIMIT 1`,
+          [doc.carrier_id]
+        );
+      }
+
+      if (equip?.rows?.length) {
         await query("UPDATE carrier_documents SET equipment_id = $1, updated_at = NOW() WHERE id = $2", [equip.rows[0].id, doc.doc_id]);
         linksRepaired++;
       }
