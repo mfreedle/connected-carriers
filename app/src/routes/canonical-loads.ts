@@ -268,9 +268,9 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
   try {
     const { applicant_id, driver_phone } = req.body;
 
-    // Verify load belongs to this broker
+    // Verify load belongs to this broker — get full load for downstream use
     const loadResult = await query(
-      "SELECT id, load_id, broker_account_id FROM canonical_loads WHERE slug = $1 AND broker_account_id = $2",
+      "SELECT * FROM canonical_loads WHERE slug = $1 AND broker_account_id = $2",
       [req.params.slug, req.session.brokerAccountId]
     );
     if (!loadResult.rows.length) {
@@ -288,13 +288,26 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
     }
     const applicant = appResult.rows[0];
 
+    // Get carrier identity for phone/email
+    const carrierResult = await query("SELECT * FROM carriers WHERE id = $1", [applicant.carrier_id]);
+    const carrier = carrierResult.rows[0];
+
+    // Resolve carrier phone: prefer driver_phone from request, then applicant contact, then carrier identity
+    const carrierPhone = (driver_phone || "").trim() || applicant.contact_phone || carrier?.phone_contact || "";
+
+    // Get broker account for notification info
+    const brokerResult = await query(
+      "SELECT company_name, contact_phone, contact_email FROM broker_accounts WHERE id = $1",
+      [req.session.brokerAccountId]
+    );
+    const broker = brokerResult.rows[0];
+
     // Check for existing active assignment on this load
     const existingAssignment = await query(
       `SELECT id FROM load_assignments WHERE load_id = $1 AND status NOT IN ('superseded', 'cancelled')`,
       [load.id]
     );
     if (existingAssignment.rows.length) {
-      // Supersede old assignment
       await query(
         `UPDATE load_assignments SET status = 'superseded', updated_at = NOW()
          WHERE load_id = $1 AND status NOT IN ('superseded', 'cancelled')`,
@@ -312,15 +325,9 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
 
     const assignmentId = assignment.rows[0].id;
 
-    // Update load status
-    await query(
-      "UPDATE canonical_loads SET status = 'assigned', updated_at = NOW() WHERE id = $1",
-      [load.id]
-    );
-
     // Check carrier profile state to decide next step
     const profileResult = await query(
-      `SELECT completion_status FROM carrier_profiles
+      `SELECT id, completion_status FROM carrier_profiles
        WHERE carrier_id = $1 AND completion_status = 'dispatch_ready'
        ORDER BY updated_at DESC LIMIT 1`,
       [applicant.carrier_id]
@@ -329,24 +336,137 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
 
     let nextAction: string;
     let nextStatus: string;
+    let verificationId: number | null = null;
 
     if (profileComplete) {
-      nextAction = "dispatch_signal";
+      // ── FAST PATH: Profile dispatch-ready → clear, skip doc chase
+      nextAction = "clear";
       nextStatus = "clear";
-      // TODO: trigger dispatch signal (SPINE-0006)
+
+      // Notify broker
+      if (broker?.contact_phone) {
+        try {
+          const { sendSms } = await import("../lib/sms");
+          await sendSms(broker.contact_phone,
+            `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch.`
+          );
+        } catch (e) { console.error("[assign] broker SMS failed:", e); }
+      }
+
     } else {
+      // ── STANDARD PATH: Profile incomplete → trigger verification chase
       nextAction = "verification_chase";
       nextStatus = "verification_requested";
-      // TODO: trigger verification chase (SPINE-0005) using carrier phone/email
+
+      if (!carrierPhone && !applicant.contact_email && !carrier?.email_contact) {
+        // No way to contact carrier — mark as documents_pending, broker must follow up manually
+        nextStatus = "documents_pending";
+        nextAction = "manual_followup";
+
+        if (broker?.contact_phone) {
+          try {
+            const { sendSms } = await import("../lib/sms");
+            await sendSms(broker.contact_phone,
+              `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. No carrier phone/email on file — follow up manually to get docs.`
+            );
+          } catch (e) { console.error("[assign] broker SMS failed:", e); }
+        }
+      } else {
+        // Call the verify trigger
+        const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
+        let triggerSucceeded = false;
+
+        try {
+          const triggerResp = await fetch(`${BASE_URL}/api/verify/trigger`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mc_number: applicant.mc_number,
+              carrier_phone: carrierPhone || undefined,
+              carrier_email: applicant.contact_email || carrier?.email_contact || undefined,
+              carrier_name: applicant.company_name || carrier?.fmcsa_legal_name || undefined,
+              broker_name: broker?.company_name || undefined,
+              broker_phone: broker?.contact_phone || undefined,
+              broker_email: broker?.contact_email || undefined,
+              broker_account_id: req.session.brokerAccountId,
+            }),
+          });
+
+          if (triggerResp.ok) {
+            const triggerData = await triggerResp.json() as Record<string, unknown>;
+            triggerSucceeded = true;
+            verificationId = (triggerData.id as number) || null;
+
+            if (triggerData.result === "DO_NOT_USE") {
+              nextStatus = "do_not_use";
+              nextAction = "fmcsa_rejected";
+
+              if (broker?.contact_phone) {
+                try {
+                  const { sendSms } = await import("../lib/sms");
+                  await sendSms(broker.contact_phone,
+                    `⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
+                  );
+                } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
+              }
+            } else {
+              // Verification request sent successfully
+              if (broker?.contact_phone) {
+                try {
+                  const { sendSms } = await import("../lib/sms");
+                  await sendSms(broker.contact_phone,
+                    `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
+                  );
+                } catch (e) { console.error("[assign] broker SMS failed:", e); }
+              }
+            }
+          } else {
+            console.error("[assign] Verify trigger returned", triggerResp.status);
+          }
+        } catch (err) {
+          console.error("[assign] Verify trigger call failed:", err);
+        }
+
+        if (!triggerSucceeded) {
+          // Fallback: send carrier to profile form
+          nextStatus = "documents_pending";
+          nextAction = "verification_fallback";
+
+          if (carrierPhone) {
+            try {
+              const BASE = process.env.BASE_URL || "https://app.connectedcarriers.org";
+              const { sendSms } = await import("../lib/sms");
+              await sendSms(carrierPhone,
+                `${broker?.company_name || "A broker"} needs your docs for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${BASE}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`
+              );
+            } catch (e) { console.error("[assign] carrier fallback SMS failed:", e); }
+          }
+
+          if (broker?.contact_phone) {
+            try {
+              const { sendSms } = await import("../lib/sms");
+              await sendSms(broker.contact_phone,
+                `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Auto-verify unavailable — sent carrier to profile form.`
+              );
+            } catch (e) { console.error("[assign] broker fallback SMS failed:", e); }
+          }
+        }
+      }
     }
 
+    // Update assignment with status and verification reference
     await query(
-      "UPDATE load_assignments SET status = $1, updated_at = NOW() WHERE id = $2",
-      [nextStatus, assignmentId]
+      `UPDATE load_assignments SET status = $1, carrier_verification_id = $2, updated_at = NOW() WHERE id = $3`,
+      [nextStatus, verificationId, assignmentId]
     );
+
+    // Update load status
+    const loadStatus = nextStatus === "clear" ? "clear_to_dispatch"
+      : nextStatus === "do_not_use" ? "do_not_use"
+      : "waiting_on_docs";
     await query(
       "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",
-      [nextStatus === "clear" ? "clear_to_dispatch" : "waiting_on_docs", load.id]
+      [loadStatus, load.id]
     );
 
     res.json({
