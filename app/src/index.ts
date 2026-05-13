@@ -17,6 +17,7 @@ import profileRoutes from "./routes/profile";
 import billingRoutes from "./routes/billing";
 import loadsRoutes from "./routes/loads";
 import canonicalLoadRoutes from "./routes/canonical-loads";
+import carrierConfirmRoutes from "./routes/carrier-confirm";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
 import verifyRoutes from "./routes/verify";
 import { startVerificationCron } from "./lib/verify-cron";
@@ -71,7 +72,8 @@ app.use("/", trackingRoutes); // public /track/:token routes
 app.use("/", teamRoutes);      // team management + public invite acceptance
 app.use("/", profileRoutes);   // public /profile/carrier route
 app.use("/", billingRoutes);   // /billing page + /api/billing/* endpoints
-app.use("/", canonicalLoadRoutes); // /apply/:slug (public) + /api/v2/loads/* (broker, inline CSRF)
+app.use("/", canonicalLoadRoutes); // /l/:slug (public) + /api/v2/loads/* (broker, inline CSRF)
+app.use("/", carrierConfirmRoutes); // /confirm/:token (public carrier confirmation)
 app.use("/", verifyRoutes);   // /v/:token carrier verification + /api/verify/* endpoints
 
 // Broker routes — CSRF verification on all POSTs
