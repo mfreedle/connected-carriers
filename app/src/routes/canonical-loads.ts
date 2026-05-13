@@ -22,6 +22,7 @@ import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { verifyCsrf } from "../middleware/security";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
 import { triggerCarrierVerification } from "../services/verification";
+import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
 
 const router = Router();
 
@@ -522,14 +523,9 @@ router.post("/l/:slug/check", async (req: Request, res: Response) => {
     const carrier = await findOrCreateCarrier(mcRaw);
 
     // Run FMCSA check
-    let fmcsaResult: Record<string, unknown> = {};
+    let fmcsaResult: FMCSAResult = { mc_number: mcRaw, found: false };
     try {
-      const saferUrl = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${mcRaw}&action=get_data`;
-      const fmcsaResp = await fetch(saferUrl, { signal: AbortSignal.timeout(10000) });
-      if (fmcsaResp.ok) {
-        const html = await fmcsaResp.text();
-        fmcsaResult = parseFMCSAHtml(html, mcRaw);
-      }
+      fmcsaResult = await lookupFMCSA(mcRaw);
     } catch (err) {
       console.error("[FMCSA lookup error]", err);
     }
@@ -700,50 +696,6 @@ export default router;
 // ══════════════════════════════════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════════════════════════════════
-
-function parseFMCSAHtml(html: string, mc: string): Record<string, unknown> {
-  if (html.includes("No records found") || html.includes("no records found")) {
-    return { found: false, mc_number: mc };
-  }
-
-  const rowData: Record<string, string> = {};
-  const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let trMatch: RegExpExecArray | null;
-  while ((trMatch = trPattern.exec(html)) !== null) {
-    const cells: string[] = [];
-    const tdPattern = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-    let tdMatch: RegExpExecArray | null;
-    while ((tdMatch = tdPattern.exec(trMatch[1])) !== null) {
-      const text = tdMatch[1]
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;|&#160;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (text) cells.push(text);
-    }
-    for (let i = 0; i < cells.length - 1; i += 2) {
-      rowData[cells[i].replace(/:?\s*$/, "").trim()] = cells[i + 1].trim();
-    }
-  }
-
-  const usdotStatus = rowData["USDOT Status"] || "";
-  const operatingStatus = rowData["Operating Authority Status"] || "";
-
-  return {
-    found: true,
-    mc_number: mc,
-    entity_name: rowData["Legal Name"] || null,
-    usdot_number: rowData["USDOT Number"] || null,
-    usdot_status: usdotStatus,
-    operating_status: operatingStatus,
-    safety_rating: rowData["Rating"] || rowData["Safety Rating"] || "Not Rated",
-    phone: rowData["Phone"] || null,
-    power_units: rowData["Power Units"] || null,
-    active: usdotStatus.toUpperCase() === "ACTIVE",
-    authorized: operatingStatus.toUpperCase().includes("AUTHORIZED"),
-  };
-}
 
 
 function errorPage(message: string): string {

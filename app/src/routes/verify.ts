@@ -6,6 +6,7 @@ import { sendSms } from "../lib/sms";
 import { uploadToR2, getPresignedDownloadUrl } from "../lib/storage";
 import { parseCDL, parseInsurance, parseVINPhoto, checkDocFlags } from "../doc-parser";
 import { findOrCreateCarrier, updateCarrierFMCSA } from "../carrier-identity";
+import { lookupFMCSA } from "../lib/fmcsa";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -15,58 +16,6 @@ const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
 // ── HELPER: Generate a short, URL-safe token ───────────────────
 function genToken(): string {
   return crypto.randomBytes(12).toString("base64url");
-}
-
-// ── HELPER: FMCSA lookup (reuse MCP server's pattern) ──────────
-async function lookupFMCSA(mc: string): Promise<Record<string, unknown>> {
-  const clean = mc.replace(/\D/g, "");
-  const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${clean}&action=get_data`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!resp.ok) throw new Error(`FMCSA returned ${resp.status}`);
-  const html = await resp.text();
-
-  if (html.includes("No records found") || html.includes("no records found")) {
-    return { mc_number: clean, found: false, active: false, source: "FMCSA SAFER" };
-  }
-
-  const rowData: Record<string, string> = {};
-  const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let trMatch: RegExpExecArray | null;
-  while ((trMatch = trPattern.exec(html)) !== null) {
-    const cells: string[] = [];
-    const tdPattern = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-    let tdMatch: RegExpExecArray | null;
-    while ((tdMatch = tdPattern.exec(trMatch[1])) !== null) {
-      const text = tdMatch[1].replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-      if (text) cells.push(text);
-    }
-    for (let i = 0; i < cells.length - 1; i += 2) {
-      const label = cells[i].replace(/:?\s*$/, "").trim();
-      const value = cells[i + 1].trim();
-      if (label && value) rowData[label] = value;
-    }
-  }
-
-  return {
-    mc_number: clean,
-    found: true,
-    legal_name: rowData["Legal Name"] || rowData["Entity"] || null,
-    dba_name: rowData["DBA Name"] || null,
-    dot_number: rowData["USDOT Number"] || null,
-    usdot_status: rowData["USDOT Status"] || null,
-    operating_status: rowData["Operating Authority Status"] || null,
-    entity_type: rowData["Entity Type"] || rowData["Carrier Operation"] || null,
-    physical_address: rowData["Physical Address"] || null,
-    phone: rowData["Phone"] || null,
-    mailing_address: rowData["Mailing Address"] || null,
-    power_units: rowData["Power Units"] || null,
-    drivers: rowData["Drivers"] || null,
-    safety_rating: rowData["Rating"] || rowData["Safety Rating"] || null,
-    insurance_bipd: rowData["BIPD/Primary"] || rowData["Required"] || null,
-    source: "FMCSA SAFER",
-    checked_at: new Date().toISOString(),
-    raw: rowData,
-  };
 }
 
 // ── HELPER: VIN decode via NHTSA ───────────────────────────────
