@@ -751,5 +751,53 @@ export async function migrateVerification() {
   await query(`ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
   await query(`CREATE INDEX IF NOT EXISTS idx_cv_carrier ON carrier_verifications(carrier_id)`).catch(() => {});
 
+  // ── Backfill: link orphaned profiles and verifications to carrier identity ──
+  // Only runs on rows where carrier_id is NULL and mc_number matches a carrier
+  try {
+    const backfillProfiles = await query(`
+      UPDATE carrier_profiles cp SET carrier_id = c.id
+      FROM carriers c
+      WHERE cp.mc_number = c.mc_number AND cp.carrier_id IS NULL
+    `);
+    if (backfillProfiles.rowCount && backfillProfiles.rowCount > 0) {
+      console.log(`[BACKFILL] Linked ${backfillProfiles.rowCount} carrier_profiles to carrier identity.`);
+    }
+
+    const backfillVerifications = await query(`
+      UPDATE carrier_verifications cv SET carrier_id = c.id
+      FROM carriers c
+      WHERE cv.mc_number = c.mc_number AND cv.carrier_id IS NULL
+    `);
+    if (backfillVerifications.rowCount && backfillVerifications.rowCount > 0) {
+      console.log(`[BACKFILL] Linked ${backfillVerifications.rowCount} carrier_verifications to carrier identity.`);
+    }
+
+    // Update carriers.latest_profile_id from the most recent profile
+    await query(`
+      UPDATE carriers c SET latest_profile_id = sub.id
+      FROM (
+        SELECT DISTINCT ON (carrier_id) id, carrier_id
+        FROM carrier_profiles
+        WHERE carrier_id IS NOT NULL
+        ORDER BY carrier_id, updated_at DESC
+      ) sub
+      WHERE c.id = sub.carrier_id AND c.latest_profile_id IS NULL
+    `);
+
+    // Update carriers.latest_verification_id from the most recent verification
+    await query(`
+      UPDATE carriers c SET latest_verification_id = sub.id
+      FROM (
+        SELECT DISTINCT ON (carrier_id) id, carrier_id
+        FROM carrier_verifications
+        WHERE carrier_id IS NOT NULL
+        ORDER BY carrier_id, created_at DESC
+      ) sub
+      WHERE c.id = sub.carrier_id AND c.latest_verification_id IS NULL
+    `);
+  } catch (err) {
+    console.error("[BACKFILL] Error (non-fatal):", err);
+  }
+
   console.log("Canonical tables migration complete.");
 }

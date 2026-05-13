@@ -1,409 +1,129 @@
 # Connected Carriers — Project Handoff
-**Last updated:** April 13, 2026 (evening)
-**Status:** Full three-layer product built and deployed — Filter (load apply), Chase (auto-doc request), Signal (arrival check). Stripe billing live. DNS on Cloudflare. Waiting on Twilio A2P approval for SMS delivery.
+**Last updated:** May 13, 2026
+**Status:** Full Filter → Chase → Signal pipeline operational on canonical data model. Pilot-ready for Kate (Logistics Xpress). Twilio toll-free approved, SMS live.
 
 ---
 
-## 1. PRODUCT STATUS
+## 1. ARCHITECTURE
 
-| Stage | Status |
-|-------|--------|
-| Homepage + messaging | ✅ Locked — Filter. Chase. Signal. |
-| Load Apply (inbound filter) | ✅ Live — carriers enter MC, instant qualification |
-| Arrival Check (pickup signal) | ✅ Live — geofence gate, GPS required, broker alerts |
-| Auto-chase nudge system | ✅ Wired — 10-min cadence, 2 max, blocked on Twilio |
-| Assign pipeline | ✅ Built — profile check → auto-sends docs or arrival check |
-| Broker dashboard + My Loads | ✅ Live — loads, applicants, assign, attention summary |
-| Pricing page + Stripe billing | ✅ Live — $99/mo, $999/yr, 30-day trial |
-| Pilot user system | ✅ Built — Kate gets free access via PILOT_EMAILS |
-| DNS (Cloudflare) | ✅ Active — connectedcarriers.org + www |
-| SMS delivery | ⏳ Blocked on Twilio A2P approval (5-7 days) |
-| Production hardened | ❌ Not yet — security review deferred |
+The system was rebuilt on May 12-13, 2026 around a spine architecture (see `docs/spines/`). The broker app DB owns all canonical workflow data. MCP remains as a public edge and dispatch verification confirmation handler.
 
----
+### Data ownership
+- **Broker app** (`app.connectedcarriers.org`) owns: `carriers`, `canonical_loads`, `canonical_load_applications`, `load_assignments`, `carrier_profiles`, `carrier_verifications`, `carrier_consents`
+- **MCP server** owns: `dispatch_verifications` (arrival check confirmation), legacy `loads`/`load_applications` (deprecated)
+- Both services share the same Postgres database via `DATABASE_URL`
 
-## 2. URLS — COMPLETE MAP
+### Key services
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Broker app | app.connectedcarriers.org | Dashboard, auth, load management, carrier forms, verification |
+| MCP server | cc-mcp-server-production.up.railway.app | Public board (read-only), driver arrival confirmation, MCP tools |
+| Marketing site | connectedcarriers.org | Homepage, pricing, about, terms, privacy |
 
-### Public pages (connectedcarriers.org — Railway via Cloudflare)
-| Page | URL | Purpose |
-|------|-----|---------|
-| Homepage | connectedcarriers.org | Three-layer messaging, dual CTAs |
-| Pricing | connectedcarriers.org/pricing.html | $99/mo, $999/yr, Stripe checkout |
-| Dispatch verification | connectedcarriers.org/dispatch.html | Manual arrival check tool |
-| Post a Load | connectedcarriers.org/post-load.html | Create load links for load boards |
-| About | connectedcarriers.org/about.html | Three-layer product description |
-| Privacy | connectedcarriers.org/privacy.html | Updated with FMCSA, Twilio, Stripe specifics |
-| Terms | connectedcarriers.org/terms.html | Includes billing section, WA governing law |
-| Contact | connectedcarriers.org/contact.html | Email + direct broker/carrier action links |
-
-### Broker dashboard (app.connectedcarriers.org — Railway)
-| Page | URL | Purpose |
-|------|-----|---------|
-| Login | app.connectedcarriers.org/login | Broker auth |
-| Dashboard | app.connectedcarriers.org/dashboard | Carrier submission queue |
-| My Loads | app.connectedcarriers.org/loads | Load management + "What needs attention?" |
-| Billing | app.connectedcarriers.org/billing | Plan status, trial, Manage Billing |
-| Carrier profile | app.connectedcarriers.org/profile/carrier | Public carrier profile submission |
-| Broker interest | app.connectedcarriers.org/interest/broker | Request broker access |
-| Carrier interest | app.connectedcarriers.org/interest/carrier | Carrier interest form |
-
-### MCP server (cc-mcp-server-production.up.railway.app)
-| Endpoint | Purpose |
-|----------|---------|
-| POST /dispatch | Create arrival check |
-| GET /verify/:token | Driver confirmation page |
-| GET /status/:load_id | Check verification status |
-| POST /load/create | Create load with shareable link |
-| GET /load/:slug | Carrier-facing apply page (MC check) |
-| POST /load/:slug/check | FMCSA qualification check |
-| POST /load/:slug/interest | Carrier submits contact info |
-| GET /loads/recent | List recent loads with applicant counts |
-| GET /loads/attention | Prioritized action items for broker |
-| GET /loads/:load_id/applicants | Qualified carriers for a load |
-| POST /load/:slug/assign | Assign carrier → auto doc request or arrival check |
-| GET /board/:slug | Broker load board (see + assign applicants) |
+### Key modules
+| Module | Path | Purpose |
+|--------|------|---------|
+| Carrier identity | `app/src/carrier-identity.ts` | `findOrCreateCarrier(mc)` — all paths call this |
+| FMCSA lookup | `app/src/lib/fmcsa.ts` | Canonical SAFER parser, one copy |
+| Verification service | `app/src/services/verification.ts` | `triggerCarrierVerification()` — no HTTP self-call |
+| Dispatch signal | `app/src/services/dispatch-signal.ts` | `createDispatchSignal()` — arrival check + SMS |
+| Canonical loads | `app/src/routes/canonical-loads.ts` | v2 load routes — create, list, applicants, assign, cancel |
 
 ---
 
-## 3. DNS — CURRENT STATE
+## 2. PILOT STATE
 
-**Domain:** connectedcarriers.org
-**Registrar:** GoDaddy (registration only)
-**DNS:** Cloudflare (active, nameservers: laylah.ns.cloudflare.com, michael.ns.cloudflare.com)
-**CNAME flattening:** Yes — root domain CNAME to Railway via Cloudflare
+### Kate's credentials
+- **Email:** kateloads@logisticsxpress.com
+- **Password:** KatePilot2026
+- **Forgot password:** SMS code to 310-980-5184
+- **Dashboard:** app.connectedcarriers.org/login
 
-| Record | Type | Target | Service |
-|--------|------|--------|---------|
-| @ (root) | CNAME | z5e2xbky.up.railway.app | Landing page (Railway, one-click Cloudflare setup) |
-| www | CNAME | Railway target (one-click) | Landing page |
-| app | CNAME | 6uvq6g6m.up.railway.app | Broker dashboard |
-| _railway-verify | TXT | railway-verify=df49... | Railway domain verification |
-| MX (5 records) | MX | aspmx.l.google.com etc. | Google Workspace email |
-| SPF | TXT | v=spf1 include:... | Email authentication |
-| DKIM | CNAME | _domaincon... | Email authentication |
-| DMARC | TXT | v=DMARC1; p=quarantine | Email authentication |
+### Current pilot load
+- **Load ID:** HX-0513-19EE
+- **Link:** app.connectedcarriers.org/l/4C8CC258
+- **Route:** Tacoma, WA → Dallas, TX
+- **Equipment:** 53' Dry Van
+- **Pickup:** May 20, 3401 S Union Ave, Tacoma WA 98409, 6am-10am
 
-**Previous state (before today):** GoDaddy forwarding via AWS Global Accelerator IPs (3.33.251.168, 15.197.225.128) → caused relative link issues. Now fully resolved with Cloudflare CNAME flattening.
-
----
-
-## 4. INFRASTRUCTURE
-
-### Railway Services
-| Service | Domain | Status |
-|---------|--------|--------|
-| Landing page | connectedcarriers.org / www.connectedcarriers.org | Online ✅ |
-| Broker dashboard | app.connectedcarriers.org | Online ✅ |
-| MCP server | cc-mcp-server-production.up.railway.app | Online ✅ |
-| Postgres | internal | Online ✅ |
-| R2 storage | connected-carriers-docs (Cloudflare) | Configured ✅ |
-
-### Environment variables on broker dashboard (GitHub Repo service)
-- SESSION_SECRET
-- DATABASE_URL
-- NODE_ENV=production
-- TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
-- STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY
-- STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL
-- STRIPE_WEBHOOK_SECRET
-- PILOT_EMAILS (kate@logisticsxpress.com)
-- MCP_SERVER_URL (optional — defaults to cc-mcp-server-production.up.railway.app)
-
-### Environment variables on MCP server
-- DATABASE_URL
-- TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
-- GOOGLE_GEOCODE_KEY
-- BASE_URL
-
-### VPS Agent Listener
-- VPS: root@137.184.36.72 (SSH key auth)
-- Service: cc_slack_listener — RUNNING
-- Env: /home/connected-carriers/.env
+### Test MC
+- **MC#70000** — SBRUTUS LOGISTICS LLC, Jacksonville FL. Active, authorized.
+- Has a dispatch_ready profile in the system from smoke testing.
 
 ---
 
-## 5. STRIPE BILLING
+## 3. WHAT WORKS (SMOKE TESTED)
 
-### Setup
-- Stripe account: Sandbox/test mode
-- Product: "Connected Carriers"
-- Monthly price: $99/month (price ID in STRIPE_PRICE_MONTHLY env var)
-- Annual price: $999/year (price ID in STRIPE_PRICE_ANNUAL env var)
-- Trial: 30 days, card collected at checkout
-- Customer Portal: enabled for cancel/update
-
-### Billing flow
-1. Pricing page → "Start Free Trial" → POST /api/billing/checkout-session → Stripe Checkout
-2. Stripe Checkout (30-day trial, card collected) → success redirect to /billing
-3. Webhooks (POST /api/webhooks/stripe) update broker_billing table
-4. /billing page shows plan status, trial countdown, "Manage Billing" button
-5. "Manage Billing" → Stripe Customer Portal (hosted by Stripe)
-
-### Webhook events handled
-- checkout.session.completed
-- customer.subscription.created / updated / deleted
-- invoice.paid / invoice.payment_failed
-
-### Pilot users
-- PILOT_EMAILS env var (comma-separated emails)
-- Auto-provisioned as "active" with "Pilot Partner" badge
-- No Stripe customer created — full access, no billing
-
-### Soft usage gates (public pages)
-- Dispatch verification: 3 free arrival checks (localStorage counter)
-- Post a Load: 1 free load creation (localStorage counter)
-- After limit: form replaced with trial signup prompt → pricing page
-
----
-
-## 6. PRODUCT ARCHITECTURE — THE FULL PIPELINE
-
-### Three-layer product framing (decided)
-1. **Filter** — "Enter the MC. Get the answer." (FMCSA check, instant qualification)
-2. **Chase** — "The system chases. You don't." (10-min nudge cadence, 2 max, then alert broker)
-3. **Signal** — "Know if something changed at pickup." (geofence gate, GPS, timing, broker alert)
-
-### Full pipeline flow
-```
-Kate creates load (post-load page or dashboard /loads Quick Create)
-    → System generates slug + shareable link + board URL
-    → Kate pastes link into DAT/Truckstop posting
-
-Carrier clicks link (load apply page /load/:slug)
-    → Enters MC number → instant FMCSA check
-    → Qualified → submits interest (name, phone, email)
-    → Kate gets SMS notification (when Twilio live)
-
-Kate opens board (/board/:slug)
-    → Sees qualified applicants with FMCSA status, profile completeness
-    → Enters/confirms driver phone → clicks "Assign"
-
-System checks carrier profile completeness:
-    IF profile complete (CDL, VIN, insurance on file):
-        → Skips doc chase → sends arrival check directly to driver
-        → Kate gets: "Profile complete — arrival check sent. No docs to chase."
-    IF profile incomplete:
-        → Sends doc request SMS to carrier with profile link
-        → Auto-chase: nudge at T+10min, nudge at T+20min
-        → If no response after 2 nudges: Kate gets "carrier unresponsive" alert
-        → Kate can reassign to another carrier (supersede)
-
-Driver arrives at pickup → taps confirmation link:
-    Green (within 1 mi): Kate gets "Confirmed ✓ — ON SITE"
-    Yellow (1-2 mi): Kate gets "Nearby — NEAR — review before loading"
-    Red (2+ mi): Driver bounced — "Not at pickup yet. Tap again when you arrive."
-    No GPS: Driver bounced — "Location required. Allow location and try again."
-
-Supersede (if Kate reassigns):
-    → Old verification marked superseded
-    → Old driver gets: "Load reassigned. Complete your profile for faster clearance."
-    → Old driver's verify link shows reassignment page with profile CTA
-    → Builds the carrier profile flywheel
-```
-
-### "What needs attention?" summary
-The `/loads` page in the broker dashboard shows a prioritized action card:
-- 🔴 Red signal — something changed at pickup (call carrier)
-- 🟡 Yellow signal — review before loading
-- ⚠️ No arrival confirmation after 2 reminders (call/reassign)
-- 👤 Carriers interested — ready to assign
-- ⏳ Waiting on arrival — reminder sent
-- 📭 No applicants — consider reposting
-- ✅ Green signal — all clear
-
----
-
-## 7. KATE GONZALEZ — PILOT USER
-
-- Company: Logistics Xpress
-- MC#: 064447
-- Email: kate@logisticsxpress.com
-- Dashboard login: kateloads@logisticsxpress.com (seeded account)
-- PILOT_EMAILS: kate@logisticsxpress.com → full access, no billing
-- Policy: $1M auto / $100K cargo / $1M GL / 180-day authority age / COI required
-
-### Kate's feedback (April 13)
-- "SHIPPER is supposed to confirm everything matches. SUPPOSED to. One of Joe's tire loads was stolen because the shipper did not confirm the VIN number."
-- Changes happen 5% of the time, more with spot loads
-- Biggest headache: "Communicating with dispatch to get required docs/photos"
-- Follows up within 10 minutes, chases twice, then moves on
-- Carriers go quiet, not brokers: "We ask them to confirm by sending docs and THEY go quiet"
-
----
-
-## 8. SECURITY STATUS
-
-| Item | Status |
+| Step | Status |
 |------|--------|
-| Default credentials | ✅ Fixed — seed.ts uses SEED_PASSWORD or crypto random |
-| SESSION_SECRET | ✅ Fixed — exits on boot if not set in production |
-| Stored XSS | ✅ Fixed — h() escapeHtml on all user fields |
-| CSRF protection | ✅ Fixed — session double-submit token on broker POSTs |
-| Pickup code generation | ✅ Fixed — crypto.randomInt() |
-| Stripe webhook verification | ✅ STRIPE_WEBHOOK_SECRET verifies signatures |
-| Custom domain | ✅ Cloudflare + Railway — HTTPS on all domains |
-| Session cookies | ✅ Secure + httpOnly + trust proxy |
-| GitHub token in docs | ✅ Scrubbed |
-| Rate limiting (load apply) | ✅ Max 10 MC checks per hour per MC number |
-| Rate limiting (carrier profile) | ✅ Basic rate limiting on uploads |
-| Full security review | ❌ Deferred — needs dedicated block |
+| Kate signs in, dashboard loads | ✅ |
+| Kate creates load, gets /l/:slug link | ✅ |
+| Carrier applies, FMCSA check, qualified | ✅ |
+| Carrier identity resolved via findOrCreateCarrier | ✅ |
+| Carrier submits interest, Kate notified via SMS | ✅ |
+| Kate sees ranked applicants | ✅ |
+| Kate assigns, profile incomplete, verification chase (SMS magic link) | ✅ |
+| Kate assigns, profile complete, dispatch signal (arrival SMS) | ✅ |
+| Driver confirms arrival, green, Kate sees On Site | ✅ |
+| Driver too far, red, Kate sees Location Alert, later green clears it | ✅ |
+| Attention panel shows all states | ✅ |
+| SMS consent captured on all carrier paths + broker | ✅ |
 
 ---
 
-## 9. PAGES BUILT TODAY (April 13)
+## 4. SMS COMPLIANCE
 
-1. **Homepage rewrite** — three-layer messaging, Joe's tires scenario, dual CTAs
-2. **Homepage copy polish** — 5 targeted tweaks (MC language, pickup framing, fewer calls line)
-3. **Post a Load page** — broker creates loads, gets shareable link + post text
-4. **Load Apply page** — carrier enters MC, instant FMCSA qualification, interest submission
-5. **Broker Load Board** — qualified applicants with one-click assign + driver phone input
-6. **Assign pipeline** — auto-sends doc request or arrival check based on profile completeness
-7. **Pricing page** — $99/mo, $999/yr, monthly/annual toggle, 30-day trial
-8. **Stripe integration** — checkout, webhooks, billing page, customer portal
-9. **Pilot user system** — free access for Kate via PILOT_EMAILS
-10. **My Loads dashboard page** — load management + Quick Create + attention summary
-11. **"What needs attention?"** — prioritized action items across all loads
-12. **Soft usage gates** — 3 free arrival checks, 1 free load, then trial prompt
-13. **Tooltips** — contextual help on dispatch and post-load form fields
-14. **About/Privacy/Terms/Contact updates** — three-layer alignment, billing terms, WA governing law
-15. **Dispatch page copy tightening** — 8 surgical fixes per product spec
-16. **DNS migration** — GoDaddy → Cloudflare, Railway custom domains verified
-17. **Cross-page navigation** — all pages linked, no islands
-18. **Workflow diagram PDF** — one-page swim lane for Kate
+| Path | Consent captured | Stored with |
+|------|-----------------|-------------|
+| Load apply (carrier) | SMS + network reuse | phone, text, IP, UA, load_id |
+| Profile form (carrier) | SMS + network reuse | phone, text, IP, UA |
+| Verify form /v/:token (carrier) | SMS on first submission | phone, text, IP, UA |
+| Broker dashboard (Kate) | One-time banner on first /loads visit | phone, text, IP, UA |
+
+- Twilio toll-free +18449363303 approved
+- All carrier SMS identifies Connected Carriers as sender
+- All SMS includes Reply STOP to opt out
+- Terms page Section 8 covers full SMS policy
 
 ---
 
-## 10. BLOCKED / PENDING
+## 5. SPINE DOCS
 
-| Item | Blocker | Impact |
-|------|---------|--------|
-| SMS delivery | Twilio A2P approval (5-7 days) | All SMS wired but can't send |
-| End-to-end test | Twilio | Can't test arrival check with real phones |
-| Kate pilot | Twilio + email to Kate | She has the site link, needs to try it |
-| Google Workspace | Trial ends April 20 | Decision needed |
-| honexai.com | Domain parked at GoDaddy | Links removed, needs landing page |
-| Stripe live mode | Need to switch from sandbox | Not urgent until real customers |
+See `docs/spines/` for the full architecture:
+- SPINE-0001: Broker Load
+- SPINE-0002: Carrier Identity
+- SPINE-0003: Carrier Profile
+- SPINE-0004: Assignment
+- SPINE-0005: Verification / Chase
+- SPINE-0006: Dispatch Signal
+- SPINE-0007: Trust / Ownership / Access
 
----
-
-## 11. PRODUCT ROADMAP
-
-```
-Layer 1 (BUILT):  Filter — load apply page, MC check, inbound carrier qualification
-Layer 1B (BUILT): Chase — auto doc request, 10-min nudge, broker alerts
-Layer 1C (BUILT): Signal — arrival check, geofence gate, GPS, timing flags
-Layer 1D (BUILT): Pipeline — assign, profile check, auto-route to docs or arrival check
-Layer 1E (BUILT): Billing — Stripe, pricing page, trial, pilot users
-Layer 1F (BUILT): Dashboard — workspace with inline assign, attention summary, pipeline status
-Layer 1G (BUILT): Doc Intelligence — AI document parsing (Claude Vision), VIN/insurance cross-reference,
-                  expiration monitoring, proactive carrier doc alerts
-Layer 2 (NEXT):   Kate pilot — real loads, real SMS, real feedback
-Layer 3:          Multi-driver roster — carriers with fleets can list multiple drivers and trucks.
-                  When assigned a load, carrier dispatch selects which driver/truck combo to send.
-                  Each driver has own CDL, phone. Each truck has own VIN, trailer. Arrival check
-                  goes to the specific driver on the load, not the dispatcher. Current model works
-                  for owner-operators (1 truck, 1 driver). Multi-driver needed for fleet carriers.
-Layer 4:          Dispatch Readiness board (prototyped, deploy after validation)
-Layer 5:          Setup packet auto-chase SMS
-Layer 6:          Pickup code as dock-side authorization (V2 — needs shipper)
-Layer 7:          Performance memory per carrier per load
-Layer 8:          Network intelligence across multiple brokers
-Layer 9:          Carrier risk intelligence — partner with CAB or similar for chameleon carrier detection,
-                  advanced scoring, insurance cycling patterns (ref: 60 Minutes "Chameleon Carriers" Apr 12, 2026)
-Layer 10:         ELD/telematics integration — pull real-time truck location from existing ELD providers
-                  (Motive, Samsara, etc.) or aggregators (Project44, Descartes MacroPoint). Auto-trigger
-                  arrival signals without driver action. No app install, no browser tab — the truck is
-                  already reporting location. Partnership play, not a code build.
-Layer 11:         Load marketplace for pre-screened carriers
-```
+ADRs in `docs/adr/` are aligned with the spine architecture.
 
 ---
 
-## 12. KEY LESSONS / GOTCHAS
+## 6. INFRASTRUCTURE
 
-- GoDaddy does NOT support root-level CNAMEs — must use Cloudflare for Railway custom domains
-- Railway "One-click DNS Setup" with Cloudflare works but may need delete + re-add if CNAME target changes
-- Stripe SDK v22 changed type exports — use `any` instead of `Stripe.Event` etc. to avoid TS errors
-- Stripe webhook endpoint needs raw body — register `express.raw()` BEFORE `express.json()` in Express
-- The `www` subdomain needs its own custom domain entry in Railway (separate from root)
-- All inter-page links use absolute URLs to `connectedcarriers.org` — no relative paths
-- MCP server API URLs (`cc-mcp-server-production.up.railway.app`) are different from the landing page domain
-- `honexai.com` points to GoDaddy parking page — links removed, plain text only until landing page built
-- Board page lives on MCP server domain — context switch from app.connectedcarriers.org; acceptable for now
-- Soft gates use localStorage — not bulletproof, intentionally so
-- Both services (MCP server + broker dashboard) share ONE Postgres database — confirmed in Railway
-- The billing route must use `session.userId` not `session.user` — login sets individual session properties
-- Adding new session properties requires updating the AuthenticatedRequest interface in middleware/auth.ts
-- TypeScript build failures on Railway are silent — the old code keeps running, deploy appears successful
-- Kate's password was reset via `/reset-password` endpoint (gated by RESET_TOKEN env var) — remove RESET_TOKEN from Railway after use
+| Component | Detail |
+|-----------|--------|
+| Hosting | Railway (auto-deploy from GitHub main) |
+| Database | Postgres on Railway (shared by app + MCP) |
+| Storage | Cloudflare R2 |
+| SMS | Twilio toll-free +18449363303 |
+| DNS | Cloudflare (connectedcarriers.org + sending domains) |
+| CRM | Go High Level (agency account + CC sub-account) |
+| Repo | github.com/mfreedle/connected-carriers |
+| VPS | 137.184.36.72 (Slack listener) |
 
 ---
 
-## 13. EVENING SESSION ADDITIONS (April 13, 2026)
+## 7. WHAT'S NOT DONE
 
-### Built in evening session
-1. **Dashboard redesign** — `/loads` as workspace with Post a Load + Send Arrival Check side by side
-2. **Pipeline status column** — loads table shows full lifecycle state (Posted → Qualified → Ready to Assign → Docs Requested → Arrival Sent → No Response → Confirmed ✓ → Review → Alert ⚠)
-3. **"What needs attention?" summary** — prioritized action items with icons and urgency coloring
-4. **Inline applicant view** — click "2 applicants ▾" on any load to see carriers and assign without leaving dashboard
-5. **Carrier roster connection** — carriers from load apply flow now appear in Carrier Queue
-6. **Carrier docs in queue** — carrier detail page shows uploaded CDL, VIN photo, insurance cert with parsed data
-7. **AI document parsing** — Claude Vision extracts fields from CDL (number, expiration, class), COI (expiration, coverage, VINs), and VIN photos. Auto-populates profile, cross-references VIN against insurance.
-8. **Insurance expiration monitoring** — proactive alerts on loads page when carrier insurance or CDL expiring within 30 days
-9. **VIN cross-reference** — flags if truck VIN doesn't match any VIN on insurance policy
-10. **User dropdown menu** — Billing, Settings, Team, Sign out under Kate's name in nav
-11. **Billing page fixed** — session bug (checked `session.user` instead of `session.userId`), now uses layout with dashboard nav
-12. **Login redirect** — goes to `/loads` instead of `/dashboard`
-13. **Password reset endpoint** — `/reset-password` gated by RESET_TOKEN env var
-14. **Cross-page navigation** — all dashboard pages have consistent nav, no islands
-15. **Soft usage gates** — dispatch (3 free), post-load (1 free) with trial signup prompt
-16. **Tooltips** — contextual help on dispatch and post-load form fields
-
-### Env vars to set on Railway (broker dashboard service)
-- `ANTHROPIC_API_KEY` — enables AI document parsing on carrier profile uploads
-- Remove `RESET_TOKEN` — password reset endpoint should be disabled after use
-
-### Database status
-- **Single shared Postgres** — both MCP server and broker dashboard use the same instance
-- All tables from both services coexist: `carriers`, `carrier_submissions`, `loads`, `load_applications`, `dispatch_verifications`, `carrier_profiles`, `broker_accounts`, `broker_users`, `broker_billing`, etc.
-- No data migration needed — tables were already shared
-
----
-
-## 14. FINAL LATE-NIGHT FIXES (April 13-14, 2026)
-
-### Demo data seeded
-- **Direct Drive Transportation LLC** (MC1234567) — dispatch-ready carrier with complete profile
-  - CDL: D4821-5577-9013 (AZ), expires 6/30/2027
-  - VIN: 1HGBH41JXMN109186 (on insurance)
-  - Insurance: National Indemnity Company, policy TRK-2026-44821, expires 1/15/2027
-  - Coverage: $1M auto, $100K cargo, $1M GL
-  - Driver: Marcus Webb, 602-555-0199, Truck DDT-4821, Trailer TR-7702
-  - Contact: dispatch@swifteagle.com, 602-555-0188
-- **Demo load**: LX-20260416-003 (Seattle, WA → Phoenix, AZ, 53 Dry Van, April 16)
-  - Direct Drive is the qualified applicant — ready to assign
-  - Kate can click "1 applicant ▾", see Direct Drive as DISPATCH READY, and assign
-
-### Fixes applied
-1. Duplicate MC applications prevented — same MC on same load returns existing result
-2. Applicants query deduplicated — DISTINCT ON (mc_number) per load
-3. Kate's self-application (MC064447) deleted from all loads
-4. Old/duplicate test loads cleaned up via seed-demo endpoint
-5. "For carriers" link restored to homepage nav
-6. Broker reference number field added to Post a Load form
-7. Loads table shows broker ref prominently, HX number smaller
-
-### Admin endpoints (remove after use)
-- `POST /reset-password` on broker dashboard — gated by RESET_TOKEN env var
-- `GET /admin/seed-demo` on MCP server — gated by RESET_TOKEN env var
-- **Remove RESET_TOKEN from both services after seeding is complete**
-
-### Env vars to set/remove
-- **ADD** `ANTHROPIC_API_KEY` to broker dashboard Railway service (enables AI doc parsing)
-- **REMOVE** `RESET_TOKEN` from broker dashboard Railway service
-- **REMOVE** `RESET_TOKEN` from MCP server Railway service
-
-### Git status
-- 59 commits on April 13-14, 2026
-- All pushed, no uncommitted changes
-- Latest commit: homepage "For carriers" nav link restored
+| Item | Priority | Notes |
+|------|----------|-------|
+| Old MCP load routes still active | Low | Redirect for canonical slugs added; old slugs still served by MCP |
+| Carrier login / portal | Deferred | MC + magic link flows sufficient for pilot |
+| Carrier status page post-submission | Nice to have | Carrier sees thank you but not what's missing |
+| Profile freshness cron | Medium | Doc expiration alerts in dashboard, no automated carrier notification |
+| Broker-specific carrier notes / blacklist | Future | Needs broker_carrier_notes table |
+| Assignment reassignment audit trail | Future | Current model supports supersede but not full history |

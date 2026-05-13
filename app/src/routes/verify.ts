@@ -431,6 +431,21 @@ router.post("/v/:token", upload.fields([
       paramCount++;
       updates.push(`carrier_first_response_at=NOW()`);
       updates.push(`submission_method='form'`);
+
+      // Store SMS consent on first form submission
+      if (v.carrier_id) {
+        const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+        const userAgent = (req.headers["user-agent"] as string) || null;
+        try {
+          await query(
+            `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, granted_at)
+             VALUES ($1, 'sms_verification', true, 'verify_form', $2, $3, $4, $5, NOW())`,
+            [v.carrier_id, v.carrier_phone || null,
+             "By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status.",
+             ipAddress, userAgent]
+          );
+        } catch (e) { console.error("[verify form] Consent storage error:", e); }
+      }
     }
 
     // Upload each file to R2
@@ -841,6 +856,12 @@ function renderCarrierForm(token: string, v: Record<string, unknown>, fmcsa: Rec
           <label>Truck VIN (17 characters)</label>
           <input type="text" name="truck_vin" placeholder="e.g. 1FUJGLDR5CLBP8834" maxlength="17" value="${v.truck_vin || ""}">
         </div>
+      </div>
+
+      <div style="margin:16px 0;font-size:11px;color:#6B7A8A;line-height:1.5">
+        By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status. Msg & data rates may apply. Reply STOP to opt out.
+        <a href="https://connectedcarriers.org/terms.html" target="_blank" style="color:#C8892A">Terms</a> &
+        <a href="https://connectedcarriers.org/privacy.html" target="_blank" style="color:#C8892A">Privacy</a>.
       </div>
 
       <button type="submit" class="btn">Submit Verification</button>

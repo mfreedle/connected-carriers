@@ -906,10 +906,20 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── GET /load/:slug — public load apply page (one field, one button)
+  // ── GET /load/:slug — redirect to canonical /l/:slug on broker app
+  // Old MCP load pages are deprecated. New loads live in canonical_loads.
   if (req.method === "GET" && url.match(/^\/load\/[A-Z0-9]+$/)) {
     const slug = url.replace("/load/", "");
     try {
+      // Check canonical_loads first
+      const canonical = await query("SELECT slug FROM canonical_loads WHERE slug = $1", [slug]);
+      if (canonical.rows.length) {
+        const BROKER_APP = process.env.BASE_URL || "https://app.connectedcarriers.org";
+        res.writeHead(301, { "Location": `${BROKER_APP}/l/${slug}` });
+        res.end();
+        return;
+      }
+      // Fall through to old MCP loads table for backward compat
       const result = await query("SELECT * FROM loads WHERE slug = $1", [slug]);
       if (!result.rows.length) {
         res.writeHead(404, { "Content-Type": "text/html" });
