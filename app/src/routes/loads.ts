@@ -5,7 +5,6 @@ import { query } from "../db";
 import { csrfToken } from "../middleware/security";
 
 const router = Router();
-const MCP_URL = process.env.MCP_SERVER_URL || "https://cc-mcp-server-production.up.railway.app";
 
 router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userName = req.session.userName || "";
@@ -56,7 +55,7 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
     title: "My Loads",
     userName,
     userRole,
-    content: loadsPageContent(MCP_URL, docAlerts, csrfToken(req)),
+    content: loadsPageContent(docAlerts, csrfToken(req)),
   });
 
   res.send(html);
@@ -64,13 +63,34 @@ router.get("/loads", requireAuth, async (req: AuthenticatedRequest, res: Respons
 
 // ── Server-side API routes ────────────────────────────────────────
 // Old MCP proxy routes removed — dashboard uses v2 canonical routes.
-// Carrier profile proxy kept until profile viewing moves to v2.
+// Carrier profile is now a direct query, no MCP proxy.
 
 router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const resp = await fetch(`${MCP_URL}/carrier/${req.params.mc}/profile`);
-    const data = await resp.json();
-    res.status(resp.status).json(data);
+    const mc = req.params.mc.replace(/\D/g, "");
+    if (!mc) return res.json({ found: false });
+
+    // Prefer lookup by carrier_id via carriers table, fall back to mc_number
+    const profile = await query(
+      `SELECT cp.company_name, cp.mc_number, cp.contact_name, cp.email, cp.phone,
+              cp.driver_name, cp.driver_phone, cp.truck_number, cp.trailer_number,
+              cp.vin_number, cp.cdl_number, cp.cdl_state, cp.cdl_expiration,
+              cp.insurance_expiration, cp.insurance_policy_number, cp.insurance_company,
+              cp.insurance_auto_liability, cp.insurance_cargo, cp.insurance_general_liability,
+              cp.insurance_vins, cp.completion_status, cp.doc_flags,
+              cp.cdl_photo_url, cp.vin_photo_url, cp.insurance_doc_url,
+              c.network_status, c.fmcsa_legal_name
+       FROM carrier_profiles cp
+       LEFT JOIN carriers c ON c.id = cp.carrier_id
+       WHERE cp.mc_number = $1
+       ORDER BY cp.updated_at DESC LIMIT 1`,
+      [mc]
+    );
+
+    if (!profile.rows.length) {
+      return res.json({ found: false });
+    }
+    res.json({ found: true, profile: profile.rows[0] });
   } catch (err) {
     console.error("[API] Carrier profile error:", err);
     res.status(500).json({ error: "Failed to fetch carrier profile" });
@@ -79,7 +99,7 @@ router.get("/api/carrier/:mc/profile", requireAuth, async (req: AuthenticatedReq
 
 export default router;
 
-function loadsPageContent(mcpUrl: string, docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [], csrf: string = ""): string {
+function loadsPageContent(docAlerts: { company: string; mc: string; issue: string; severity: string }[] = [], csrf: string = ""): string {
   const alertsHtml = docAlerts.length > 0 ? `
 <div class="card" style="border-left:3px solid #a32d2d;margin-bottom:20px">
   <div class="card-title" style="margin:0 0 10px 0;padding:0;border:0;color:#a32d2d">Carrier doc alerts</div>
@@ -149,7 +169,6 @@ ${alertsHtml}
 </div>
 
 <script>
-var MCP = '${mcpUrl}';
 var CSRF = '${csrf}';
 
 async function quickCreate() {
