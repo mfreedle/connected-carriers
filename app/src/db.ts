@@ -570,4 +570,149 @@ export async function migrateVerification() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_prc_user ON password_reset_codes(user_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_prc_code ON password_reset_codes(code)`);
+
+  // ══════════════════════════════════════════════════════════════════
+  // CANONICAL TABLES — broker app owns these per spine architecture
+  // See docs/spines/ for design rationale
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Carrier identity (SPINE-0002) ────────────────────────────────
+  // One row per MC number, forever. Not a profile — just identity.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carriers (
+      id SERIAL PRIMARY KEY,
+      mc_number TEXT UNIQUE NOT NULL,
+      dot_number TEXT,
+      fmcsa_legal_name TEXT,
+      fmcsa_status TEXT,
+      authority_status TEXT,
+      safety_rating TEXT,
+      phone TEXT,
+      email TEXT,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      network_status TEXT NOT NULL DEFAULT 'known'
+        CHECK (network_status IN ('known', 'profile_started', 'verified', 'stale', 'blocked')),
+      latest_profile_id INTEGER,
+      latest_verification_id INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carriers_mc ON carriers(mc_number)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_carriers_status ON carriers(network_status)`);
+
+  // ── Canonical loads (SPINE-0001) ─────────────────────────────────
+  // Broker-owned. Every load belongs to a broker account.
+  await query(`
+    CREATE TABLE IF NOT EXISTS canonical_loads (
+      id SERIAL PRIMARY KEY,
+      load_id VARCHAR(30) UNIQUE NOT NULL,
+      slug VARCHAR(20) UNIQUE NOT NULL,
+      broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+      broker_name TEXT,
+      broker_ref TEXT,
+      broker_phone VARCHAR(20),
+      broker_email TEXT,
+      origin TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      equipment TEXT NOT NULL,
+      pickup_date TEXT,
+      pickup_address TEXT,
+      pickup_window_start TIMESTAMPTZ,
+      pickup_window_end TIMESTAMPTZ,
+      pickup_window_text TEXT,
+      rate_note TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'posted'
+        CHECK (status IN ('posted', 'carriers_qualified', 'ready_to_call', 'assigned',
+                          'waiting_on_docs', 'clear_to_dispatch', 'review', 'do_not_use',
+                          'arrival_sent', 'on_site', 'no_response', 'location_alert',
+                          'covered', 'cancelled')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cloads_broker ON canonical_loads(broker_account_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cloads_status ON canonical_loads(status)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cloads_slug ON canonical_loads(slug)`);
+
+  // ── Canonical load applications (SPINE-0001 + SPINE-0002) ────────
+  // One per carrier per load. Links to carrier identity.
+  await query(`
+    CREATE TABLE IF NOT EXISTS canonical_load_applications (
+      id SERIAL PRIMARY KEY,
+      load_id INTEGER NOT NULL REFERENCES canonical_loads(id),
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      mc_number TEXT NOT NULL,
+      company_name TEXT,
+      contact_name TEXT,
+      contact_phone TEXT,
+      contact_email TEXT,
+      fmcsa_authority TEXT,
+      fmcsa_safety TEXT,
+      fmcsa_company TEXT,
+      qualification_result TEXT NOT NULL
+        CHECK (qualification_result IN ('qualified', 'review', 'not_qualified')),
+      qualification_details JSONB,
+      has_profile BOOLEAN DEFAULT FALSE,
+      profile_completion_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(load_id, carrier_id)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cla_load ON canonical_load_applications(load_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cla_carrier ON canonical_load_applications(carrier_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cla_mc ON canonical_load_applications(mc_number)`);
+
+  // ── Load assignments (SPINE-0004) ────────────────────────────────
+  // The hinge between filtering and dispatch. One per assignment event.
+  await query(`
+    CREATE TABLE IF NOT EXISTS load_assignments (
+      id SERIAL PRIMARY KEY,
+      load_id INTEGER NOT NULL REFERENCES canonical_loads(id),
+      broker_account_id INTEGER NOT NULL REFERENCES broker_accounts(id),
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      load_application_id INTEGER NOT NULL REFERENCES canonical_load_applications(id),
+      assigned_by_user_id INTEGER REFERENCES broker_users(id),
+      carrier_verification_id INTEGER,
+      dispatch_signal_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'assigned'
+        CHECK (status IN ('assigned', 'verification_requested', 'documents_pending',
+                          'clear', 'caution', 'do_not_use',
+                          'arrival_pending', 'arrival_confirmed', 'arrival_alert',
+                          'superseded', 'cancelled')),
+      assigned_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_la_load ON load_assignments(load_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_la_carrier ON load_assignments(carrier_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_la_broker ON load_assignments(broker_account_id)`);
+
+  // ── Carrier consents (SPINE-0003 + SPINE-0007) ───────────────────
+  // Records carrier consent for network profile reuse.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_consents (
+      id SERIAL PRIMARY KEY,
+      carrier_id INTEGER NOT NULL REFERENCES carriers(id),
+      consent_type TEXT NOT NULL
+        CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage')),
+      granted BOOLEAN NOT NULL DEFAULT true,
+      source TEXT NOT NULL,
+      ip_address TEXT,
+      granted_at TIMESTAMPTZ DEFAULT NOW(),
+      revoked_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_cc_carrier ON carrier_consents(carrier_id)`);
+
+  // ── Add carrier_id FK to existing tables ─────────────────────────
+  await query(`ALTER TABLE carrier_profiles ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
+  await query(`CREATE INDEX IF NOT EXISTS idx_cp_carrier ON carrier_profiles(carrier_id)`).catch(() => {});
+  await query(`ALTER TABLE carrier_verifications ADD COLUMN IF NOT EXISTS carrier_id INTEGER REFERENCES carriers(id)`).catch(() => {});
+  await query(`CREATE INDEX IF NOT EXISTS idx_cv_carrier ON carrier_verifications(carrier_id)`).catch(() => {});
+
+  console.log("Canonical tables migration complete.");
 }
