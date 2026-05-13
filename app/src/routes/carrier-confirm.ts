@@ -171,6 +171,13 @@ router.post("/confirm/:token", upload.fields([
       return res.send(shell("Unavailable", `<div style="text-align:center;padding:40px"><p>This assignment is no longer active.</p></div>`));
     }
 
+    if (a.confirmed_at) {
+      const eval_ = a.driver_id && a.equipment_id
+        ? await evaluateDispatchPackage(a.carrier_id, a.driver_id, a.equipment_id)
+        : null;
+      return res.send(shell("Confirmed", confirmedPage(a, eval_)));
+    }
+
     // ── Resolve driver ──────────────────────────────────────────
 
     let driverId: number | null = null;
@@ -250,7 +257,7 @@ router.post("/confirm/:token", upload.fields([
         if (files[field]?.[0]) {
           const f = files[field][0];
           const uploaded = await uploadToR2(f.buffer, f.originalname, f.mimetype, `confirm/${mc}`);
-          docInputs.push({ doc_type: docType, r2_key: uploaded.objectKey, file_url: null });
+          docInputs.push({ doc_type: docType, r2_key: uploaded.objectKey, file_url: uploaded.fileUrl });
         }
       }
     }
@@ -259,8 +266,8 @@ router.post("/confirm/:token", upload.fields([
     if (docInputs.length > 0) {
       await syncCanonicalCarrierRecords({
         carrier_id: a.carrier_id,
-        driver: { name: "" }, // driver already resolved — pass minimal to avoid re-creation
-        equipment: null,
+        driver_id: driverId,
+        equipment_id: equipmentId,
         documents: docInputs,
         source: "confirm",
       });
@@ -308,11 +315,22 @@ router.post("/confirm/:token", upload.fields([
     const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
     const userAgent = (req.headers["user-agent"] as string) || null;
 
+    let confirmedDriverPhone: string | null = null;
+    let confirmedDriverName = "Driver";
+    try {
+      const driverResult = await query(
+        "SELECT driver_name, driver_phone FROM carrier_drivers WHERE id = $1 AND carrier_id = $2",
+        [driverId, a.carrier_id]
+      );
+      confirmedDriverPhone = driverResult.rows[0]?.driver_phone || null;
+      confirmedDriverName = driverResult.rows[0]?.driver_name || "Driver";
+    } catch { /* non-fatal */ }
+
     try {
       await query(
         `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, load_id, granted_at)
          VALUES ($1, 'sms_verification', true, 'confirm', $2, $3, $4, $5, $6, NOW())`,
-        [a.carrier_id, req.body.new_driver_phone || null, consentText, ipAddress, userAgent, a.load_id]
+        [a.carrier_id, confirmedDriverPhone, consentText, ipAddress, userAgent, a.load_id]
       );
     } catch { /* non-fatal */ }
 
@@ -320,17 +338,19 @@ router.post("/confirm/:token", upload.fields([
 
     if (evaluation.result === "clear") {
       try {
-        // Get the confirmed driver's phone for the arrival SMS
-        const driverResult = await query("SELECT driver_name, driver_phone FROM carrier_drivers WHERE id = $1", [driverId]);
-        const driverPhone = driverResult.rows[0]?.driver_phone;
+        const brokerResult = await query(
+          "SELECT contact_phone FROM broker_accounts WHERE id = $1",
+          [a.broker_account_id]
+        );
+        const brokerPhone = brokerResult.rows[0]?.contact_phone || "";
 
-        if (driverPhone && (a.pickup_address || a.origin)) {
+        if (confirmedDriverPhone && (a.pickup_address || a.origin)) {
           const signalResult = await createDispatchSignal({
             load_id: a.cl_load_id,
             assignment_id: a.id,
             carrier_id: a.carrier_id,
-            driver_phone: driverPhone,
-            broker_phone: "",
+            driver_phone: confirmedDriverPhone,
+            broker_phone: brokerPhone,
             mc_number: a.mc_number,
             carrier_name: a.fmcsa_legal_name,
             pickup_address: a.pickup_address || "",
@@ -360,17 +380,15 @@ router.post("/confirm/:token", upload.fields([
       );
       const broker = brokerResult.rows[0];
       if (broker?.contact_phone) {
-        const driverResult = await query("SELECT driver_name FROM carrier_drivers WHERE id = $1", [driverId]);
-        const driverName = driverResult.rows[0]?.driver_name || "Driver";
         const carrierName = a.fmcsa_legal_name || `MC${a.mc_number}`;
 
         const statusMsg = evaluation.result === "clear"
-          ? `✓ ${carrierName} confirmed: ${driverName} for ${a.cl_load_id}. Clear to dispatch — arrival check sent.`
+          ? `✓ ${carrierName} confirmed: ${confirmedDriverName} for ${a.cl_load_id}. Clear to dispatch — arrival check sent.`
           : evaluation.result === "review"
-          ? `⚠ ${carrierName} confirmed ${driverName} for ${a.cl_load_id} with flags: ${evaluation.warnings.join(", ")}`
+          ? `⚠ ${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id} with flags: ${evaluation.warnings.join(", ")}`
           : evaluation.result === "do_not_use"
           ? `✗ ${carrierName} — DO NOT USE for ${a.cl_load_id}: ${evaluation.blockers.join(", ")}`
-          : `${carrierName} confirmed ${driverName} for ${a.cl_load_id}. Still needs: ${evaluation.missing.join(", ")}`;
+          : `${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id}. Still needs: ${evaluation.missing.join(", ")}`;
 
         await sendSms(broker.contact_phone, `Connected Carriers: ${statusMsg}`);
       }

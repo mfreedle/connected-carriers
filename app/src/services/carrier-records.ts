@@ -37,6 +37,8 @@ export interface DocumentInput {
 
 export interface SyncInput {
   carrier_id: number;
+  driver_id?: number | null;
+  equipment_id?: number | null;
   driver?: DriverInput | null;
   equipment?: EquipmentInput | null;
   documents?: DocumentInput[];
@@ -51,8 +53,8 @@ export interface SyncResult {
 
 export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<SyncResult> {
   const { carrier_id, driver, equipment, documents, source } = input;
-  let driver_id: number | null = null;
-  let equipment_id: number | null = null;
+  let driver_id: number | null = input.driver_id || null;
+  let equipment_id: number | null = input.equipment_id || null;
   let documents_created = 0;
 
   const today = new Date();

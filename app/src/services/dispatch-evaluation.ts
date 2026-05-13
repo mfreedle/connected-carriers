@@ -97,6 +97,10 @@ export async function evaluateDispatchPackage(
           items.push({ check: "Driver", status: "expired", detail: `${d.driver_name} — inactive` });
         } else {
           items.push({ check: "Driver", status: "ok", detail: `${d.driver_name}${d.cdl_number ? " — CDL " + d.cdl_number : ""}` });
+          if (!d.driver_phone) {
+            missing.push("Driver phone not on file");
+            items.push({ check: "Driver phone", status: "missing", detail: "Needed for arrival check SMS" });
+          }
         }
       }
     } catch (err) {
