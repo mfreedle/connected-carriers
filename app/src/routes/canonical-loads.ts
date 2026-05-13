@@ -21,6 +21,7 @@ import { query } from "../db";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { verifyCsrf } from "../middleware/security";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
+import { triggerCarrierVerification } from "../services/verification";
 
 const router = Router();
 
@@ -372,72 +373,56 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
           } catch (e) { console.error("[assign] broker SMS failed:", e); }
         }
       } else {
-        // Call the verify trigger
-        const BASE_URL = process.env.BASE_URL || "https://app.connectedcarriers.org";
-        let triggerSucceeded = false;
-
+        // Call verification service directly (no HTTP self-fetch)
         try {
-          const triggerResp = await fetch(`${BASE_URL}/api/verify/trigger`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              mc_number: applicant.mc_number,
-              carrier_phone: carrierPhone || undefined,
-              carrier_email: applicant.contact_email || carrier?.email_contact || undefined,
-              carrier_name: applicant.company_name || carrier?.fmcsa_legal_name || undefined,
-              broker_name: broker?.company_name || undefined,
-              broker_phone: broker?.contact_phone || undefined,
-              broker_email: broker?.contact_email || undefined,
-              broker_account_id: req.session.brokerAccountId,
-            }),
+          const verifyResult = await triggerCarrierVerification({
+            mc_number: applicant.mc_number,
+            carrier_phone: carrierPhone || undefined,
+            carrier_email: applicant.contact_email || carrier?.email_contact || undefined,
+            carrier_name: applicant.company_name || carrier?.fmcsa_legal_name || undefined,
+            broker_name: broker?.company_name || undefined,
+            broker_phone: broker?.contact_phone || undefined,
+            broker_email: broker?.contact_email || undefined,
+            broker_account_id: req.session.brokerAccountId,
           });
 
-          if (triggerResp.ok) {
-            const triggerData = await triggerResp.json() as Record<string, unknown>;
-            triggerSucceeded = true;
-            verificationId = (triggerData.id as number) || null;
+          verificationId = verifyResult.id;
 
-            if (triggerData.result === "DO_NOT_USE") {
-              nextStatus = "do_not_use";
-              nextAction = "fmcsa_rejected";
+          if (verifyResult.result === "DO_NOT_USE") {
+            nextStatus = "do_not_use";
+            nextAction = "fmcsa_rejected";
 
-              if (broker?.contact_phone) {
-                try {
-                  const { sendSms } = await import("../lib/sms");
-                  await sendSms(broker.contact_phone,
-                    `⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
-                  );
-                } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
-              }
-            } else {
-              // Verification request sent successfully
-              if (broker?.contact_phone) {
-                try {
-                  const { sendSms } = await import("../lib/sms");
-                  await sendSms(broker.contact_phone,
-                    `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
-                  );
-                } catch (e) { console.error("[assign] broker SMS failed:", e); }
-              }
+            if (broker?.contact_phone) {
+              try {
+                const { sendSms } = await import("../lib/sms");
+                await sendSms(broker.contact_phone,
+                  `⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
+                );
+              } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
             }
           } else {
-            console.error("[assign] Verify trigger returned", triggerResp.status);
+            // Verification request sent successfully
+            if (broker?.contact_phone) {
+              try {
+                const { sendSms } = await import("../lib/sms");
+                await sendSms(broker.contact_phone,
+                  `${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
+                );
+              } catch (e) { console.error("[assign] broker SMS failed:", e); }
+            }
           }
         } catch (err) {
-          console.error("[assign] Verify trigger call failed:", err);
-        }
+          console.error("[assign] Verification service error:", err);
 
-        if (!triggerSucceeded) {
           // Fallback: send carrier to profile form
           nextStatus = "documents_pending";
           nextAction = "verification_fallback";
 
           if (carrierPhone) {
             try {
-              const BASE = process.env.BASE_URL || "https://app.connectedcarriers.org";
               const { sendSms } = await import("../lib/sms");
               await sendSms(carrierPhone,
-                `${broker?.company_name || "A broker"} needs your docs for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${BASE}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`
+                `${broker?.company_name || "A broker"} needs your docs for ${load.load_id} (${load.origin} → ${load.destination}). Submit here: ${process.env.BASE_URL || "https://app.connectedcarriers.org"}/profile/carrier?source=load_assign&mc=${applicant.mc_number}`
               );
             } catch (e) { console.error("[assign] carrier fallback SMS failed:", e); }
           }
