@@ -22,6 +22,7 @@ import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 import { verifyCsrf } from "../middleware/security";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
 import { triggerCarrierVerification } from "../services/verification";
+import { createDispatchSignal } from "../services/dispatch-signal";
 import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
 
 const router = Router();
@@ -341,18 +342,66 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
     let verificationId: number | null = null;
 
     if (profileComplete) {
-      // ── FAST PATH: Profile dispatch-ready → clear, skip doc chase
-      nextAction = "clear";
+      // ── FAST PATH: Profile dispatch-ready → send arrival check
+      nextAction = "dispatch_signal";
       nextStatus = "clear";
 
-      // Notify broker
-      if (broker?.contact_phone) {
+      if (carrierPhone && (load.pickup_address || load.origin)) {
         try {
-          const { sendSms } = await import("../lib/sms");
-          await sendSms(broker.contact_phone,
-            `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch.`
+          const signalResult = await createDispatchSignal({
+            load_id: load.load_id,
+            assignment_id: assignmentId,
+            carrier_id: applicant.carrier_id,
+            driver_phone: carrierPhone,
+            broker_phone: broker?.contact_phone || "",
+            mc_number: applicant.mc_number,
+            carrier_name: applicant.company_name || carrier?.fmcsa_legal_name,
+            pickup_address: load.pickup_address || "",
+            pickup_window_start: load.pickup_window_start || undefined,
+            pickup_window_end: load.pickup_window_end || undefined,
+            origin: load.origin,
+          });
+
+          nextStatus = "arrival_pending";
+          nextAction = "arrival_sent";
+
+          // Store dispatch signal reference on assignment
+          // Note: dispatch_signal_id on load_assignments stores the dispatch_verification_id string
+          await query(
+            "UPDATE load_assignments SET dispatch_signal_id = NULL, updated_at = NOW() WHERE id = $1",
+            [assignmentId]
           );
-        } catch (e) { console.error("[assign] broker SMS failed:", e); }
+
+          if (broker?.contact_phone) {
+            try {
+              const { sendSms } = await import("../lib/sms");
+              await sendSms(broker.contact_phone,
+                `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — arrival check sent to driver.${signalResult.geocoded ? "" : " ⚠ Could not geocode pickup address."}`
+              );
+            } catch (e) { console.error("[assign] broker signal SMS failed:", e); }
+          }
+        } catch (err) {
+          console.error("[assign] Dispatch signal error:", err);
+          // Signal failed but carrier is still clear — just notify broker
+          if (broker?.contact_phone) {
+            try {
+              const { sendSms } = await import("../lib/sms");
+              await sendSms(broker.contact_phone,
+                `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch. Arrival check could not be sent automatically.`
+              );
+            } catch (e) { console.error("[assign] broker SMS failed:", e); }
+          }
+        }
+      } else {
+        // No phone or no address — clear but no signal
+        if (broker?.contact_phone) {
+          try {
+            const { sendSms } = await import("../lib/sms");
+            await sendSms(broker.contact_phone,
+              `✓ ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Profile complete — clear to dispatch.${!carrierPhone ? " No driver phone on file for arrival check." : ""}${!load.pickup_address ? " No pickup address for arrival check." : ""}`
+            );
+          } catch (e) { console.error("[assign] broker SMS failed:", e); }
+        }
       }
 
     } else {
@@ -447,7 +496,8 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
     );
 
     // Update load status
-    const loadStatus = nextStatus === "clear" ? "clear_to_dispatch"
+    const loadStatus = nextStatus === "arrival_pending" ? "arrival_sent"
+      : nextStatus === "clear" ? "clear_to_dispatch"
       : nextStatus === "do_not_use" ? "do_not_use"
       : "waiting_on_docs";
     await query(
