@@ -224,7 +224,7 @@ async function refreshLoads() {
         var pipeColors = {
           posted: {bg:'#6B7A8A',label:'Posted'},
           carriers_qualified: {bg:'#3b82f6',label:'Carriers Qualified'},
-          ready_to_call: {bg:'#C8892A',label:'Call'},
+          ready_to_call: {bg:'#C8892A',label:'FMCSA PASS - Need Documents'},
           assigned: {bg:'#8b5cf6',label:'Assigned'},
           waiting_on_docs: {bg:'#8b5cf6',label:'Waiting on Docs'},
           clear_to_dispatch: {bg:'#10b981',label:'Clear to Dispatch'},

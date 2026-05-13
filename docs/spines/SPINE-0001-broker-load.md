@@ -61,7 +61,7 @@ Broker-facing status should be operational, not technical:
 
 - `posted`: load is live, no applicants yet
 - `carriers_qualified`: carriers have passed initial checks
-- `ready_to_call`: at least one qualified carrier has phone/contact info
+- `ready_to_call`: at least one carrier has passed the FMCSA gate and submitted contact info; broker-facing label should be "FMCSA PASS - Need Documents"
 - `assigned`: broker selected a carrier
 - `waiting_on_docs`: assigned carrier needs document completion
 - `clear_to_dispatch`: carrier is clear for dispatch
