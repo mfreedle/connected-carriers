@@ -3,6 +3,7 @@ import multer from "multer";
 import { query } from "../db";
 import { h } from "../middleware/security";
 import { uploadToR2, isR2Configured } from "../lib/storage";
+import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
 
 const router = Router();
 
@@ -128,6 +129,28 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       }
     }
 
+    // Resolve carrier identity (SPINE-0002)
+    let carrierId: number | null = null;
+    if (mcClean) {
+      const carrier = await findOrCreateCarrier(mcClean);
+      carrierId = carrier.id;
+
+      // Update carrier with FMCSA data if we ran a check
+      if (fmcsaStatus === "active" || fmcsaStatus === "inactive" || fmcsaStatus === "not_authorized") {
+        await updateCarrierFMCSA(carrier.id, {
+          fmcsa_legal_name: fmcsaData.legal_name as string,
+          dot_number: fmcsaData.dot_number as string,
+          fmcsa_status: fmcsaData.usdot_status as string,
+          authority_status: fmcsaData.operating_status as string,
+          safety_rating: fmcsaData.safety_rating as string,
+          phone: fmcsaData.phone as string,
+        });
+      }
+
+      // Update carrier contact info
+      await updateCarrierContact(carrier.id, phone?.trim(), email?.trim().toLowerCase());
+    }
+
     // Upload files to R2 if present
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     let cdl_photo_url: string | null = null, cdl_photo_r2_key: string | null = null;
@@ -180,8 +203,10 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
          insurance_doc_url, insurance_doc_r2_key,
          vin_number, insurance_expiration, cdl_expiration,
          completion_status, source,
-         fmcsa_status, fmcsa_data, fmcsa_checked_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+         fmcsa_status, fmcsa_data, fmcsa_checked_at,
+         carrier_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+      RETURNING id
     `, [
       company_name.trim(), mcClean || null,
       contact_name.trim(), email.trim().toLowerCase(),
@@ -197,7 +222,23 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       fmcsaStatus !== "not_checked" ? fmcsaStatus : null,
       Object.keys(fmcsaData).length > 0 ? JSON.stringify(fmcsaData) : null,
       fmcsaStatus !== "not_checked" ? new Date() : null,
+      carrierId,
     ]);
+
+    // Update carrier identity with latest profile reference
+    if (carrierId) {
+      const profileResult = await query(
+        "SELECT id FROM carrier_profiles WHERE carrier_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [carrierId]
+      );
+      if (profileResult.rows.length) {
+        const newStatus = completion === "dispatch_ready" ? "verified" : "profile_started";
+        await query(
+          "UPDATE carriers SET latest_profile_id = $1, network_status = $2, updated_at = NOW() WHERE id = $3",
+          [profileResult.rows[0].id, newStatus, carrierId]
+        );
+      }
+    }
 
     // Run AI document parsing in background (don't block the response)
     const profileEmail = email.trim().toLowerCase();

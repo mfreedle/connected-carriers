@@ -5,6 +5,7 @@ import { query } from "../db";
 import { sendSms } from "../lib/sms";
 import { uploadToR2, getPresignedDownloadUrl } from "../lib/storage";
 import { parseCDL, parseInsurance, parseVINPhoto, checkDocFlags } from "../doc-parser";
+import { findOrCreateCarrier, updateCarrierFMCSA } from "../carrier-identity";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -389,17 +390,33 @@ router.post("/api/verify/trigger", async (req, res) => {
       console.error("[VERIFY] FMCSA lookup error:", err);
     }
 
-    // Step 2: Create verification record
+    // Step 2: Resolve carrier identity (SPINE-0002)
+    const mcClean = mc_number.replace(/\D/g, "");
+    const carrier = await findOrCreateCarrier(mcClean);
+
+    // Update carrier with FMCSA data
+    if (fmcsaData.found) {
+      await updateCarrierFMCSA(carrier.id, {
+        fmcsa_legal_name: fmcsaData.entity_name as string || fmcsaData.legal_name as string,
+        dot_number: fmcsaData.usdot_number as string || fmcsaData.dot_number as string,
+        fmcsa_status: fmcsaData.usdot_status as string,
+        authority_status: fmcsaData.operating_status as string,
+        safety_rating: fmcsaData.safety_rating as string,
+        phone: fmcsaData.phone as string,
+      });
+    }
+
+    // Step 3: Create verification record
     const result = await query(`
       INSERT INTO carrier_verifications
         (token, broker_account_id, broker_name, broker_phone, broker_email,
          mc_number, carrier_phone, carrier_email, carrier_name,
-         fmcsa_data, fmcsa_status, deadline, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')
+         fmcsa_data, fmcsa_status, deadline, status, carrier_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13)
       RETURNING id, token
     `, [token, broker_account_id || null, broker_name || null, broker_phone || null, broker_email || null,
-        mc_number.replace(/\D/g, ""), carrier_phone || null, carrier_email || null, carrier_name || null,
-        JSON.stringify(fmcsaData), fmcsaStatus, deadline]);
+        mcClean, carrier_phone || null, carrier_email || null, carrier_name || null,
+        JSON.stringify(fmcsaData), fmcsaStatus, deadline, carrier.id]);
 
     const verificationId = result.rows[0].id;
     const verifyUrl = `${BASE_URL}/v/${token}`;
@@ -585,6 +602,14 @@ router.post("/v/:token", upload.fields([
         await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
           [finalResult, JSON.stringify(reasons), v.id]);
 
+        // Update carrier identity with latest verification
+        if (ov.carrier_id) {
+          await query(
+            "UPDATE carriers SET latest_verification_id = $1, updated_at = NOW() WHERE id = $2",
+            [v.id, ov.carrier_id]
+          );
+        }
+
         // Save to carrier profile for next time
         await saveCarrierProfile(ov);
 
@@ -693,6 +718,10 @@ router.post("/api/verify/sms", async (req, res) => {
           const { result: finalResult, reasons } = computeResult(ov);
           await query(`UPDATE carrier_verifications SET status='complete', result=$1, result_reasons=$2, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$3`,
             [finalResult, JSON.stringify(reasons), v.id]);
+          // Update carrier identity with latest verification
+          if (ov.carrier_id) {
+            await query("UPDATE carriers SET latest_verification_id = $1, updated_at = NOW() WHERE id = $2", [v.id, ov.carrier_id]);
+          }
           await saveCarrierProfile(ov);
           if (ov.broker_phone) {
             await sendSms(ov.broker_phone, `MC#${ov.mc_number} — ${finalResult}. ${reasons.join(". ")}. View: ${BASE_URL}/v/${ov.token}/report`);
