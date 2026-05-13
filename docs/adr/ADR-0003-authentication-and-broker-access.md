@@ -8,6 +8,8 @@ Accepted.
 
 The broker portal lives at `app.connectedcarriers.org`. The marketing site lives at `connectedcarriers.org` and should route brokers to the app login.
 
+This ADR is now interpreted through the product spine architecture in `docs/spines/`. The broker app is the system of record and owns authenticated broker workflows.
+
 ## Decision
 
 Broker users authenticate through the broker app at `/login`.
@@ -29,6 +31,9 @@ Password reset is SMS-based:
 - Lock a reset code after 5 bad attempts.
 - Store passwords as bcrypt hashes only.
 - Keep session auth role-aware with owner, ops, and reviewer roles.
+- Broker-owned mutations require authenticated sessions and CSRF protection.
+- Public carrier routes may be anonymous only when they are load-scoped or token-scoped.
+- Public routes must not be allowed to assign carriers or mutate broker-owned state beyond carrier application/profile submission.
 
 ## Existing Behavior
 
@@ -49,5 +54,6 @@ Kate should use the SMS forgot-password flow if she needs a password reset. The 
 ## Implementation Notes
 
 - Do not route existing brokers through public anonymous load creation when they have an account.
-- Broker-created loads should be tied to the broker account and shown in the broker dashboard.
+- Broker-created loads should live in the broker app database, be tied to the broker account, and be shown in the broker dashboard.
 - Public marketing links should distinguish broker sign-in from carrier verification.
+- MCP, if retained, should be a public edge or compatibility layer and should not own canonical broker workflow data.

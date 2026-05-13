@@ -8,24 +8,28 @@ Accepted.
 
 The broker workflow should make Kate's real operating path simple: post a load, let carriers qualify themselves, assign the best carrier, and receive dispatch clearance without manually chasing documents.
 
+This ADR is now interpreted through the product spine architecture in `docs/spines/`. The broker app database is the canonical system of record. MCP may remain as a public edge, but it should not own canonical loads, load applications, assignments, carrier identity, verification, or dispatch signal.
+
 ## Decision
 
 The broker journey is:
 
 1. Broker posts a load in the dashboard.
-2. System generates a shareable `/load/:slug` link.
+2. System stores the load in the broker app database and generates a shareable `/load/:slug` link.
 3. Broker posts that link on DAT, Truckstop, or another load board.
 4. Carriers qualify themselves by entering MC number.
-5. Qualified carriers submit interest.
-6. Broker receives SMS notifications for qualified carrier interest when broker phone is present.
-7. Broker reviews applicants in the dashboard.
-8. Broker expands an applicant to see inline profile information when available.
-9. Broker clicks "Assign Carrier."
-10. Assignment automatically starts the dispatch verification/chase flow.
-11. Carrier receives an SMS magic link requesting required dispatch documents if the profile is incomplete.
-12. OCR and rule checks run.
-13. Broker receives CLEAR, CAUTION, or DO NOT USE tied to the specific load assignment.
-14. If CLEAR, broker dispatches the carrier in Port TMS or the broker's TMS of record.
+5. System resolves carrier identity and links each application to `carrier_id`.
+6. Qualified carriers submit interest.
+7. Broker receives SMS notifications for qualified carrier interest when broker phone is present.
+8. Broker reviews applicants in the dashboard.
+9. Broker expands an applicant to see inline profile information when available.
+10. Broker clicks "Assign Carrier."
+11. System creates a `load_assignments` record.
+12. Assignment automatically starts the dispatch verification/chase flow or skips to dispatch signal when profile state allows.
+13. Carrier receives an SMS magic link requesting required dispatch documents if the profile is incomplete or stale.
+14. OCR and rule checks run.
+15. Broker receives CLEAR, CAUTION, or DO NOT USE tied to the specific load assignment.
+16. If CLEAR, broker dispatches the carrier in Port TMS or the broker's TMS of record.
 
 This is the product promise: Filter, Chase, Signal.
 
@@ -37,11 +41,15 @@ This is the product promise: Filter, Chase, Signal.
 - Assign carrier button exists.
 - `/api/verify/trigger` exists in the broker app.
 
+Some existing load and application behavior is prototype-owned by MCP. That is not the target ownership model.
+
 ## Gaps
 
-- Assigning a carrier does not call the verify trigger.
-- Verification results are not clearly tied back to the specific load assignment in the broker dashboard.
-- The dashboard does not yet present a complete assignment state machine from applicant to dispatch-ready.
+- Canonical `loads` and `load_applications` should move into broker app ownership.
+- Assignment should become first-class through `load_assignments` before pilot hardening.
+- Verification results must be tied back to a specific assignment in the broker dashboard.
+- Dispatch signal must tie back to a specific load assignment and exact pickup location.
+- The dashboard does not yet present a complete assignment state machine from applicant to dispatch-ready to on-site/no-response.
 
 ## Required Assignment States
 
@@ -53,6 +61,9 @@ An assigned carrier should move through these states:
 - `clear`
 - `caution`
 - `do_not_use`
+- `arrival_pending`
+- `arrival_confirmed`
+- `arrival_alert`
 - `superseded`
 - `cancelled`
 
@@ -61,5 +72,6 @@ An assigned carrier should move through these states:
 - On assignment, check whether the carrier has a dispatch-ready profile.
 - If the profile is complete, skip document chase and proceed to dispatch clearance or arrival signal.
 - If the profile is incomplete, call `/api/verify/trigger` with load, broker, carrier, and contact context.
-- Store the verification token/result against the load assignment, not only against the carrier.
+- Store the verification token/result against `load_assignments`, not only against the carrier.
 - Surface CLEAR, CAUTION, or DO NOT USE in the load applicants view and the load detail view.
+- Store exact pickup address and structured pickup window on the load and pass them into dispatch signal.
