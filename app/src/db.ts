@@ -79,6 +79,36 @@ export async function migrate() {
     )
   `);
 
+  // ── Base tables: create before ALTER ─────────────────────────────
+  // The broker app must not depend on MCP having run first.
+  // These CREATE IF NOT EXISTS ensure the tables exist before any ALTER.
+  await query(`
+    CREATE TABLE IF NOT EXISTS carriers (
+      id SERIAL PRIMARY KEY,
+      mc_number VARCHAR(20) UNIQUE NOT NULL,
+      dot_number VARCHAR(20),
+      company_name TEXT,
+      tier VARCHAR(30),
+      fmcsa_status JSONB,
+      verified_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS carrier_submissions (
+      id SERIAL PRIMARY KEY,
+      mc_number VARCHAR(20) NOT NULL,
+      broker_id TEXT,
+      submission_data JSONB,
+      verification_result JSONB,
+      tier_assigned VARCHAR(30),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Extend existing carriers table with broker fields
   await query(`
     ALTER TABLE carriers

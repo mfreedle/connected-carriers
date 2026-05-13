@@ -10,9 +10,9 @@
  *   POST /api/v2/loads/:slug/assign — assign a carrier
  *
  * Public routes (carrier-facing):
- *   GET  /apply/:slug               — load apply page
- *   POST /apply/:slug/check         — MC qualification check
- *   POST /apply/:slug/interest      — submit carrier interest
+ *   GET  /l/:slug               — load apply page
+ *   POST /l/:slug/check         — MC qualification check
+ *   POST /l/:slug/interest      — submit carrier interest
  */
 
 import { Router, Request, Response } from "express";
@@ -66,7 +66,7 @@ router.post("/api/v2/loads/create", requireAuth, verifyCsrf, async (req: Authent
       rate_note || null, notes || null,
     ]);
 
-    const applyUrl = `/apply/${slug}`;
+    const applyUrl = `/l/${slug}`;
 
     res.json({
       success: true,
@@ -301,7 +301,7 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
 
 // ── Load apply page ──────────────────────────────────────────────
 
-router.get("/apply/:slug", async (req: Request, res: Response) => {
+router.get("/l/:slug", async (req: Request, res: Response) => {
   try {
     const load = await query(
       "SELECT * FROM canonical_loads WHERE slug = $1 AND status != 'cancelled'",
@@ -319,7 +319,7 @@ router.get("/apply/:slug", async (req: Request, res: Response) => {
 
 // ── MC qualification check ───────────────────────────────────────
 
-router.post("/apply/:slug/check", async (req: Request, res: Response) => {
+router.post("/l/:slug/check", async (req: Request, res: Response) => {
   try {
     const load = await query(
       "SELECT * FROM canonical_loads WHERE slug = $1 AND status != 'cancelled'",
@@ -454,7 +454,7 @@ router.post("/apply/:slug/check", async (req: Request, res: Response) => {
 
 // ── Submit carrier interest ──────────────────────────────────────
 
-router.post("/apply/:slug/interest", async (req: Request, res: Response) => {
+router.post("/l/:slug/interest", async (req: Request, res: Response) => {
   try {
     const load = await query(
       "SELECT * FROM canonical_loads WHERE slug = $1 AND status != 'cancelled'",
@@ -475,14 +475,24 @@ router.post("/apply/:slug/interest", async (req: Request, res: Response) => {
     // Resolve carrier
     const carrier = await findOrCreateCarrier(mcRaw);
 
+    // Verify carrier has a qualified application on this load
+    const appCheck = await query(
+      `SELECT id, qualification_result FROM canonical_load_applications
+       WHERE load_id = $1 AND carrier_id = $2 AND qualification_result IN ('qualified', 'review')`,
+      [loadRow.id, carrier.id]
+    );
+    if (!appCheck.rows.length) {
+      return res.status(400).json({ error: "No qualified application found. Please check your MC first." });
+    }
+
     // Update carrier contact info
     await updateCarrierContact(carrier.id, phone || undefined, email || undefined);
 
     // Update application with contact info
-    await query(`
+    const updateResult = await query(`
       UPDATE canonical_load_applications
       SET contact_name = $1, contact_phone = $2, contact_email = $3
-      WHERE load_id = $4 AND carrier_id = $5
+      WHERE load_id = $4 AND carrier_id = $5 AND qualification_result IN ('qualified', 'review')
     `, [name || null, phone || null, email || null, loadRow.id, carrier.id]);
 
     // Update load status to ready_to_call if this is first interested carrier
@@ -688,7 +698,7 @@ async function checkMC() {
   btn.disabled = true; btn.textContent = 'Checking...';
 
   try {
-    const res = await fetch('/apply/' + slug + '/check', {
+    const res = await fetch('/l/' + slug + '/check', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({mc_number: mc})
@@ -749,7 +759,7 @@ async function submitInterest() {
   btn.disabled = true; btn.textContent = 'Submitting...';
 
   try {
-    await fetch('/apply/' + slug + '/interest', {
+    await fetch('/l/' + slug + '/interest', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
