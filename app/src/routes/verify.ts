@@ -272,7 +272,17 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
     const mc = String(v.mc_number).replace(/\D/g, "");
     if (!mc) return;
 
-    const existing = await query(`SELECT id FROM carrier_profiles WHERE mc_number=$1 LIMIT 1`, [mc]);
+    const carrierId = v.carrier_id as number | null;
+
+    // Prefer lookup by carrier_id, fall back to mc_number
+    let existing;
+    if (carrierId) {
+      existing = await query(`SELECT id FROM carrier_profiles WHERE carrier_id=$1 ORDER BY updated_at DESC LIMIT 1`, [carrierId]);
+    }
+    if (!existing?.rows?.length) {
+      existing = await query(`SELECT id FROM carrier_profiles WHERE mc_number=$1 LIMIT 1`, [mc]);
+    }
+
     const fmcsa = v.fmcsa_data as Record<string, unknown> || {};
 
     if (existing.rows.length > 0) {
@@ -281,6 +291,9 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
       const updates: string[] = [];
       const vals: unknown[] = [];
       let p = 0;
+
+      // Set carrier_id if not already set
+      if (carrierId) { p++; updates.push(`carrier_id=$${p}`); vals.push(carrierId); }
 
       if (v.driver_name) { p++; updates.push(`driver_name=$${p}`); vals.push(v.driver_name); }
       if (v.driver_phone) { p++; updates.push(`driver_phone=$${p}`); vals.push(v.driver_phone); }
@@ -306,12 +319,20 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
         p++;
         vals.push(profileId);
         await query(`UPDATE carrier_profiles SET ${updates.join(", ")} WHERE id=$${p}`, vals);
-        // Link profile to verification
         await query(`UPDATE carrier_verifications SET carrier_profile_id=$1 WHERE id=$2`, [profileId, v.id]);
+
+        // Update carrier identity
+        if (carrierId) {
+          await query(
+            "UPDATE carriers SET latest_profile_id = $1, network_status = 'verified', updated_at = NOW() WHERE id = $2",
+            [profileId, carrierId]
+          );
+        }
+
         console.log(`[VERIFY] Updated carrier profile #${profileId} for MC#${mc}`);
       }
     } else {
-      // Create new profile
+      // Create new profile with carrier_id
       const ins = await query(`
         INSERT INTO carrier_profiles (company_name, mc_number, contact_name, email, phone,
           driver_name, driver_phone, vin_number,
@@ -319,8 +340,8 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
           parsed_cdl, parsed_insurance, parsed_vin,
           cdl_number, cdl_state, cdl_expiration,
           insurance_expiration, insurance_company, insurance_policy_number, insurance_vins,
-          doc_flags, completion_status, source)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'dispatch_ready','direct')
+          doc_flags, completion_status, source, carrier_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'dispatch_ready','direct',$23)
         RETURNING id
       `, [
         (fmcsa.legal_name as string) || v.carrier_name || `MC#${mc}`,
@@ -345,9 +366,19 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
         v.insurance_policy_number || null,
         v.insurance_vins ? JSON.stringify(v.insurance_vins) : "[]",
         v.doc_flags ? JSON.stringify(v.doc_flags) : "[]",
+        carrierId,
       ]);
       const profileId = ins.rows[0].id;
       await query(`UPDATE carrier_verifications SET carrier_profile_id=$1 WHERE id=$2`, [profileId, v.id]);
+
+      // Update carrier identity
+      if (carrierId) {
+        await query(
+          "UPDATE carriers SET latest_profile_id = $1, network_status = 'verified', updated_at = NOW() WHERE id = $2",
+          [profileId, carrierId]
+        );
+      }
+
       console.log(`[VERIFY] Created carrier profile #${profileId} for MC#${mc}`);
     }
   } catch (err) {
@@ -430,6 +461,12 @@ router.post("/api/verify/trigger", async (req, res) => {
 
       await query(`UPDATE carrier_verifications SET status='complete', result='DO_NOT_USE', result_reasons=$1, result_delivered_at=NOW(), updated_at=NOW() WHERE id=$2`,
         [JSON.stringify(reasons), verificationId]);
+
+      // Update carrier identity with this verification result
+      await query(
+        "UPDATE carriers SET latest_verification_id = $1, updated_at = NOW() WHERE id = $2",
+        [verificationId, carrier.id]
+      );
 
       // Notify broker immediately
       if (broker_phone) {
