@@ -6,6 +6,7 @@ import { h } from "../middleware/security";
 import { uploadToR2, isR2Configured } from "../lib/storage";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact, findCarrierByMc } from "../carrier-identity";
 import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
+import { syncCanonicalCarrierRecords } from "../services/carrier-records";
 
 const router = Router();
 
@@ -271,6 +272,30 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       }
     }
 
+    // Sync canonical driver/equipment/document records (initial — before OCR)
+    if (carrierId) {
+      try {
+        await syncCanonicalCarrierRecords({
+          carrier_id: carrierId,
+          driver: driver_name ? {
+            name: driver_name,
+            phone: driver_phone || null,
+          } : null,
+          equipment: (vin_number || truck_number) ? {
+            vin_number: vin_number || null,
+            truck_number: truck_number || null,
+            trailer_number: trailer_number || null,
+          } : null,
+          documents: [
+            ...(cdl_photo_r2_key ? [{ doc_type: "cdl" as const, r2_key: cdl_photo_r2_key, file_url: cdl_photo_url, expiration_date: cdl_expiration }] : []),
+            ...(insurance_doc_r2_key ? [{ doc_type: "insurance" as const, r2_key: insurance_doc_r2_key, file_url: insurance_doc_url, expiration_date: insurance_expiration }] : []),
+            ...(vin_photo_r2_key ? [{ doc_type: "cab_card" as const, r2_key: vin_photo_r2_key, file_url: vin_photo_url }] : []),
+          ],
+          source: "profile",
+        });
+      } catch (e) { console.error("[profile] Initial canonical sync error (non-fatal):", e); }
+    }
+
     // Run AI document parsing in background (don't block the response)
     const profileEmail = email.trim().toLowerCase();
     setImmediate(async () => {
@@ -344,6 +369,33 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
             params
           );
           console.log(`[DocParser] Parsed docs for ${profileEmail}: CDL=${!!parsedCdl}, Insurance=${!!parsedIns}, VIN=${!!parsedVin}`);
+
+          // Sync canonical records again with parsed data (CDL number, expirations, VIN, etc.)
+          if (carrierId) {
+            try {
+              await syncCanonicalCarrierRecords({
+                carrier_id: carrierId,
+                driver: (driver_name || parsedCdl?.driver_name) ? {
+                  name: driver_name || parsedCdl?.driver_name || "",
+                  phone: driver_phone || null,
+                  cdl_number: parsedCdl?.cdl_number || null,
+                  cdl_state: parsedCdl?.state || null,
+                  cdl_expiration: parsedCdl?.expiration_date || cdl_expiration || null,
+                } : null,
+                equipment: (vin_number || parsedVin) ? {
+                  vin_number: parsedVin || vin_number || null,
+                  truck_number: truck_number || null,
+                  trailer_number: trailer_number || null,
+                } : null,
+                documents: [
+                  ...(cdl_photo_r2_key ? [{ doc_type: "cdl" as const, r2_key: cdl_photo_r2_key, file_url: cdl_photo_url, parsed_data: parsedCdl, expiration_date: parsedCdl?.expiration_date || cdl_expiration || null }] : []),
+                  ...(insurance_doc_r2_key ? [{ doc_type: "insurance" as const, r2_key: insurance_doc_r2_key, file_url: insurance_doc_url, parsed_data: parsedIns, expiration_date: parsedIns?.expiration_date || insurance_expiration || null }] : []),
+                  ...(vin_photo_r2_key ? [{ doc_type: "cab_card" as const, r2_key: vin_photo_r2_key, file_url: vin_photo_url }] : []),
+                ],
+                source: "profile_ocr",
+              });
+            } catch (e) { console.error("[profile] Post-OCR canonical sync error (non-fatal):", e); }
+          }
         }
       } catch (err) {
         console.error("[DocParser] Background parsing error:", err);

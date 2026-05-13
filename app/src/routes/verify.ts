@@ -7,6 +7,7 @@ import { uploadToR2, getPresignedDownloadUrl } from "../lib/storage";
 import { parseCDL, parseInsurance, parseVINPhoto, checkDocFlags } from "../doc-parser";
 import { findOrCreateCarrier, updateCarrierFMCSA } from "../carrier-identity";
 import { lookupFMCSA } from "../lib/fmcsa";
+import { syncCanonicalCarrierRecords } from "../services/carrier-records";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -280,6 +281,33 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
         }
 
         console.log(`[VERIFY] Updated carrier profile #${profileId} for MC#${mc}`);
+
+        // Sync canonical driver/equipment/document records
+        if (carrierId) {
+          try {
+            await syncCanonicalCarrierRecords({
+              carrier_id: carrierId,
+              driver: (v.driver_name) ? {
+                name: v.driver_name as string,
+                phone: (v.driver_phone as string) || null,
+                cdl_number: (v.cdl_number as string) || null,
+                cdl_state: (v.cdl_state as string) || null,
+                cdl_expiration: (v.cdl_expiration as string) || null,
+              } : null,
+              equipment: (v.truck_vin || v.parsed_vin || v.truck_number) ? {
+                vin_number: ((v.parsed_vin || v.truck_vin) as string) || null,
+                truck_number: (v.truck_number as string) || null,
+                trailer_number: (v.trailer_number as string) || null,
+              } : null,
+              documents: [
+                ...(v.doc_cdl ? [{ doc_type: "cdl" as const, r2_key: v.doc_cdl as string, parsed_data: v.parsed_cdl, expiration_date: (v.cdl_expiration as string) || null }] : []),
+                ...(v.doc_insurance ? [{ doc_type: "insurance" as const, r2_key: v.doc_insurance as string, parsed_data: v.parsed_insurance, expiration_date: (v.insurance_expiration as string) || null }] : []),
+                ...((v.doc_cab_card || v.doc_truck_photo) ? [{ doc_type: "cab_card" as const, r2_key: (v.doc_cab_card || v.doc_truck_photo) as string }] : []),
+              ],
+              source: "verify",
+            });
+          } catch (e) { console.error("[VERIFY] Canonical sync error (non-fatal):", e); }
+        }
       }
     } else {
       // Create new profile with carrier_id and status_token
@@ -332,6 +360,31 @@ async function saveCarrierProfile(v: Record<string, unknown>): Promise<void> {
       }
 
       console.log(`[VERIFY] Created carrier profile #${profileId} for MC#${mc}`);
+
+      // Sync canonical driver/equipment/document records
+      if (carrierId) {
+        try {
+          await syncCanonicalCarrierRecords({
+            carrier_id: carrierId,
+            driver: (v.driver_name) ? {
+              name: v.driver_name as string,
+              phone: (v.driver_phone as string) || null,
+              cdl_number: (v.cdl_number as string) || null,
+              cdl_state: (v.cdl_state as string) || null,
+              cdl_expiration: (v.cdl_expiration as string) || null,
+            } : null,
+            equipment: (v.truck_vin || v.parsed_vin) ? {
+              vin_number: ((v.parsed_vin || v.truck_vin) as string) || null,
+            } : null,
+            documents: [
+              ...(v.doc_cdl ? [{ doc_type: "cdl" as const, r2_key: v.doc_cdl as string, parsed_data: v.parsed_cdl, expiration_date: (v.cdl_expiration as string) || null }] : []),
+              ...(v.doc_insurance ? [{ doc_type: "insurance" as const, r2_key: v.doc_insurance as string, parsed_data: v.parsed_insurance, expiration_date: (v.insurance_expiration as string) || null }] : []),
+              ...((v.doc_cab_card || v.doc_truck_photo) ? [{ doc_type: "cab_card" as const, r2_key: (v.doc_cab_card || v.doc_truck_photo) as string }] : []),
+            ],
+            source: "verify",
+          });
+        } catch (e) { console.error("[VERIFY] Canonical sync error (non-fatal):", e); }
+      }
     }
   } catch (err) {
     console.error("[VERIFY] Save carrier profile error:", err);
