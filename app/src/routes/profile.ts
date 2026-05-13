@@ -27,15 +27,49 @@ const fileFields = upload.fields([
 
 // ── GET /profile/carrier ──────────────────────────────────────────
 
-router.get("/profile/carrier", (req: Request, res: Response) => {
+router.get("/profile/carrier", async (req: Request, res: Response) => {
   const source = (req.query.source as string) || "direct";
-  const prefill = {
-    mc: (req.query.mc as string) || "",
+  const mcParam = (req.query.mc as string || "").replace(/\D/g, "");
+
+  let prefill: Record<string, string> = {
+    mc: mcParam,
     name: (req.query.name as string) || "",
     phone: (req.query.phone as string) || "",
     email: (req.query.email as string) || "",
   };
-  res.send(profilePage(source, req.query.error as string, req.query.success as string, prefill));
+  let existingProfile: Record<string, unknown> | null = null;
+
+  // If MC provided, look up carrier + existing profile
+  if (mcParam) {
+    try {
+      const carrier = await findOrCreateCarrier(mcParam);
+
+      // Pre-fill from carrier identity
+      if (!prefill.name && carrier.fmcsa_legal_name) prefill.name = carrier.fmcsa_legal_name;
+      if (!prefill.phone && carrier.phone) prefill.phone = carrier.phone;
+      if (!prefill.email && carrier.email) prefill.email = carrier.email;
+
+      // Load existing profile if available
+      if (carrier.latest_profile_id) {
+        const profileResult = await query(
+          "SELECT * FROM carrier_profiles WHERE id = $1",
+          [carrier.latest_profile_id]
+        );
+        if (profileResult.rows.length) {
+          const ep = profileResult.rows[0];
+          existingProfile = ep;
+          // Pre-fill from profile, don't overwrite query params
+          if (!prefill.name && ep.contact_name) prefill.name = ep.contact_name as string;
+          if (!prefill.phone && ep.phone) prefill.phone = ep.phone as string;
+          if (!prefill.email && ep.email) prefill.email = ep.email as string;
+        }
+      }
+    } catch (err) {
+      console.error("[profile GET] Carrier lookup error:", err);
+    }
+  }
+
+  res.send(profilePage(source, req.query.error as string, req.query.success as string, prefill, existingProfile));
 });
 
 // ── POST /profile/carrier ─────────────────────────────────────────
@@ -308,10 +342,151 @@ router.post("/profile/carrier", fileFields, async (req: Request, res: Response) 
       }
     });
 
-    res.send(profileConfirmationPage(completion));
+    res.send(profileConfirmationPage(completion, mcClean || undefined));
   } catch (err) {
     console.error("Carrier profile submission error:", err);
     res.status(500).send(profilePage(source || "direct", "Something went wrong. Please try again."));
+  }
+});
+
+// ── GET /carrier/:mc/status — public carrier status page ─────────
+
+router.get("/carrier/:mc/status", async (req: Request, res: Response) => {
+  const mc = (req.params.mc || "").replace(/\D/g, "");
+  if (!mc) return res.status(400).send(pageShell("Invalid MC", `<div class="page" style="text-align:center;padding:40px"><p>Invalid MC number.</p></div>`));
+
+  try {
+    const carrier = await findOrCreateCarrier(mc);
+
+    // Load latest profile
+    let profile: Record<string, unknown> | null = null;
+    if (carrier.latest_profile_id) {
+      const pResult = await query("SELECT * FROM carrier_profiles WHERE id = $1", [carrier.latest_profile_id]);
+      if (pResult.rows.length) profile = pResult.rows[0];
+    }
+    if (!profile) {
+      const pResult = await query("SELECT * FROM carrier_profiles WHERE mc_number = $1 ORDER BY updated_at DESC LIMIT 1", [mc]);
+      if (pResult.rows.length) profile = pResult.rows[0];
+    }
+
+    // Load latest verification
+    let verification: Record<string, unknown> | null = null;
+    if (carrier.latest_verification_id) {
+      const vResult = await query("SELECT result, status, result_delivered_at FROM carrier_verifications WHERE id = $1", [carrier.latest_verification_id]);
+      if (vResult.rows.length) verification = vResult.rows[0];
+    }
+
+    // Build status checks
+    const checks: { label: string; status: string; detail: string }[] = [];
+
+    // FMCSA
+    if (carrier.fmcsa_legal_name) {
+      checks.push({ label: "FMCSA Authority", status: "ok", detail: `${carrier.fmcsa_legal_name}` });
+    } else {
+      checks.push({ label: "FMCSA Authority", status: "unknown", detail: "Not yet checked" });
+    }
+
+    if (profile) {
+      checks.push({ label: "CDL Photo", status: profile.cdl_photo_url ? "ok" : "missing", detail: profile.cdl_photo_url ? "On file" : "Not uploaded" });
+      checks.push({ label: "Insurance (COI)", status: profile.insurance_doc_url ? "ok" : "missing", detail: profile.insurance_doc_url ? "On file" : "Not uploaded" });
+      checks.push({ label: "VIN / Cab Card Photo", status: profile.vin_photo_url ? "ok" : "missing", detail: profile.vin_photo_url ? "On file" : "Not uploaded" });
+      checks.push({ label: "Driver Info", status: profile.driver_name ? "ok" : "missing", detail: profile.driver_name ? String(profile.driver_name) : "Not provided" });
+      checks.push({ label: "Truck VIN", status: profile.vin_number ? "ok" : "missing", detail: profile.vin_number ? String(profile.vin_number) : "Not provided" });
+
+      if (profile.insurance_expiration) {
+        const exp = new Date(profile.insurance_expiration as string);
+        const now = new Date();
+        const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysLeft < 0) {
+          checks.push({ label: "Insurance Expiration", status: "expired", detail: `Expired ${exp.toLocaleDateString()}` });
+        } else if (daysLeft < 30) {
+          checks.push({ label: "Insurance Expiration", status: "warning", detail: `Expires in ${daysLeft} days (${exp.toLocaleDateString()})` });
+        } else {
+          checks.push({ label: "Insurance Expiration", status: "ok", detail: exp.toLocaleDateString() });
+        }
+      } else {
+        checks.push({ label: "Insurance Expiration", status: "missing", detail: "Not provided" });
+      }
+
+      if (profile.cdl_expiration) {
+        const exp = new Date(profile.cdl_expiration as string);
+        const now = new Date();
+        const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysLeft < 0) {
+          checks.push({ label: "CDL Expiration", status: "expired", detail: `Expired ${exp.toLocaleDateString()}` });
+        } else if (daysLeft < 30) {
+          checks.push({ label: "CDL Expiration", status: "warning", detail: `Expires in ${daysLeft} days (${exp.toLocaleDateString()})` });
+        } else {
+          checks.push({ label: "CDL Expiration", status: "ok", detail: exp.toLocaleDateString() });
+        }
+      }
+
+      // Doc flags
+      if (profile.doc_flags) {
+        const flags = JSON.parse(JSON.stringify(profile.doc_flags));
+        if (Array.isArray(flags)) {
+          for (const flag of flags) {
+            if (flag === "VIN_NOT_ON_INSURANCE") {
+              checks.push({ label: "VIN Match", status: "warning", detail: "Truck VIN not found on insurance policy" });
+            }
+          }
+        }
+      }
+    }
+
+    const isReady = profile?.completion_status === "dispatch_ready";
+    const hasMissing = checks.some(c => c.status === "missing" || c.status === "expired");
+    const hasWarnings = checks.some(c => c.status === "warning");
+
+    const statusIcon = isReady ? "✓" : hasMissing ? "○" : hasWarnings ? "⚠" : "◐";
+    const statusColor = isReady ? "#2e7d32" : hasMissing ? "#C8892A" : hasWarnings ? "#f57f17" : "#6B7A8A";
+    const statusLabel = isReady ? "Dispatch-ready" : hasMissing ? "Profile incomplete" : hasWarnings ? "Review needed" : profile ? "Profile on file" : "No profile yet";
+
+    const checksHtml = checks.map(c => {
+      const icon = c.status === "ok" ? "✓" : c.status === "missing" ? "○" : c.status === "expired" ? "✗" : c.status === "warning" ? "⚠" : "?";
+      const color = c.status === "ok" ? "#2e7d32" : c.status === "missing" ? "#C8892A" : c.status === "expired" ? "#c62828" : c.status === "warning" ? "#f57f17" : "#6B7A8A";
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--cream2)">
+        <span style="font-size:13px;color:var(--ink)">${h(c.label)}</span>
+        <span style="font-size:12px;color:${color};font-weight:500">${icon} ${h(c.detail)}</span>
+      </div>`;
+    }).join("");
+
+    res.send(pageShell(`MC#${mc} Status`, `
+    <div class="page" style="max-width:480px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="font-size:48px;margin-bottom:12px">${statusIcon}</div>
+        <div class="page-eyebrow">MC#${h(mc)}</div>
+        <h1 class="page-title" style="font-size:22px">${h(carrier.fmcsa_legal_name || "Carrier Profile")}</h1>
+        <div style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;color:${statusColor};background:${statusColor}15;margin-top:8px">
+          ${statusLabel}
+        </div>
+      </div>
+
+      <div style="background:white;border:1px solid var(--cream2);border-radius:6px;padding:16px;margin-bottom:20px">
+        ${checksHtml || '<div style="padding:12px 0;font-size:13px;color:var(--muted)">No profile data yet. Complete your profile to see status.</div>'}
+      </div>
+
+      ${!isReady ? `
+      <a href="/profile/carrier?mc=${h(mc)}&source=status_return" style="display:block;width:100%;padding:14px;background:var(--amber);color:white;border-radius:6px;text-decoration:none;text-align:center;font-size:14px;font-weight:600">
+        ${profile ? "Upload missing docs →" : "Complete your profile →"}
+      </a>` : `
+      <div style="text-align:center;font-size:13px;color:var(--muted);padding:12px 0">
+        All documents current. You're ready for dispatch.
+      </div>`}
+
+      ${verification ? `
+      <div style="margin-top:20px;padding:12px 16px;background:white;border:1px solid var(--cream2);border-radius:6px;font-size:12px;color:var(--muted)">
+        Last verification: <strong style="color:${verification.result === "CLEAR" ? "#2e7d32" : verification.result === "CAUTION" ? "#f57f17" : "#c62828"}">${verification.result || verification.status}</strong>
+        ${verification.result_delivered_at ? " — " + new Date(verification.result_delivered_at as string).toLocaleDateString() : ""}
+      </div>` : ""}
+
+      <div style="text-align:center;margin-top:20px">
+        <a href="https://connectedcarriers.org" style="font-size:13px;color:var(--muted);text-decoration:none">← Back to Connected Carriers</a>
+      </div>
+    </div>`));
+  } catch (err) {
+    console.error("[carrier status]", err);
+    res.status(500).send(pageShell("Error", `<div class="page" style="text-align:center;padding:40px"><p>Something went wrong. Please try again.</p></div>`));
   }
 });
 
@@ -397,9 +572,41 @@ ${content}
 
 // ── Profile form page ──────────────────────────────────────────
 
-function profilePage(source: string, error?: string, success?: string, prefill?: { mc: string; name: string; phone: string; email: string }): string {
+function profilePage(source: string, error?: string, success?: string, prefill?: Record<string, string>, existingProfile?: Record<string, unknown> | null): string {
   const isSupersedeNudge = source === "superseded_nudge";
   const pf = prefill || { mc: "", name: "", phone: "", email: "" };
+  const ep = existingProfile || null;
+
+  // Build "what's on file" summary if returning carrier
+  let onFileHtml = "";
+  if (ep) {
+    const checks = [
+      { label: "Company", value: ep.company_name, ok: !!ep.company_name },
+      { label: "CDL photo", value: ep.cdl_photo_url ? "On file" : null, ok: !!ep.cdl_photo_url },
+      { label: "Insurance (COI)", value: ep.insurance_doc_url ? "On file" : null, ok: !!ep.insurance_doc_url },
+      { label: "VIN / cab card photo", value: ep.vin_photo_url ? "On file" : null, ok: !!ep.vin_photo_url },
+      { label: "Driver name", value: ep.driver_name, ok: !!ep.driver_name },
+      { label: "Truck VIN", value: ep.vin_number, ok: !!ep.vin_number },
+      { label: "Insurance expiration", value: ep.insurance_expiration ? new Date(ep.insurance_expiration as string).toLocaleDateString() : null, ok: !!ep.insurance_expiration },
+      { label: "CDL expiration", value: ep.cdl_expiration ? new Date(ep.cdl_expiration as string).toLocaleDateString() : null, ok: !!ep.cdl_expiration },
+    ];
+    const missing = checks.filter(c => !c.ok);
+    const isReady = ep.completion_status === "dispatch_ready";
+
+    onFileHtml = `
+    <div style="background:${isReady ? "#E8F5E9" : "#FFF8E1"};border:1px solid ${isReady ? "#C8E6C9" : "#FFE082"};border-radius:6px;padding:16px;margin-bottom:20px">
+      <div style="font-size:14px;font-weight:600;color:${isReady ? "#2e7d32" : "#f57f17"};margin-bottom:8px">
+        ${isReady ? "✓ You're dispatch-ready." : "Profile on file — some items missing."}
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6">
+        ${checks.map(c => `<div>${c.ok ? "✓" : "○"} ${h(c.label)}${c.ok && c.value && c.value !== "On file" ? ": " + h(String(c.value)) : c.ok ? "" : " — needed"}</div>`).join("")}
+      </div>
+      ${isReady
+        ? `<div style="font-size:12px;color:var(--muted);margin-top:8px">You can update any document below if something has changed.</div>`
+        : `<div style="font-size:12px;color:#f57f17;margin-top:8px">Upload the missing items below to reach dispatch-ready status.</div>`
+      }
+    </div>`;
+  }
 
   return pageShell("Carrier Profile", `
 <div class="page">
@@ -418,6 +625,9 @@ function profilePage(source: string, error?: string, success?: string, prefill?:
   </div>` : ""}
 
   ${error ? `<div class="error-banner">⚠ ${h(error)}</div>` : ""}
+  ${success ? `<div style="background:#E8F5E9;border:1px solid #C8E6C9;border-radius:6px;padding:14px;margin-bottom:16px;font-size:13px;color:#2e7d32">${h(success)}</div>` : ""}
+
+  ${onFileHtml}
 
   <form method="POST" action="/profile/carrier" enctype="multipart/form-data" id="profile-form">
     <input type="hidden" name="source" value="${h(source)}">
@@ -454,26 +664,26 @@ function profilePage(source: string, error?: string, success?: string, prefill?:
       <div class="two-col">
         <div class="field">
           <label>Driver name</label>
-          <input type="text" name="driver_name" placeholder="Full name">
+          <input type="text" name="driver_name" placeholder="Full name" value="${ep?.driver_name ? h(String(ep.driver_name)) : ''}">
         </div>
         <div class="field">
           <label>Driver phone</label>
-          <input type="tel" name="driver_phone" placeholder="e.g. 509-555-1212" inputmode="tel">
+          <input type="tel" name="driver_phone" placeholder="e.g. 509-555-1212" inputmode="tel" value="${ep?.driver_phone ? h(String(ep.driver_phone)) : ''}">
         </div>
       </div>
       <div class="two-col">
         <div class="field">
           <label>Truck number</label>
-          <input type="text" name="truck_number" placeholder="e.g. 4821">
+          <input type="text" name="truck_number" placeholder="e.g. 4821" value="${ep?.truck_number ? h(String(ep.truck_number)) : ''}">
         </div>
         <div class="field">
           <label>Trailer number</label>
-          <input type="text" name="trailer_number" placeholder="e.g. TR-2209">
+          <input type="text" name="trailer_number" placeholder="e.g. TR-2209" value="${ep?.trailer_number ? h(String(ep.trailer_number)) : ''}">
         </div>
       </div>
       <div class="field">
         <label>VIN number (truck)</label>
-        <input type="text" name="vin_number" placeholder="e.g. 1HGBH41JXMN109186" maxlength="17" style="text-transform:uppercase;letter-spacing:0.05em">
+        <input type="text" name="vin_number" placeholder="e.g. 1HGBH41JXMN109186" value="${ep?.vin_number ? h(String(ep.vin_number)) : ''}" maxlength="17" style="text-transform:uppercase;letter-spacing:0.05em">
         <div class="field-hint">17-character Vehicle Identification Number. Found on the driver's door jamb or registration. We'll auto-fill this if you upload a VIN photo below.</div>
       </div>
     </div>
@@ -552,21 +762,28 @@ document.getElementById('profile-form').addEventListener('submit', function() {
 
 // ── Confirmation page ──────────────────────────────────────────
 
-function profileConfirmationPage(completion: string): string {
+function profileConfirmationPage(completion: string, mcNumber?: string): string {
   const isReady = completion === "dispatch_ready";
+  const statusUrl = mcNumber ? `/carrier/${mcNumber}/status` : null;
   return pageShell("Profile Submitted", `
 <div class="page" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center">
   <div style="font-size:48px;margin-bottom:20px">${isReady ? "✓" : "◐"}</div>
   <div class="page-eyebrow">Carrier Profile</div>
   <h1 class="page-title" style="font-size:24px;margin-bottom:12px">
-    ${isReady ? "You're dispatch-ready." : "Profile received."}
+    ${isReady ? "You're dispatch-ready." : "Profile received — not complete yet."}
   </h1>
-  <p style="font-size:14px;color:var(--muted);max-width:400px;line-height:1.7">
+  <p style="font-size:14px;color:var(--muted);max-width:420px;line-height:1.7">
     ${isReady
       ? "All required documents are on file. When a broker assigns you a load, you'll be cleared to roll without waiting for doc collection."
-      : "We have your info on file. Some documents are still missing — you can come back to this page anytime to upload them and reach full dispatch-ready status."
+      : "We have your info, but some items are still needed to reach dispatch-ready status. Upload the missing docs to get fully verified."
     }
   </p>
-  <a href="https://connectedcarriers.org" style="margin-top:28px;font-size:13px;color:var(--amber);text-decoration:none">← Back to Connected Carriers</a>
+  ${!isReady && mcNumber ? `
+  <a href="/profile/carrier?mc=${h(mcNumber)}&source=status_return" style="display:inline-block;margin-top:16px;padding:10px 24px;background:var(--amber);color:white;border-radius:4px;text-decoration:none;font-size:14px;font-weight:500">Upload missing docs →</a>
+  ` : ""}
+  ${statusUrl ? `
+  <a href="${statusUrl}" style="margin-top:12px;font-size:13px;color:var(--amber);text-decoration:none">Check your status anytime →</a>
+  ` : ""}
+  <a href="https://connectedcarriers.org" style="margin-top:16px;font-size:13px;color:var(--muted);text-decoration:none">← Back to Connected Carriers</a>
 </div>`);
 }

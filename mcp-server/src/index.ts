@@ -941,11 +941,18 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /load/:slug/check — MC qualification check (instant)
+  // ── POST /load/:slug/check — redirect canonical slugs to broker app
   if (req.method === "POST" && url.match(/^\/load\/[A-Z0-9]+\/check$/)) {
     setCors(res);
     const slug = url.split("/")[2];
     try {
+      const canonical = await query("SELECT slug FROM canonical_loads WHERE slug = $1", [slug]);
+      if (canonical.rows.length) {
+        const BROKER_APP = process.env.BASE_URL || "https://app.connectedcarriers.org";
+        res.writeHead(307, { "Location": `${BROKER_APP}/l/${slug}/check` });
+        res.end();
+        return;
+      }
       const body = JSON.parse((await readBody(req)).toString());
       const { mc_number } = body;
 
@@ -1114,11 +1121,18 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /load/:slug/interest — carrier submits contact info after qualification
+  // ── POST /load/:slug/interest — redirect canonical slugs to broker app
   if (req.method === "POST" && url.match(/^\/load\/[A-Z0-9]+\/interest$/)) {
     setCors(res);
     const slug = url.split("/")[2];
     try {
+      const canonical = await query("SELECT slug FROM canonical_loads WHERE slug = $1", [slug]);
+      if (canonical.rows.length) {
+        const BROKER_APP = process.env.BASE_URL || "https://app.connectedcarriers.org";
+        res.writeHead(307, { "Location": `${BROKER_APP}/l/${slug}/interest` });
+        res.end();
+        return;
+      }
       const body = JSON.parse((await readBody(req)).toString());
       const { mc_number, contact_name, contact_phone, contact_email } = body;
 
