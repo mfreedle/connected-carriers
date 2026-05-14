@@ -114,7 +114,7 @@ export async function evaluateDispatchPackage(
   if (driver_id) {
     try {
       const cdlResult = await query(
-        `SELECT expiration_date, expires_at, status, doc_type, document_type
+        `SELECT expiration_date, expires_at, status, parsed_data, doc_type, document_type
          FROM carrier_documents
          WHERE carrier_id = $1 AND driver_id = $2
            AND (doc_type = 'cdl' OR document_type = 'cdl')
@@ -143,7 +143,8 @@ export async function evaluateDispatchPackage(
             items.push({ check: "CDL document", status: "ok", detail: `Expires ${expDate.toLocaleDateString()}` });
           }
         } else {
-          items.push({ check: "CDL document", status: "ok", detail: "On file (no expiration recorded)" });
+          warnings.push("CDL uploaded but expiration was not parsed");
+          items.push({ check: "CDL document", status: "warning", detail: "On file — expiration not parsed" });
         }
       }
     } catch (err) {
@@ -187,7 +188,7 @@ export async function evaluateDispatchPackage(
   if (equipment_id) {
     try {
       const cabResult = await query(
-        `SELECT status, doc_type, document_type
+        `SELECT status, parsed_data, doc_type, document_type
          FROM carrier_documents
          WHERE carrier_id = $1 AND equipment_id = $2
            AND (doc_type IN ('cab_card', 'truck_photo') OR document_type IN ('cab_card', 'truck_photo', 'vin_photo'))
@@ -199,7 +200,13 @@ export async function evaluateDispatchPackage(
         missing.push("Cab card / truck photo not on file");
         items.push({ check: "Cab card", status: "missing", detail: "Not on file" });
       } else {
-        items.push({ check: "Cab card", status: "ok", detail: "On file" });
+        const cab = cabResult.rows[0];
+        if (!cab.parsed_data) {
+          warnings.push("Cab card uploaded but VIN was not parsed");
+          items.push({ check: "Cab card", status: "warning", detail: "On file — VIN not parsed" });
+        } else {
+          items.push({ check: "Cab card", status: "ok", detail: "On file" });
+        }
       }
     } catch (err) {
       console.error("[evaluateDispatch] Cab card check error:", err);
@@ -240,7 +247,8 @@ export async function evaluateDispatchPackage(
           items.push({ check: "Insurance", status: "ok", detail: `Expires ${expDate.toLocaleDateString()}` });
         }
       } else {
-        items.push({ check: "Insurance", status: "ok", detail: "On file (no expiration recorded)" });
+        warnings.push("Insurance uploaded but expiration was not parsed");
+        items.push({ check: "Insurance", status: "warning", detail: "On file — expiration not parsed" });
       }
 
       // ── 7. VIN match (if insurance + equipment both have VIN data) ──

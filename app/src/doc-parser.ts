@@ -2,6 +2,7 @@
 // Extracts structured data from CDL photos, COI documents, and VIN photos
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 interface ParsedCDL {
@@ -47,7 +48,7 @@ async function callClaude(systemPrompt: string, imageUrl: string, userPrompt: st
     const mediaType = contentType.includes("pdf") ? "application/pdf" : contentType.includes("png") ? "image/png" : "image/jpeg";
 
     const body: any = {
-      model: "claude-sonnet-4-20250514",
+      model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       system: systemPrompt,
       messages: [{
