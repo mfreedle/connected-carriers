@@ -1038,7 +1038,7 @@ export async function migrateVerification() {
         if (exists.rows.length === 0) {
           await query(
             `INSERT INTO carrier_documents (carrier_id, driver_id, doc_type, document_type, r2_key, r2_object_key, file_url, parsed_data, expiration_date, expires_at, status, source)
-             VALUES ($1, $2, 'cdl', 'cdl', $3, $3, $4, $5, $6, $6, $7, 'backfill')`,
+             VALUES ($1, $2, 'cdl', 'cdl', $3, $3, $4, $5, $6::date, $6::timestamptz, $7, 'backfill')`,
             [p.carrier_id, driverId, r2Key, fileUrl, p.parsed_cdl ? JSON.stringify(p.parsed_cdl) : null, p.cdl_expiration || null, freshness(p.cdl_expiration)]
           );
           docsCreated++;
@@ -1059,7 +1059,7 @@ export async function migrateVerification() {
         if (exists.rows.length === 0) {
           await query(
             `INSERT INTO carrier_documents (carrier_id, doc_type, document_type, r2_key, r2_object_key, file_url, parsed_data, expiration_date, expires_at, status, source)
-             VALUES ($1, 'insurance', 'coi', $2, $2, $3, $4, $5, $5, $6, 'backfill')`,
+             VALUES ($1, 'insurance', 'coi', $2, $2, $3, $4, $5::date, $5::timestamptz, $6, 'backfill')`,
             [p.carrier_id, r2Key, fileUrl, p.parsed_insurance ? JSON.stringify(p.parsed_insurance) : null, p.insurance_expiration || null, freshness(p.insurance_expiration)]
           );
           docsCreated++;

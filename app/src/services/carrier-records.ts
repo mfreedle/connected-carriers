@@ -247,7 +247,7 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
           `INSERT INTO carrier_documents
            (carrier_id, driver_id, equipment_id, doc_type, document_type, r2_key, r2_object_key, file_url,
             parsed_data, expiration_date, expires_at, status, source)
-           VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $9, $10, $11)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9::date, $9::timestamptz, $10, $11)`,
           [
             carrier_id,
             doc.doc_type === "cdl" ? driver_id : null,
