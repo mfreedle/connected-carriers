@@ -727,12 +727,12 @@ export async function migrateVerification() {
   await query(`CREATE INDEX IF NOT EXISTS idx_la_carrier ON load_assignments(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_broker ON load_assignments(broker_account_id)`);
 
-  // ── Widen load_assignments.status to include needs_dec_page ──
+  // ── Widen load_assignments.status to include needs_dec_page + dec_page_no_response ──
   await query(`ALTER TABLE load_assignments DROP CONSTRAINT IF EXISTS load_assignments_status_check`).catch(() => {});
   await query(`ALTER TABLE load_assignments ADD CONSTRAINT load_assignments_status_check CHECK (status IN (
     'assigned', 'verification_requested', 'documents_pending',
     'clear', 'caution', 'do_not_use',
-    'needs_dec_page',
+    'needs_dec_page', 'dec_page_no_response',
     'arrival_pending', 'arrival_confirmed', 'arrival_alert',
     'superseded', 'cancelled'
   ))`).catch(() => {});
@@ -742,6 +742,7 @@ export async function migrateVerification() {
   await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_reminder_count INTEGER DEFAULT 0`).catch(() => {});
   await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_last_reminder_at TIMESTAMPTZ`).catch(() => {});
   await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_escalated_at TIMESTAMPTZ`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_finalized_at TIMESTAMPTZ`).catch(() => {});
 
   // ── Carrier consents (SPINE-0003 + SPINE-0007) ───────────────────
   // Records carrier consent for network profile reuse.

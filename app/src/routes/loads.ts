@@ -289,6 +289,7 @@ async function refreshLoads() {
           on_site: {bg:'#10b981',label:'On Site'},
           needs_dec_page: {bg:'#f59e0b',label:'Needs Declarations Page'},
           waiting_on_dec_page: {bg:'#f59e0b',label:'Waiting on Dec Page'},
+          dec_page_no_response: {bg:'#ef4444',label:'Dec Page — No Response'},
           no_response: {bg:'#ef4444',label:'No Response'},
           location_alert: {bg:'#ef4444',label:'Location Alert'},
           covered: {bg:'#10b981',label:'Covered'},
@@ -381,6 +382,8 @@ async function toggleApplicants(loadId, slug) {
         assignBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ ON SITE</span>';
       } else if (a.assignment_status === 'needs_dec_page') {
         assignBadge = '<span style="background:#FFF8E1;color:#7C5E10;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">📄 DEC PAGE NEEDED</span>';
+      } else if (a.assignment_status === 'dec_page_no_response') {
+        assignBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">📄 DEC PAGE — NO RESPONSE</span>';
       }
 
       var assignedLabel = a.assignment_id ? '<div style="font-size:10px;color:#8b5cf6;font-weight:600;margin-top:2px">ASSIGNED</div>' : '';

@@ -207,6 +207,8 @@ router.get("/api/v2/loads/attention", requireAuth, async (req: AuthenticatedRequ
         items.push({ priority: 2, icon: "📤", load_id: load.load_id, route, message: "Arrival check sent", action: "Waiting for driver" });
       } else if (aStatus === "needs_dec_page") {
         items.push({ priority: 1, icon: "📄", load_id: load.load_id, route, message: "Insurance declarations page needed", action: "Carrier has been asked to upload vehicle schedule" });
+      } else if (aStatus === "dec_page_no_response") {
+        items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Declarations page — no response", action: "Do not dispatch until resolved" });
       } else if (aStatus === "arrival_confirmed") {
         items.push({ priority: 5, icon: "✅", load_id: load.load_id, route, message: "Driver confirmed on site", action: "Clear to load" });
       } else if (aStatus === "arrival_alert") {
