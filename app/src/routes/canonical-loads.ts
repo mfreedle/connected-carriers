@@ -85,33 +85,6 @@ router.post("/api/v2/loads/create", requireAuth, verifyCsrf, async (req: Authent
   }
 });
 
-// ── TEMPORARY: Delete cancelled loads (remove after cleanup) ─────
-
-router.post("/api/v2/loads/cleanup-cancelled", requireAuth, verifyCsrf, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const brokerAccountId = req.session.brokerAccountId;
-
-    // Find all cancelled loads for this broker
-    const cancelled = await query(
-      "SELECT id, load_id FROM canonical_loads WHERE broker_account_id = $1 AND status = 'cancelled'",
-      [brokerAccountId]
-    );
-
-    let deleted = 0;
-    for (const load of cancelled.rows) {
-      await query("DELETE FROM load_assignments WHERE load_id = $1", [load.id]).catch(() => {});
-      await query("DELETE FROM canonical_load_applications WHERE load_id = $1", [load.id]).catch(() => {});
-      await query("DELETE FROM canonical_loads WHERE id = $1", [load.id]);
-      deleted++;
-    }
-
-    res.json({ success: true, deleted, load_ids: cancelled.rows.map((r: any) => r.load_id) });
-  } catch (err) {
-    console.error("[cleanup-cancelled]", err);
-    res.status(500).json({ error: "Cleanup failed" });
-  }
-});
-
 // ── List broker's loads ──────────────────────────────────────────
 
 router.get("/api/v2/loads", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
