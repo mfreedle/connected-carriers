@@ -197,10 +197,10 @@ router.get("/api/v2/loads/attention", requireAuth, async (req: AuthenticatedRequ
         items.push({ priority: 2, icon: "🚛", load_id: load.load_id, route, message: "Awaiting driver/truck confirmation", action: "Carrier selecting driver and equipment" });
       } else if (aStatus === "clear") {
         items.push({ priority: 1, icon: "✅", load_id: load.load_id, route, message: "Carrier verified — clear to dispatch", action: "Dispatch in TMS" });
-      } else if (aStatus === "caution") {
+      } else if (aStatus === "caution" || aStatus === "review") {
         items.push({ priority: 0, icon: "🟡", load_id: load.load_id, route, message: "Carrier verified with flags", action: "Review before dispatch" });
-      } else if (aStatus === "do_not_use") {
-        items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Carrier failed verification", action: "Reassign" });
+      } else if (aStatus === "do_not_use" || aStatus === "do_not_dispatch") {
+        items.push({ priority: 0, icon: "🔴", load_id: load.load_id, route, message: "Do not dispatch", action: "Reassign" });
       } else if (aStatus === "verification_requested" || aStatus === "documents_pending") {
         items.push({ priority: 2, icon: "⏳", load_id: load.load_id, route, message: "Waiting on carrier docs", action: "System will follow up" });
       } else if (aStatus === "arrival_pending") {
@@ -578,13 +578,13 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
             verificationId = verifyResult.id;
 
             if (verifyResult.result === "DO_NOT_USE") {
-              nextStatus = "do_not_use";
+              nextStatus = "do_not_dispatch";
               nextAction = "fmcsa_rejected";
 
               if (broker?.contact_phone) {
                 try {
                   await sendSms(broker.contact_phone,
-                    `Connected Carriers: ⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT USE on ${load.load_id}. FMCSA check failed.`
+                    `Connected Carriers: ⚠ ${applicant.company_name || "MC" + applicant.mc_number} — DO NOT DISPATCH on ${load.load_id}. FMCSA check failed.`
                   );
                 } catch (e) { console.error("[assign] broker DNU SMS failed:", e); }
               }
@@ -592,7 +592,7 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
               if (broker?.contact_phone) {
                 try {
                   await sendSms(broker.contact_phone,
-                    `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, CAUTION, or DO NOT USE when they respond.`
+                    `Connected Carriers: ${applicant.company_name || "MC" + applicant.mc_number} assigned to ${load.load_id}. Verification request sent — you'll get CLEAR, REVIEW, or DO NOT DISPATCH when they respond.`
                   );
                 } catch (e) { console.error("[assign] broker SMS failed:", e); }
               }
@@ -625,7 +625,7 @@ router.post("/api/v2/loads/:slug/assign", requireAuth, verifyCsrf, async (req: A
       // Update load status for legacy path
       const loadStatus = nextStatus === "arrival_pending" ? "arrival_sent"
         : nextStatus === "clear" ? "clear_to_dispatch"
-        : nextStatus === "do_not_use" ? "do_not_use"
+        : nextStatus === "do_not_dispatch" ? "do_not_dispatch"
         : "waiting_on_docs";
       await query(
         "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",

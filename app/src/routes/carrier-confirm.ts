@@ -373,18 +373,18 @@ router.post("/confirm/:token", upload.fields([
     let assignmentStatus: string;
     let loadStatus: string;
 
-    if (evaluation.needsDecPage && evaluation.result !== "do_not_use") {
+    if (evaluation.needsDecPage && evaluation.result !== "do_not_dispatch") {
       assignmentStatus = "needs_dec_page";
       loadStatus = "waiting_on_dec_page";
     } else if (evaluation.result === "clear") {
       assignmentStatus = "clear";
       loadStatus = "clear_to_dispatch";
     } else if (evaluation.result === "review") {
-      assignmentStatus = "caution";
+      assignmentStatus = "review";
       loadStatus = "review";
-    } else if (evaluation.result === "do_not_use") {
-      assignmentStatus = "do_not_use";
-      loadStatus = "do_not_use";
+    } else if (evaluation.result === "do_not_dispatch") {
+      assignmentStatus = "do_not_dispatch";
+      loadStatus = "do_not_dispatch";
     } else {
       // docs_needed
       assignmentStatus = "documents_pending";
@@ -495,8 +495,8 @@ router.post("/confirm/:token", upload.fields([
           ? `✓ ${carrierName} confirmed: ${confirmedDriverName} for ${a.cl_load_id}. Clear to dispatch — arrival check sent.`
           : evaluation.result === "review"
           ? `⚠ ${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id} with flags: ${evaluation.warnings.join(", ")}`
-          : evaluation.result === "do_not_use"
-          ? `✗ ${carrierName} — DO NOT USE for ${a.cl_load_id}: ${evaluation.blockers.join(", ")}`
+          : evaluation.result === "do_not_dispatch"
+          ? `✗ ${carrierName} — DO NOT DISPATCH for ${a.cl_load_id}: ${evaluation.blockers.join(", ")}`
           : `${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id}. Still needs: ${evaluation.missing.join(", ")}`;
 
         await sendSms(broker.contact_phone, `Connected Carriers: ${statusMsg}`);
@@ -666,11 +666,11 @@ router.post("/confirm/:token/dec-page", upload.fields([
       newAssignmentStatus = "clear";
       newLoadStatus = "clear_to_dispatch";
     } else if (evaluation.result === "review") {
-      newAssignmentStatus = "caution";
+      newAssignmentStatus = "review";
       newLoadStatus = "review";
-    } else if (evaluation.result === "do_not_use") {
-      newAssignmentStatus = "do_not_use";
-      newLoadStatus = "do_not_use";
+    } else if (evaluation.result === "do_not_dispatch") {
+      newAssignmentStatus = "do_not_dispatch";
+      newLoadStatus = "do_not_dispatch";
     } else {
       newAssignmentStatus = "documents_pending";
       newLoadStatus = "waiting_on_docs";
@@ -953,19 +953,19 @@ function confirmedPage(a: Record<string, unknown>, eval_: { result: string; item
   const resultIcon = !eval_ ? "✓"
     : eval_.result === "clear" ? "✓"
     : eval_.result === "review" ? "⚠"
-    : eval_.result === "do_not_use" ? "✗"
+    : eval_.result === "do_not_dispatch" ? "✗"
     : "◐";
 
   const resultColor = !eval_ ? "#2e7d32"
     : eval_.result === "clear" ? "#2e7d32"
     : eval_.result === "review" ? "#f57f17"
-    : eval_.result === "do_not_use" ? "#c62828"
+    : eval_.result === "do_not_dispatch" ? "#c62828"
     : "#C8892A";
 
   const resultLabel = !eval_ ? "Confirmed"
     : eval_.result === "clear" ? "Clear to dispatch — arrival check sent"
     : eval_.result === "review" ? "Confirmed with flags — broker reviewing"
-    : eval_.result === "do_not_use" ? "Issue found — broker notified"
+    : eval_.result === "do_not_dispatch" ? "Do not dispatch — broker notified"
     : "Confirmed — waiting on remaining docs";
 
   const itemsHtml = eval_ ? eval_.items.map(item => {

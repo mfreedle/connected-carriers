@@ -55,7 +55,7 @@ The primary flow is DAT inbound (carrier applies through load link). A secondary
 - Basic expiration date checking
 - Carrier profile document caching (repeat carriers reuse current docs)
 - Escalation timeline (15/30/60 min reminders)
-- CLEAR / CAUTION / DO NOT USE result delivery
+- CLEAR / REVIEW / DO NOT DISPATCH result delivery
 
 ## What Is Not Built Yet
 
@@ -64,7 +64,7 @@ The primary flow is DAT inbound (carrier applies through load link). A secondary
 - Named insured matching against FMCSA legal name
 - Broker-configurable coverage thresholds (currently implied $1M)
 - OCR confidence scoring (low confidence → REVIEW instead of CLEAR)
-- REVIEW result tier (currently binary CLEAR vs DO NOT USE)
+- ~~REVIEW result tier (currently binary CLEAR vs DO NOT USE)~~ ✅ Built — result tiers are now CLEAR / REVIEW / DO NOT DISPATCH
 - Insurance reasoning display in broker dashboard
 
 ## Consequences

@@ -661,7 +661,7 @@ export async function migrateVerification() {
   await query(`ALTER TABLE canonical_loads DROP CONSTRAINT IF EXISTS canonical_loads_status_check`).catch(() => {});
   await query(`ALTER TABLE canonical_loads ADD CONSTRAINT canonical_loads_status_check CHECK (status IN (
     'posted', 'carriers_qualified', 'ready_to_call', 'assigned',
-    'waiting_on_docs', 'waiting_on_dec_page', 'clear_to_dispatch', 'review', 'do_not_use',
+    'waiting_on_docs', 'waiting_on_dec_page', 'clear_to_dispatch', 'review', 'do_not_use', 'do_not_dispatch',
     'arrival_sent', 'on_site', 'no_response', 'location_alert',
     'covered', 'cancelled'
   ))`).catch(() => {});
@@ -731,7 +731,7 @@ export async function migrateVerification() {
   await query(`ALTER TABLE load_assignments DROP CONSTRAINT IF EXISTS load_assignments_status_check`).catch(() => {});
   await query(`ALTER TABLE load_assignments ADD CONSTRAINT load_assignments_status_check CHECK (status IN (
     'assigned', 'verification_requested', 'documents_pending',
-    'clear', 'caution', 'do_not_use',
+    'clear', 'caution', 'review', 'do_not_use', 'do_not_dispatch',
     'needs_dec_page', 'dec_page_no_response',
     'arrival_pending', 'arrival_confirmed', 'arrival_alert',
     'superseded', 'cancelled'

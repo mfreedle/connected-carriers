@@ -277,11 +277,13 @@ async function refreshLoads() {
           waiting_on_docs: {bg:'#8b5cf6',label:'Waiting on Docs'},
           clear_to_dispatch: {bg:'#10b981',label:'Clear to Dispatch'},
           review: {bg:'#f59e0b',label:'Review'},
-          do_not_use: {bg:'#ef4444',label:'Do Not Use'},
+          do_not_use: {bg:'#ef4444',label:'Do Not Dispatch'},
+          do_not_dispatch: {bg:'#ef4444',label:'Do Not Dispatch'},
           verification_requested: {bg:'#8b5cf6',label:'Waiting on Docs'},
           documents_pending: {bg:'#8b5cf6',label:'Waiting on Docs'},
           clear: {bg:'#10b981',label:'Clear to Dispatch'},
           caution: {bg:'#f59e0b',label:'Review'},
+          review: {bg:'#f59e0b',label:'Review'},
           arrival_sent: {bg:'#2563eb',label:'Arrival Sent'},
           arrival_pending: {bg:'#2563eb',label:'Arrival Sent'},
           arrival_confirmed: {bg:'#10b981',label:'On Site'},
@@ -370,10 +372,10 @@ async function toggleApplicants(loadId, slug) {
       var assignBadge = '';
       if (a.assignment_status === 'clear') {
         assignBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ CLEAR</span>';
-      } else if (a.assignment_status === 'caution') {
-        assignBadge = '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⚠ CAUTION</span>';
-      } else if (a.assignment_status === 'do_not_use') {
-        assignBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✗ DO NOT USE</span>';
+      } else if (a.assignment_status === 'caution' || a.assignment_status === 'review') {
+        assignBadge = '<span style="background:#FFF8E1;color:#f57f17;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⚠ REVIEW</span>';
+      } else if (a.assignment_status === 'do_not_use' || a.assignment_status === 'do_not_dispatch') {
+        assignBadge = '<span style="background:#FFEBEE;color:#c62828;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✗ DO NOT DISPATCH</span>';
       } else if (a.assignment_status === 'verification_requested' || a.assignment_status === 'documents_pending') {
         assignBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">⏳ VERIFYING</span>';
       } else if (a.assignment_status === 'arrival_pending') {

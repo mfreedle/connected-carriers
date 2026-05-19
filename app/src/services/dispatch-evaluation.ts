@@ -21,7 +21,7 @@ export interface EvalItem {
 }
 
 export interface DispatchEvaluation {
-  result: "clear" | "docs_needed" | "review" | "do_not_use";
+  result: "clear" | "docs_needed" | "review" | "do_not_dispatch";
   items: EvalItem[];
   missing: string[];
   warnings: string[];
@@ -551,7 +551,7 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
 
   let result: DispatchEvaluation["result"];
   if (blockers.length > 0) {
-    result = "do_not_use";
+    result = "do_not_dispatch";
   } else if (missing.length > 0) {
     result = "docs_needed";
   } else if (warnings.length > 0) {
