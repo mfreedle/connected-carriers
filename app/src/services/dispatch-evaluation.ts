@@ -369,6 +369,7 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
         warnings.push("Named insured not found on COI");
         items.push({ check: "Named insured", status: "warning", detail: "Not found on certificate" });
       } else if (!fmcsaLegalName) {
+        warnings.push(`Named insured "${namedInsured}" — no FMCSA legal name to compare`);
         items.push({ check: "Named insured", status: "warning", detail: `${namedInsured} — no FMCSA name to compare` });
       }
 
@@ -385,6 +386,9 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
       } else if (parsed.auto_liability !== undefined) {
         warnings.push("Auto liability amount could not be parsed");
         items.push({ check: "Auto liability", status: "warning", detail: "Amount not parseable — verify manually" });
+      } else if (thresholds.autoMin > 0) {
+        warnings.push("Auto liability not found on COI");
+        items.push({ check: "Auto liability", status: "warning", detail: `Not found — broker requires min ${fmtDollars(thresholds.autoMin)}` });
       }
 
       const cargoAmount = parseCoverageAmount(parsed.cargo);
@@ -399,6 +403,21 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
         } else {
           warnings.push("Cargo coverage not found on COI");
           items.push({ check: "Cargo coverage", status: "warning", detail: "Not found — broker requires cargo coverage" });
+        }
+      }
+
+      const generalLiability = parseCoverageAmount(parsed.general_liability);
+      if (thresholds.generalMin > 0) {
+        if (generalLiability !== null) {
+          if (generalLiability >= thresholds.generalMin) {
+            items.push({ check: "General liability", status: "ok", detail: `${fmtDollars(generalLiability)} (min: ${fmtDollars(thresholds.generalMin)})` });
+          } else {
+            warnings.push(`General liability ${fmtDollars(generalLiability)} below minimum ${fmtDollars(thresholds.generalMin)}`);
+            items.push({ check: "General liability", status: "warning", detail: `${fmtDollars(generalLiability)} — below min ${fmtDollars(thresholds.generalMin)}` });
+          }
+        } else {
+          warnings.push("General liability not found on COI");
+          items.push({ check: "General liability", status: "warning", detail: `Not found — broker requires min ${fmtDollars(thresholds.generalMin)}` });
         }
       }
 
@@ -454,6 +473,20 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
       if (confidence.auto_coverage_type === "low") {
         warnings.push("Auto coverage type was parsed with low confidence");
         items.push({ check: "Coverage type confidence", status: "warning", detail: "Auto coverage type parsed with low confidence" });
+      }
+
+      // Advisory: low confidence on other critical fields
+      if (confidence.auto_liability === "low") {
+        warnings.push("Auto liability amount was parsed with low confidence — verify manually");
+        items.push({ check: "Auto liability confidence", status: "warning", detail: "Auto liability parsed with low confidence" });
+      }
+      if (confidence.vins === "low" && (parsed.vins || []).length > 0) {
+        warnings.push("VIN numbers were parsed with low confidence — verify manually");
+        items.push({ check: "VIN confidence", status: "warning", detail: "VINs parsed with low confidence" });
+      }
+      if (confidence.named_insured === "low") {
+        warnings.push("Named insured was parsed with low confidence — verify manually");
+        items.push({ check: "Named insured confidence", status: "warning", detail: "Named insured parsed with low confidence" });
       }
     }
   } catch (err) {
