@@ -278,6 +278,7 @@ async function runDecPageEscalationCron(): Promise<void> {
         );
         console.log(`[DEC-PAGE-CRON] Sent broker notice for ${carrierName} / ${loadLabel} (${smsResult.sent ? "delivered" : "failed"})`);
         processed++;
+        continue; // one action per cron run
       }
 
       // ── TIER 1: Carrier reminder (≥15 min, reminder_count < 1) ──
