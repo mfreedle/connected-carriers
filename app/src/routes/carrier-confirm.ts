@@ -32,6 +32,7 @@ router.get("/confirm/:token", async (req: Request, res: Response) => {
     const assignResult = await query(
       `SELECT la.*, cl.load_id, cl.origin, cl.destination, cl.equipment,
               cl.pickup_date, cl.pickup_address, cl.pickup_window_text,
+              cl.broker_account_id,
               c.mc_number, c.fmcsa_legal_name
        FROM load_assignments la
        JOIN canonical_loads cl ON cl.id = la.load_id
@@ -53,7 +54,7 @@ router.get("/confirm/:token", async (req: Request, res: Response) => {
     // If already confirmed, show current state instead of error
     if (a.confirmed_at) {
       const eval_ = a.driver_id && a.equipment_id
-        ? await evaluateDispatchPackage(a.carrier_id, a.driver_id, a.equipment_id)
+        ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
         : null;
       return res.send(shell("Confirmed", confirmedPage(a, eval_)));
     }
@@ -173,7 +174,7 @@ router.post("/confirm/:token", upload.fields([
 
     if (a.confirmed_at) {
       const eval_ = a.driver_id && a.equipment_id
-        ? await evaluateDispatchPackage(a.carrier_id, a.driver_id, a.equipment_id)
+        ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
         : null;
       return res.send(shell("Confirmed", confirmedPage(a, eval_)));
     }
@@ -330,7 +331,7 @@ router.post("/confirm/:token", upload.fields([
 
     // ── Evaluate dispatch package ───────────────────────────────
 
-    const evaluation = await evaluateDispatchPackage(a.carrier_id, driverId, equipmentId);
+    const evaluation = await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId, equipmentId, brokerAccountId: a.broker_account_id });
 
     // ── Update assignment ───────────────────────────────────────
 
