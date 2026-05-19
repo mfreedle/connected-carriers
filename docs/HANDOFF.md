@@ -26,8 +26,13 @@ The system was rebuilt on May 12-13, 2026 around a spine architecture (see `docs
 | Carrier identity | `app/src/carrier-identity.ts` | `findOrCreateCarrier(mc)` — all paths call this |
 | FMCSA lookup | `app/src/lib/fmcsa.ts` | Canonical SAFER parser, one copy |
 | Verification service | `app/src/services/verification.ts` | `triggerCarrierVerification()` — no HTTP self-call |
+| Dispatch evaluation | `app/src/services/dispatch-evaluation.ts` | `evaluateDispatchPackage()` — insurance waterfall, CDL, cab card, broker thresholds |
 | Dispatch signal | `app/src/services/dispatch-signal.ts` | `createDispatchSignal()` — arrival check + SMS |
-| Canonical loads | `app/src/routes/canonical-loads.ts` | v2 load routes — create, list, applicants, assign, cancel |
+| Doc parser | `app/src/doc-parser.ts` | OCR via Claude Vision — CDL, insurance, cab card, declarations page |
+| Carrier records | `app/src/services/carrier-records.ts` | `syncCanonicalCarrierRecords()` — document storage + supersession |
+| Dec page escalation | `app/src/lib/verify-cron.ts` | `runDecPageEscalationCron()` — 15/30/60 min escalation for missing dec pages |
+| Canonical loads | `app/src/routes/canonical-loads.ts` | v2 load routes — create, list, applicants, assign, cancel, evaluation API |
+| Carrier confirmation | `app/src/routes/carrier-confirm.ts` | `/confirm/:token` — driver/truck confirmation, doc upload, dec page upload |
 
 ---
 

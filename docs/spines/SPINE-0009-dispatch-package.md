@@ -1,6 +1,6 @@
 # SPINE-0009: Dispatch Package
 
-**Status:** Partially built — carrier/company level works, driver/equipment level not yet modeled
+**Status:** Built — driver/equipment confirmation, insurance waterfall, CDL/cab card evaluation, dec page flow, and escalation cron all deployed and smoke-tested.
 **Owner:** Broker app
 **Core question this answers for Kate:** "Is this specific driver with this specific truck ready to pick up this load?"
 

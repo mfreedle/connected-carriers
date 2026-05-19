@@ -1,6 +1,6 @@
 # SPINE-0010: Carrier Master Record
 
-**Status:** Partially built — MC-level identity exists, driver/equipment not yet modeled
+**Status:** Built — MC-level identity, driver roster, equipment records, carrier_documents with doc_type/parsed_data, declarations page support, and profile reuse across verifications.
 **Owner:** Broker app
 **Core question this answers:** "What does CC already know about this carrier, so nobody repeats work?"
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft for review before additional implementation.
+All 10 spines built and operational. Infrastructure spines (1–7) and product spines (8–10) are deployed and smoke-tested. Spines define "what must remain true" — not implementation changelogs. ADRs capture decisions. Specs capture deeper flows.
 
 ## Purpose
 
@@ -88,10 +88,10 @@ This avoids building a new carrier identity layer across two separate data owner
    Kate posts a load on DAT. Unknown carriers enter their MC. CC screens them before Kate wastes time. Built and smoke tested.
 
 9. [Dispatch Package](SPINE-0009-dispatch-package.md) — **per-load readiness**
-   Kate assigns a carrier. The carrier confirms driver, truck, and docs for THIS load. CC verifies the dispatch package. Partially built (company level works, driver/equipment level not yet modeled).
+   Kate assigns a carrier. The carrier confirms driver, truck, and docs for THIS load. CC verifies the dispatch package including insurance waterfall. Built and smoke-tested.
 
 10. [Carrier Master Record](SPINE-0010-carrier-master-record.md) — **CC's memory**
-    Every carrier interaction makes the next load faster. CC remembers MCs, drivers, trucks, docs, and results so nobody repeats work. Partially built (MC level exists, driver/equipment tables needed).
+    Every carrier interaction makes the next load faster. CC remembers MCs, drivers, trucks, docs, and results so nobody repeats work. Built — MC + driver + equipment + documents.
 
 ### Document Storage Rule
 
@@ -165,5 +165,5 @@ Before Kate uses a real DAT/Truckstop posting, this vertical flow should work wi
 5. Kate sees that applicant ranked correctly.
 6. Kate assigns the carrier.
 7. The system either requests docs or skips the chase based on current profile state.
-8. Kate sees CLEAR, CAUTION, DO NOT USE, waiting on docs, or signal state tied to that load.
+8. Kate sees CLEAR, REVIEW, DO NOT DISPATCH, waiting on docs, or signal state tied to that load.
 9. If signal is sent, the driver confirmation maps back to the same load in Kate's dashboard.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — Partially built.
+Accepted — built and smoke-tested (May 18, 2026).
 
 ## Context
 

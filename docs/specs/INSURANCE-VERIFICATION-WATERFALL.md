@@ -1,6 +1,6 @@
 # Insurance Verification Waterfall
 
-**Status:** Proposed — Partially built  
+**Status:** Built — smoke-tested May 18, 2026. Evaluator branches verified with deterministic fixtures.  
 **Branch:** Dispatch Package → Insurance  
 **ADR:** `docs/adr/ADR-0004-insurance-verification-waterfall.md`  
 **Last updated:** May 18, 2026
