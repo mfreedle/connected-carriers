@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The verification chase spine handles document collection, OCR, rule checks, and the CLEAR / CAUTION / DO NOT USE result.
+The verification chase spine handles the legacy broker-direct document collection flow: OCR, rule checks, and the CLEAR / CAUTION / DO_NOT_USE result stored on `carrier_verifications`. The newer Dispatch Package path maps assignment outcomes to CLEAR / REVIEW / DO_NOT_DISPATCH on `load_assignments`.
 
 ## User Promise
 

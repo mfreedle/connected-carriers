@@ -38,26 +38,18 @@ Kate should not normally choose the driver or truck. She chooses the carrier/com
    - Insurance expiration (not expired)
    - VIN on cab card matches VIN on insurance policy
    - FMCSA authority still active (re-check)
-5. Kate gets one signal: **CLEAR** / **CAUTION** / **DO NOT USE**
+5. Kate gets one signal: **CLEAR** / **REVIEW** / **DO NOT DISPATCH**
 6. If CLEAR: arrival check SMS sent to driver with pickup geofence
 
-## Current State vs Target
+## Current State
 
-### What's built (carrier/company level)
-- `carrier_profiles` stores CDL, insurance, cab card, VIN, driver info
-- `carrier_verifications` runs per-broker, per-load verification
-- `triggerCarrierVerification()` sends carrier the magic link
-- OCR parses CDL, insurance, VIN photos
-- Doc flags check VIN match, expirations
-- Result delivered to broker: CLEAR / CAUTION / DO NOT USE
+- `carrier_drivers` stores per-driver facts such as name, phone, CDL number/state/expiration, and active/expired status.
+- `carrier_equipment` stores per-truck/trailer facts such as truck number, VIN, trailer number, equipment type, and active/inactive status.
+- `carrier_documents` stores CDL, insurance, cab card, truck photo, W-9, and declarations page document records with parsed data, expiration, status, and supersession history.
+- `load_assignments` links the assigned carrier to the confirmed driver/equipment for this load and tracks confirmation, dec-page, dispatch, and no-response states.
+- `evaluateDispatchPackage()` returns CLEAR / REVIEW / DO NOT DISPATCH plus structured reasoning for Kate.
 
-### What's NOT built (driver/equipment level)
-- No `carrier_drivers` table — driver info lives on the profile, one driver per MC
-- No `carrier_equipment` table — truck/trailer lives on the profile, one set per MC
-- Same MC with a different driver or truck reuses the same profile
-- No way to say "MC#70000 has 3 drivers and 5 trucks, which one is on this load?"
-
-## Target Data Model
+## Data Model
 
 ```
 carrier_drivers
@@ -87,7 +79,7 @@ carrier_documents
   carrier_id → carriers
   driver_id → carrier_drivers (nullable)
   equipment_id → carrier_equipment (nullable)
-  doc_type: cdl | insurance | cab_card | truck_photo | w9
+  doc_type: cdl | insurance | cab_card | truck_photo | w9 | declarations_page
   r2_key
   display_url or signed-url metadata (if needed)
   parsed_data JSONB
@@ -118,7 +110,7 @@ Kate assigns carrier (MC level)
   → System checks: are this driver's CDL and this truck's docs current?
     → All current: CLEAR → arrival signal
     → Missing/stale: upload only what's needed (not everything from scratch)
-    → Failed: CAUTION or DO NOT USE with specific flags
+    → Failed: REVIEW or DO NOT DISPATCH with specific flags
 ```
 
 ## Design Rules

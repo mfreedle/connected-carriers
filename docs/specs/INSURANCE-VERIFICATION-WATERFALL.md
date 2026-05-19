@@ -3,7 +3,7 @@
 **Status:** Built — smoke-tested May 18, 2026. Evaluator branches verified with deterministic fixtures.  
 **Branch:** Dispatch Package → Insurance  
 **ADR:** `docs/adr/ADR-0004-insurance-verification-waterfall.md`  
-**Last updated:** May 18, 2026
+**Last updated:** May 19, 2026
 
 ---
 
@@ -71,28 +71,24 @@ The insurance waterfall runs in parallel with CDL and cab card evaluation. It be
 **Outcomes:**
 - OCR confidence too low on critical fields → **REVIEW**. Broker shown the specific field that couldn't be parsed and the raw document.
 
-**Build status:** 🟡 Partially built — OCR extraction exists. Confidence scoring and REVIEW tier not built yet. ACORD 101 multi-page scanning not built yet.
+**Build status:** ✅ Built — OCR extracts insurance fields, auto coverage type, VINs, and advisory confidence scores. Low-confidence or unparseable critical fields route to REVIEW rather than CLEAR.
 
 ### Parsed Fields Target
 
-These fields should be stored in `carrier_documents.parsed_data` for document type `certificate_of_insurance`:
+These fields are stored in `carrier_documents.parsed_data` for `doc_type = 'insurance'`:
 
 | Field | Type | Source |
 |-------|------|--------|
 | `policy_number` | string | COI body |
-| `insurer_name` | string | COI Insurer A/B/C rows |
-| `insurer_naic` | string | COI Insurer NAIC column |
+| `insurance_company` | string | COI insurer |
 | `named_insured` | string | COI Insured block |
-| `auto_coverage_type` | enum: `any_auto`, `scheduled`, `hired`, `non_owned`, `owned` | COI auto liability checkboxes |
-| `combined_single_limit` | number | COI auto liability limits |
-| `general_aggregate` | number | COI general liability limits |
-| `cargo_limit` | number | COI motor truck cargo limits |
-| `cargo_deductible` | number | COI motor truck cargo limits |
-| `policy_effective` | date | COI policy eff column |
-| `policy_expiration` | date | COI policy exp column |
-| `vins_found` | string[] | COI description, ACORD 101 remarks |
-| `has_pending_cancellation` | boolean | COI description |
-| `ocr_confidence` | object | Per-field confidence scores |
+| `auto_coverage_type` | enum: `any_auto`, `scheduled_autos`, `owned_autos`, `hired_autos`, `non_owned_autos`, `unknown` | COI auto liability checkboxes |
+| `auto_liability` | number | COI auto liability limit |
+| `general_liability` | number | COI general liability limit |
+| `cargo` | number | Motor truck cargo limit |
+| `expiration_date` | date | COI policy expiration |
+| `vins` | string[] | COI description, ACORD 101 remarks, other visible pages |
+| `confidence` | object | Per-field confidence scores |
 
 ---
 
@@ -112,17 +108,15 @@ These fields should be stored in `carrier_documents.parsed_data` for document ty
 
 > Coverage thresholds are broker-configurable. One broker might require $1M CSL and $100K cargo. Another might require $750K. CC checks against the broker's own policy.
 
-**Build status:** 🟡 Partially built — Expiration checking exists. Named insured matching, broker-configurable thresholds, and cargo coverage checking not built yet.
+**Build status:** ✅ Built — expiration, named insured, broker-configurable auto/cargo/general thresholds, and warning routing are implemented in `evaluateDispatchPackage()`.
 
 ### Broker Coverage Configuration Target
 
 ```
-broker_settings.insurance_requirements:
-  auto_liability_min: 1000000        # combined single limit floor
-  cargo_coverage_required: true
-  cargo_limit_min: 100000
-  cargo_deductible_max: 5000
-  general_liability_min: null         # null = not checked
+broker_policies:
+  minimum_insurance_auto: 1000000
+  minimum_insurance_cargo: 100000
+  minimum_insurance_general: 1000000
 ```
 
 ---
@@ -145,7 +139,7 @@ broker_settings.insurance_requirements:
 - VIN found on COI but doesn't match the confirmed truck → **REVIEW**. Broker shown both VINs.
 - Scheduled Autos but no VINs anywhere in document → proceed to Step 5.
 
-**Build status:** 🔴 Not built — Any Auto vs Scheduled Autos parsing, VIN cross-reference against cab card, multi-page VIN extraction.
+**Build status:** ✅ Built — Any Auto skips VIN matching, Scheduled Autos cross-references parsed COI VINs against the confirmed equipment VIN, and Scheduled Autos with no VINs triggers `needsDecPage`.
 
 ### Evaluator Logic Target
 
@@ -154,16 +148,16 @@ function evaluateVinCoverage(parsedCoi, confirmedVin):
   if parsedCoi.auto_coverage_type === 'any_auto':
     return { result: 'CLEAR', reason: 'blanket_coverage' }
 
-  if parsedCoi.vins_found.length === 0:
+  if parsedCoi.vins.length === 0:
     return { result: 'NEEDS_DEC_PAGE', reason: 'no_vins_on_coi' }
 
-  if parsedCoi.vins_found.includes(confirmedVin):
+  if parsedCoi.vins.includes(confirmedVin):
     return { result: 'CLEAR', reason: 'vin_match' }
 
   return {
     result: 'REVIEW',
     reason: 'vin_mismatch',
-    coi_vins: parsedCoi.vins_found,
+    coi_vins: parsedCoi.vins,
     confirmed_vin: confirmedVin
   }
 ```
@@ -206,7 +200,7 @@ The same ACORD 25 form presents vehicle coverage differently. These are three re
 
 > The declarations page is a fourth document type alongside COI, CDL, and cab card. It is only requested when the COI is ambiguous.
 
-**Build status:** 🔴 Not built — declarations_page document type, "needs dec page" state, follow-up SMS trigger.
+**Build status:** ✅ Built — `declarations_page` document type, `/confirm/:token/dec-page` upload, follow-up SMS, dashboard state, re-evaluation, and non-response escalation are implemented.
 
 ---
 
@@ -218,7 +212,7 @@ The same ACORD 25 form presents vehicle coverage differently. These are three re
 2. The insurance reasoning is shown to the broker in the dashboard: which checks passed, which flagged, and why. Not just a status badge — the broker sees the logic.
 3. If this carrier verified with current documents, the insurance result is cached on the carrier profile. Future verifications reuse current documents — only expired or changed items are re-requested.
 
-**Build status:** 🟡 Partially built — Result delivery exists. Insurance-specific reasoning display not built yet.
+**Build status:** ✅ Built — dashboard evaluation endpoint and applicant detail rendering show structured insurance reasoning.
 
 ---
 
@@ -265,13 +259,10 @@ Hard failure. Policy expired, or carrier did not provide requested documents wit
 
 ---
 
-## Build Priority
+## Verification Fixtures
 
-1. Add insurance-specific evaluation fields to `carrier_documents.parsed_data`
-2. Teach evaluator: Any Auto = VIN match not required; Scheduled Autos + VIN match = CLEAR; Scheduled Autos + no VIN = request dec page; VIN mismatch = REVIEW
-3. Add `declarations_page` as a fourth upload type
-4. Add "needs dec page" state and SMS follow-up
-5. Add named insured matching against FMCSA legal name
-6. Add broker-configurable coverage thresholds
-7. Add OCR confidence scoring → REVIEW on low confidence
-8. Show insurance reasoning in broker dashboard
+The evaluator branches are covered by deterministic fixtures in `app/test/fixtures/`:
+
+1. `MC 999001` — Scheduled Autos with matching VIN and coverage above thresholds → CLEAR.
+2. `MC 999002` — Scheduled Autos with no VINs → REVIEW + `needsDecPage`; declarations page with matching VIN → CLEAR.
+3. `MC 999003` — expired CDL plus weak insurance data → DO NOT DISPATCH.

@@ -41,7 +41,7 @@ A broker sends a carrier a self-service intake link.
 5. If the carrier passes initial checks, they are redirected to `/v/:token`.
 6. Carrier uploads dispatch documents such as CDL, insurance, cab card, and truck photo.
 7. OCR and rule checks run.
-8. Broker receives CLEAR, CAUTION, or DO NOT USE tied to the verification and assignment context.
+8. Broker receives a verification result tied to the verification and assignment context.
 
 This path is broker-initiated and dispatch-oriented.
 
@@ -74,10 +74,12 @@ Never ask for the same information twice when the system already has it and the 
 
 Some existing behavior lives in MCP from the prototype. That is not the target ownership model.
 
-## Gaps
+## Historical Gaps
 
-- Driver and equipment are not yet modeled as reusable records under a carrier.
-- The prototype still has MC-level profile fast paths that must be replaced by dispatch-package checks.
+These gaps drove the spine rebuild and should not be reintroduced:
+
+- Driver and equipment must be modeled as reusable records under a carrier.
+- MC-level profile fast paths are fallback/legacy only; dispatch readiness depends on confirmed driver/equipment/package state.
 - Carrier-direct profile submission participates in carrier identity, but sensitive returning-carrier prefill must remain token-gated.
 - Some MCP compatibility routes remain and should not regain canonical ownership.
 

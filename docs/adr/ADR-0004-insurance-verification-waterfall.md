@@ -52,20 +52,23 @@ The primary flow is DAT inbound (carrier applies through load link). A secondary
 - COI upload via carrier verification form (SMS magic link)
 - OCR extraction of insurance cert fields
 - VIN extraction from cab card
-- Basic expiration date checking
+- Expiration date checking
+- Any Auto vs Scheduled Autos parsing and branching logic
+- VIN cross-reference against confirmed equipment
+- Declarations page request and upload flow when COI is ambiguous
+- Named insured matching against FMCSA legal name
+- Broker-configurable coverage thresholds
+- OCR confidence scoring with REVIEW routing
 - Carrier profile document caching (repeat carriers reuse current docs)
-- Escalation timeline (15/30/60 min reminders)
+- Escalation timeline (15/30/60 min reminders for missing declarations page)
 - CLEAR / REVIEW / DO NOT DISPATCH result delivery
+- Insurance reasoning display in broker dashboard
 
 ## What Is Not Built Yet
 
-- Declarations page request (fourth document type, requested when COI is ambiguous)
-- Any Auto vs Scheduled Autos parsing and branching logic
-- Named insured matching against FMCSA legal name
-- Broker-configurable coverage thresholds (currently implied $1M)
-- OCR confidence scoring (low confidence → REVIEW instead of CLEAR)
-- ~~REVIEW result tier (currently binary CLEAR vs DO NOT USE)~~ ✅ Built — result tiers are now CLEAR / REVIEW / DO NOT DISPATCH
-- Insurance reasoning display in broker dashboard
+- Insurer-confirmed coverage checks by phone/API.
+- Automated re-verification of insurer-side cancellation after a document was uploaded.
+- TMS/Carrier411 integration for exporting or enriching the dispatch package.
 
 ## Consequences
 

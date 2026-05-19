@@ -6,7 +6,7 @@ All 10 spines built and operational. Infrastructure spines (1–7) and product s
 
 ## Purpose
 
-The prototype has proven that the major pieces can work: load links, FMCSA checks, carrier interest, broker dashboard, carrier profiles, document verification, and SMS. The next step is to define the product spines before adding more code.
+The major pieces now work: load links, FMCSA checks, carrier interest, broker dashboard, carrier identity, driver/equipment confirmation, document verification, insurance waterfall, and SMS. The spines define the product promises that future code must preserve.
 
 A spine is an end-to-end workflow and data model promise. If the spine is healthy, every screen, API route, table, and status label has a clear job. If the spine is vague, the system grows by patches and brokers end up doing the reasoning themselves.
 
@@ -121,7 +121,7 @@ CC filters the ones she hasn't met yet — before she wastes time on them.
 
 ## Build Philosophy
 
-Do not build the whole system at once. Build one vertical slice through the spines:
+Build one vertical slice through the spines before expanding sideways:
 
 1. Broker creates a load.
 2. Carrier applies through the load link.
@@ -134,7 +134,9 @@ Do not build the whole system at once. Build one vertical slice through the spin
 
 Everything else should support that slice or wait.
 
-## Recommended Build Order
+## Original Build Order
+
+This order is preserved as historical context for why the system is shaped this way. The items below are built unless called out elsewhere.
 
 1. Move the canonical load workflow into the broker app database: `loads`, `load_applications`, and the new `load_assignments`.
 2. Implement carrier identity in the broker app database and backfill existing carrier/profile/verification data.
@@ -146,13 +148,12 @@ Everything else should support that slice or wait.
 8. Add consent capture before network reuse is treated as real.
 9. Pilot with Kate using one controlled real carrier flow.
 
-## Open Architecture Decisions
+## Remaining Architecture Decisions
 
 - Should MCP be retained as a thin public edge, or should public carrier pages move fully into the broker app?
-- Do we introduce `load_assignments` before Kate tests? Recommendation: yes, because nothing is live and assignment is the workflow hinge.
 - Should pickup window be stored as free text, structured start/end timestamps, or both?
-- What carrier data can be reused network-wide before explicit consent exists?
-- What is the minimum dashboard state Kate needs before the pilot is useful?
+- What carrier data can be reused network-wide beyond the current consent-gated pilot flows?
+- What carrier-facing status/portal experience is worth building beyond token links?
 
 ## Pilot Readiness Bar
 

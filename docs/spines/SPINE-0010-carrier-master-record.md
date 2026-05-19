@@ -48,9 +48,10 @@ carrier_profiles (built)
   Currently one profile per MC (company level).
   Completion status: partial | complete | dispatch_ready.
 
-carrier_verifications (built)
+carrier_verifications (built, legacy broker-direct verification flow)
   Per-broker, per-load verification event.
   Token-based, time-boxed, result: CLEAR / CAUTION / DO NOT USE.
+  Dispatch Package assignments use CLEAR / REVIEW / DO_NOT_DISPATCH.
 
 carrier_consents (built)
   SMS and network reuse consent with evidence.
@@ -59,25 +60,27 @@ canonical_load_applications (built)
   Per-carrier, per-load interest record.
 
 load_assignments (built)
-  Kate's assignment decision, linked to verification and dispatch signal.
+  Kate's assignment decision, linked to applicant, carrier, confirmed driver/equipment,
+  dec-page flow, and dispatch/arrival signal state.
 ```
 
-## Target Data Model (additions)
+## Driver, Equipment, and Document Model
 
 ```
-carrier_drivers (not built)
+carrier_drivers (built)
   Per-driver record under a carrier MC.
-  CDL number, state, expiration, photo.
+  CDL number, state, expiration, status.
   Multiple drivers per MC.
 
-carrier_equipment (not built)
+carrier_equipment (built)
   Per-truck/trailer record under a carrier MC.
-  VIN, truck number, trailer number, cab card photo.
+  VIN, truck number, trailer number, equipment type, status.
   Multiple trucks per MC.
 
-carrier_documents (not built)
+carrier_documents (built)
   Unified doc storage with expiration tracking.
   Linked to carrier, driver, or equipment.
+  doc_type: cdl | insurance | cab_card | truck_photo | w9 | declarations_page.
   Status: current | expiring | expired | superseded.
 ```
 
@@ -131,7 +134,7 @@ Same pattern:
 
 ## Bridge to Tai/Carrier411 (Future)
 
-Not built now, but designed for:
+Future integration paths:
 
 - **Pull from Carrier411:** Richer compliance signals if API available (authority changes, FreightGuard flags)
 - **Push to Tai:** Cleared dispatch package (driver/CDL/truck/VIN/insurance) as structured data that Tai can import

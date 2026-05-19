@@ -1,6 +1,6 @@
 # Connected Carriers — Project Handoff
-**Last updated:** May 13, 2026
-**Status:** Full Filter → Chase → Signal pipeline operational on canonical data model. Pilot-ready for Kate (Logistics Xpress). Twilio toll-free approved, SMS live.
+**Last updated:** May 19, 2026
+**Status:** Full Filter → Confirm → Evaluate → Chase/Signal pipeline operational on canonical data model. Pilot-ready for Kate (Logistics Xpress). Twilio toll-free approved, SMS live.
 
 ---
 
@@ -44,7 +44,7 @@ The system was rebuilt on May 12-13, 2026 around a spine architecture (see `docs
 - **Forgot password:** SMS code to 310-980-5184
 - **Dashboard:** app.connectedcarriers.org/login
 
-### Current pilot load
+### Original pilot load / sample link
 - **Load ID:** HX-0513-19EE
 - **Link:** app.connectedcarriers.org/l/4C8CC258
 - **Route:** Tacoma, WA → Dallas, TX
@@ -67,8 +67,12 @@ The system was rebuilt on May 12-13, 2026 around a spine architecture (see `docs
 | Carrier identity resolved via findOrCreateCarrier | ✅ |
 | Carrier submits interest, Kate notified via SMS | ✅ |
 | Kate sees ranked applicants | ✅ |
-| Kate assigns, profile incomplete, verification chase (SMS magic link) | ✅ |
-| Kate assigns, profile complete, dispatch signal (arrival SMS) | ✅ |
+| Kate assigns, carrier confirms driver/equipment via `/confirm/:token` | ✅ |
+| Dispatch package evaluation returns CLEAR / REVIEW / DO NOT DISPATCH with reasoning | ✅ |
+| Insurance waterfall requests declarations page when Scheduled Autos has no VINs | ✅ |
+| Dec page non-response escalates at 15/30/60 min | ✅ |
+| Kate assigns, missing docs, verification chase (SMS magic link) | ✅ |
+| Kate assigns, package CLEAR, dispatch signal (arrival SMS) | ✅ |
 | Driver confirms arrival, green, Kate sees On Site | ✅ |
 | Driver too far, red, Kate sees Location Alert, later green clears it | ✅ |
 | Attention panel shows all states | ✅ |
