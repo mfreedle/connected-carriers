@@ -287,6 +287,8 @@ async function refreshLoads() {
           arrival_confirmed: {bg:'#10b981',label:'On Site'},
           arrival_alert: {bg:'#ef4444',label:'Location Alert'},
           on_site: {bg:'#10b981',label:'On Site'},
+          needs_dec_page: {bg:'#f59e0b',label:'Needs Declarations Page'},
+          waiting_on_dec_page: {bg:'#f59e0b',label:'Waiting on Dec Page'},
           no_response: {bg:'#ef4444',label:'No Response'},
           location_alert: {bg:'#ef4444',label:'Location Alert'},
           covered: {bg:'#10b981',label:'Covered'},
@@ -377,13 +379,15 @@ async function toggleApplicants(loadId, slug) {
         assignBadge = '<span style="background:#E3F2FD;color:#1565c0;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">🚛 ARRIVAL SENT</span>';
       } else if (a.assignment_status === 'arrival_confirmed') {
         assignBadge = '<span style="background:#E8F5E9;color:#2e7d32;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">✓ ON SITE</span>';
+      } else if (a.assignment_status === 'needs_dec_page') {
+        assignBadge = '<span style="background:#FFF8E1;color:#7C5E10;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600;margin-left:4px">📄 DEC PAGE NEEDED</span>';
       }
 
       var assignedLabel = a.assignment_id ? '<div style="font-size:10px;color:#8b5cf6;font-weight:600;margin-top:2px">ASSIGNED</div>' : '';
       var contactInfo = a.contact_name ? (a.contact_name + (a.contact_phone ? ' · ' + a.contact_phone : '')) : '';
 
       return '<div style="border-bottom:1px solid var(--cream2);padding-bottom:8px;margin-bottom:8px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;cursor:pointer" onclick="toggleProfile(\\'' + a.mc_number + '\\',\\'' + slug + '\\',' + a.id + ',\\'' + (a.contact_phone || '') + '\\',\\'' + (a.company_name || a.fmcsa_legal_name || '').replace(/'/g, '') + '\\',' + (a.has_profile || a.network_status === 'verified' ? 'true' : 'false') + ')">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;cursor:pointer" onclick="toggleProfile(\\'' + a.mc_number + '\\',\\'' + slug + '\\',' + a.id + ',' + (a.assignment_id || 'null') + ',\\'' + (a.contact_phone || '') + '\\',\\'' + (a.company_name || a.fmcsa_legal_name || '').replace(/'/g, '') + '\\',' + (a.has_profile || a.network_status === 'verified' ? 'true' : 'false') + ')">' +
           '<div>' +
             '<div style="font-size:13px;font-weight:500;color:var(--slate)">' + (a.company_name || a.fmcsa_legal_name || 'MC' + a.mc_number) + ' <span style="font-size:11px;color:var(--muted)">MC' + a.mc_number + '</span></div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (a.fmcsa_authority || 'Unknown') + ' · Safety: ' + (a.fmcsa_safety || 'Not Rated') + ' ' + profileBadge + assignBadge + '</div>' +
@@ -400,7 +404,7 @@ async function toggleApplicants(loadId, slug) {
   }
 }
 
-async function toggleProfile(mc, slug, appId, phone, companyName, hasProfile) {
+async function toggleProfile(mc, slug, appId, assignmentId, phone, companyName, hasProfile) {
   var el = document.getElementById('profile-' + mc);
   var toggle = document.getElementById('profile-toggle-' + mc);
   if (el.style.display !== 'none') { el.style.display = 'none'; toggle.textContent = 'Review Profile ▾'; return; }
@@ -411,6 +415,32 @@ async function toggleProfile(mc, slug, appId, phone, companyName, hasProfile) {
     var res = await fetch('/api/carrier/' + mc + '/profile');
     if (!res.ok) throw new Error('Failed');
     var data = await res.json();
+
+    // Fetch dispatch package evaluation if assigned
+    var evalHtml = '';
+    if (assignmentId) {
+      try {
+        var evalRes = await fetch('/api/v2/loads/' + slug + '/evaluation/' + assignmentId);
+        if (evalRes.ok) {
+          var evalData = await evalRes.json();
+          if (evalData.evaluation && evalData.evaluation.items) {
+            var statusIcons = {ok:'✓',warning:'⚠',expired:'✗',expiring:'◐',missing:'○'};
+            var statusColors = {ok:'#2e7d32',warning:'#BA7517',expired:'#c62828',expiring:'#f57f17',missing:'#6B7A8A'};
+            evalHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--cream2)">' +
+              '<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Dispatch Package Evaluation</div>' +
+              evalData.evaluation.items.map(function(item) {
+                var icon = statusIcons[item.status] || '?';
+                var color = statusColors[item.status] || '#6B7A8A';
+                return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--cream2)">' +
+                  '<span style="font-size:11px;color:var(--slate)">' + item.check + '</span>' +
+                  '<span style="font-size:11px;color:' + color + ';font-weight:500">' + icon + ' ' + item.detail + '</span>' +
+                '</div>';
+              }).join('') +
+            '</div>';
+          }
+        }
+      } catch(ee) { /* non-fatal — profile still shows */ }
+    }
 
     var profileHtml = '';
     if (data.found) {
@@ -440,6 +470,7 @@ async function toggleProfile(mc, slug, appId, phone, companyName, hasProfile) {
           (p.vin_photo_url ? '<a href="' + p.vin_photo_url + '" target="_blank" style="padding:3px 8px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:10px;color:var(--slate);text-decoration:none">View VIN</a>' : '<span style="font-size:10px;color:#a32d2d">No VIN photo</span>') +
           (p.insurance_doc_url ? '<a href="' + p.insurance_doc_url + '" target="_blank" style="padding:3px 8px;background:var(--cream);border:1px solid var(--cream3);border-radius:2px;font-size:10px;color:var(--slate);text-decoration:none">View Insurance</a>' : '<span style="font-size:10px;color:#a32d2d">No insurance</span>') +
         '</div>' +
+        evalHtml +
         '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--cream2);display:flex;align-items:center;justify-content:space-between">' +
           '<div style="display:flex;align-items:center;gap:8px">' +
             '<label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Driver phone</label>' +

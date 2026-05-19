@@ -23,6 +23,7 @@ import { verifyCsrf } from "../middleware/security";
 import { findOrCreateCarrier, updateCarrierFMCSA, updateCarrierContact } from "../carrier-identity";
 import { triggerCarrierVerification } from "../services/verification";
 import { createDispatchSignal } from "../services/dispatch-signal";
+import { evaluateDispatchPackage } from "../services/dispatch-evaluation";
 import { lookupFMCSA, FMCSAResult } from "../lib/fmcsa";
 import { sendSms } from "../lib/sms";
 
@@ -204,6 +205,8 @@ router.get("/api/v2/loads/attention", requireAuth, async (req: AuthenticatedRequ
         items.push({ priority: 2, icon: "⏳", load_id: load.load_id, route, message: "Waiting on carrier docs", action: "System will follow up" });
       } else if (aStatus === "arrival_pending") {
         items.push({ priority: 2, icon: "📤", load_id: load.load_id, route, message: "Arrival check sent", action: "Waiting for driver" });
+      } else if (aStatus === "needs_dec_page") {
+        items.push({ priority: 1, icon: "📄", load_id: load.load_id, route, message: "Insurance declarations page needed", action: "Carrier has been asked to upload vehicle schedule" });
       } else if (aStatus === "arrival_confirmed") {
         items.push({ priority: 5, icon: "✅", load_id: load.load_id, route, message: "Driver confirmed on site", action: "Clear to load" });
       } else if (aStatus === "arrival_alert") {
@@ -265,6 +268,53 @@ router.get("/api/v2/loads/:slug/applicants", requireAuth, async (req: Authentica
   } catch (err) {
     console.error("[v2/loads/applicants]", err);
     res.status(500).json({ error: "Failed to fetch applicants." });
+  }
+});
+
+// ── Dispatch package evaluation for an assignment ─────────────────
+
+router.get("/api/v2/loads/:slug/evaluation/:assignmentId", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const brokerAccountId = req.session.brokerAccountId!;
+
+    // Verify load belongs to this broker
+    const loadResult = await query(
+      "SELECT id FROM canonical_loads WHERE slug = $1 AND broker_account_id = $2",
+      [req.params.slug, brokerAccountId]
+    );
+    if (!loadResult.rows.length) {
+      return res.status(404).json({ error: "Load not found." });
+    }
+
+    // Verify assignment belongs to this load and broker
+    const assignResult = await query(
+      `SELECT la.id, la.carrier_id, la.driver_id, la.equipment_id, la.status
+       FROM load_assignments la
+       WHERE la.id = $1 AND la.load_id = $2 AND la.broker_account_id = $3`,
+      [req.params.assignmentId, loadResult.rows[0].id, brokerAccountId]
+    );
+    if (!assignResult.rows.length) {
+      return res.status(404).json({ error: "Assignment not found." });
+    }
+
+    const a = assignResult.rows[0];
+
+    if (!a.driver_id || !a.equipment_id) {
+      return res.json({ evaluation: null, reason: "Driver or equipment not yet confirmed." });
+    }
+
+    const evaluation = await evaluateDispatchPackage({
+      carrierId: a.carrier_id,
+      driverId: a.driver_id,
+      equipmentId: a.equipment_id,
+      brokerAccountId,
+      assignmentId: a.id,
+    });
+
+    res.json({ evaluation });
+  } catch (err) {
+    console.error("[v2/loads/evaluation]", err);
+    res.status(500).json({ error: "Failed to evaluate dispatch package." });
   }
 });
 
