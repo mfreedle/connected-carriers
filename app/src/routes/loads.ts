@@ -418,6 +418,7 @@ async function toggleProfile(mc, slug, appId, assignmentId, phone, companyName, 
 
     // Fetch dispatch package evaluation if assigned
     var evalHtml = '';
+    function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     if (assignmentId) {
       try {
         var evalRes = await fetch('/api/v2/loads/' + slug + '/evaluation/' + assignmentId);
@@ -432,8 +433,8 @@ async function toggleProfile(mc, slug, appId, assignmentId, phone, companyName, 
                 var icon = statusIcons[item.status] || '?';
                 var color = statusColors[item.status] || '#6B7A8A';
                 return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--cream2)">' +
-                  '<span style="font-size:11px;color:var(--slate)">' + item.check + '</span>' +
-                  '<span style="font-size:11px;color:' + color + ';font-weight:500">' + icon + ' ' + item.detail + '</span>' +
+                  '<span style="font-size:11px;color:var(--slate)">' + escapeHtml(item.check) + '</span>' +
+                  '<span style="font-size:11px;color:' + color + ';font-weight:500">' + icon + ' ' + escapeHtml(item.detail) + '</span>' +
                 '</div>';
               }).join('') +
             '</div>';
@@ -482,6 +483,7 @@ async function toggleProfile(mc, slug, appId, assignmentId, phone, companyName, 
     } else {
       profileHtml = '<div style="background:#fff;border:1px solid var(--cream3);border-radius:3px;padding:14px;margin-top:6px;font-size:12px">' +
         '<div style="color:var(--muted);margin-bottom:10px">No carrier profile on file. This carrier hasn\\'t uploaded their documents yet.</div>' +
+        evalHtml +
         '<div style="display:flex;align-items:center;justify-content:space-between">' +
           '<div style="display:flex;align-items:center;gap:8px">' +
             '<label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Driver phone</label>' +
