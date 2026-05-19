@@ -772,6 +772,8 @@ export async function migrateVerification() {
   await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS user_agent TEXT`).catch(() => {});
   await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS load_id INTEGER`).catch(() => {});
   await query(`ALTER TABLE carrier_consents ADD COLUMN IF NOT EXISTS broker_account_id INTEGER REFERENCES broker_accounts(id)`).catch(() => {});
+  // Make carrier_id nullable (broker-level consents don't have a carrier_id)
+  await query(`ALTER TABLE carrier_consents ALTER COLUMN carrier_id DROP NOT NULL`).catch(() => {});
   // Expand CHECK constraint
   await query(`ALTER TABLE carrier_consents DROP CONSTRAINT IF EXISTS carrier_consents_consent_type_check`).catch(() => {});
   await query(`ALTER TABLE carrier_consents ADD CONSTRAINT carrier_consents_consent_type_check CHECK (consent_type IN ('network_profile_reuse', 'sms_verification', 'doc_storage', 'broker_sms'))`).catch(() => {});
