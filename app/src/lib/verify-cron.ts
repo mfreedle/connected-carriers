@@ -230,6 +230,56 @@ async function runDecPageEscalationCron(): Promise<void> {
         } catch { /* non-fatal */ }
       }
 
+      // ── TIER 3: Finalize (≥60 min, not yet finalized) ───────────
+      // Check first to avoid sending lower-tier SMS on the same run
+      if (
+        elapsedMin >= 60 &&
+        !la.dec_page_finalized_at
+      ) {
+        // Status guard: only finalize if still needs_dec_page (prevents race with late upload)
+        const updateResult = await query(
+          `UPDATE load_assignments SET status = 'dec_page_no_response', dec_page_finalized_at = NOW(), updated_at = NOW() WHERE id = $1 AND status = 'needs_dec_page' RETURNING id`,
+          [la.id]
+        );
+
+        if (updateResult.rows.length > 0) {
+          await query(
+            `UPDATE canonical_loads SET status = 'no_response', updated_at = NOW() WHERE id = $1`,
+            [la.load_id]
+          );
+
+          if (la.broker_phone) {
+            const finalMsg = `Connected Carriers: ${carrierName} — no declarations page received for ${loadLabel}. DO NOT DISPATCH until resolved. Carrier did not provide insurance vehicle schedule within the verification window.`;
+            const smsResult = await sendSms(la.broker_phone, finalMsg);
+            console.log(`[DEC-PAGE-CRON] Finalized ${carrierName} / ${loadLabel} as no_response (broker SMS ${smsResult.sent ? "delivered" : "failed"})`);
+          } else {
+            console.log(`[DEC-PAGE-CRON] Finalized ${carrierName} / ${loadLabel} as no_response (no broker phone)`);
+          }
+          processed++;
+        } else {
+          console.log(`[DEC-PAGE-CRON] Skipped finalize for ${carrierName} / ${loadLabel} — status already changed`);
+        }
+        continue; // finalized — skip lower tiers for this row
+      }
+
+      // ── TIER 2: Broker notification (≥30 min, not yet escalated) ──
+      if (
+        elapsedMin >= 30 &&
+        !la.dec_page_escalated_at &&
+        la.broker_phone
+      ) {
+        const minutesAgo = Math.round(elapsedMin);
+        const brokerMsg = `Connected Carriers: ${carrierName} — declarations page not yet received for ${loadLabel}. Carrier was asked ${minutesAgo} minutes ago. Do not dispatch until resolved.`;
+
+        const smsResult = await sendSms(la.broker_phone, brokerMsg);
+        await query(
+          `UPDATE load_assignments SET dec_page_escalated_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [la.id]
+        );
+        console.log(`[DEC-PAGE-CRON] Sent broker notice for ${carrierName} / ${loadLabel} (${smsResult.sent ? "delivered" : "failed"})`);
+        processed++;
+      }
+
       // ── TIER 1: Carrier reminder (≥15 min, reminder_count < 1) ──
       if (
         elapsedMin >= 15 &&
@@ -254,50 +304,6 @@ async function runDecPageEscalationCron(): Promise<void> {
           [la.id]
         );
         console.log(`[DEC-PAGE-CRON] Sent carrier reminder for ${carrierName} / ${loadLabel} (${smsResult.sent ? "delivered" : "failed"})`);
-        processed++;
-      }
-
-      // ── TIER 2: Broker notification (≥30 min, not yet escalated) ──
-      if (
-        elapsedMin >= 30 &&
-        !la.dec_page_escalated_at &&
-        la.broker_phone
-      ) {
-        const minutesAgo = Math.round(elapsedMin);
-        const brokerMsg = `Connected Carriers: ${carrierName} — declarations page not yet received for ${loadLabel}. Carrier was asked ${minutesAgo} minutes ago. Do not dispatch until resolved.`;
-
-        const smsResult = await sendSms(la.broker_phone, brokerMsg);
-        await query(
-          `UPDATE load_assignments SET dec_page_escalated_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [la.id]
-        );
-        console.log(`[DEC-PAGE-CRON] Sent broker notice for ${carrierName} / ${loadLabel} (${smsResult.sent ? "delivered" : "failed"})`);
-        processed++;
-      }
-
-      // ── TIER 3: Finalize (≥60 min, not yet finalized) ───────────
-      if (
-        elapsedMin >= 60 &&
-        !la.dec_page_finalized_at
-      ) {
-        // Update assignment and load status
-        await query(
-          `UPDATE load_assignments SET status = 'dec_page_no_response', dec_page_finalized_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [la.id]
-        );
-        await query(
-          `UPDATE canonical_loads SET status = 'no_response', updated_at = NOW() WHERE id = $1`,
-          [la.load_id]
-        );
-
-        // Notify broker
-        if (la.broker_phone) {
-          const finalMsg = `Connected Carriers: ${carrierName} — no declarations page received for ${loadLabel}. DO NOT DISPATCH until resolved. Carrier did not provide insurance vehicle schedule within the verification window.`;
-          const smsResult = await sendSms(la.broker_phone, finalMsg);
-          console.log(`[DEC-PAGE-CRON] Finalized ${carrierName} / ${loadLabel} as no_response (broker SMS ${smsResult.sent ? "delivered" : "failed"})`);
-        } else {
-          console.log(`[DEC-PAGE-CRON] Finalized ${carrierName} / ${loadLabel} as no_response (no broker phone)`);
-        }
         processed++;
       }
     }

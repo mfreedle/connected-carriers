@@ -550,7 +550,7 @@ router.get("/confirm/:token/dec-page", async (req: Request, res: Response) => {
 
     const a = assignResult.rows[0];
 
-    if (a.status !== "needs_dec_page") {
+    if (a.status !== "needs_dec_page" && a.status !== "dec_page_no_response") {
       // Already resolved or different state — redirect to main confirmation
       const eval_ = a.driver_id && a.equipment_id
         ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
@@ -593,7 +593,7 @@ router.post("/confirm/:token/dec-page", upload.fields([
 
     const a = assignResult.rows[0];
 
-    if (a.status !== "needs_dec_page") {
+    if (a.status !== "needs_dec_page" && a.status !== "dec_page_no_response") {
       const eval_ = a.driver_id && a.equipment_id
         ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
         : null;
