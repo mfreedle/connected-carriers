@@ -76,7 +76,8 @@ insurance_vins JSONB, cdl_name, cdl_number, cdl_state
 doc_flags JSONB
 carrier_profile_id INTEGER (nullable FK)
 status: pending | in_progress | complete | expired
-result: CLEAR | REVIEW | DO_NOT_DISPATCH
+result: CLEAR | CAUTION | DO_NOT_USE
+  (Note: Dispatch Package assignments use CLEAR | REVIEW | DO_NOT_DISPATCH)
 result_reasons JSONB
 sms_sent_at, email_sent_at, reminder_count, etc.
 created_at, updated_at

@@ -283,7 +283,6 @@ async function refreshLoads() {
           documents_pending: {bg:'#8b5cf6',label:'Waiting on Docs'},
           clear: {bg:'#10b981',label:'Clear to Dispatch'},
           caution: {bg:'#f59e0b',label:'Review'},
-          review: {bg:'#f59e0b',label:'Review'},
           arrival_sent: {bg:'#2563eb',label:'Arrival Sent'},
           arrival_pending: {bg:'#2563eb',label:'Arrival Sent'},
           arrival_confirmed: {bg:'#10b981',label:'On Site'},
