@@ -657,6 +657,15 @@ export async function migrateVerification() {
   await query(`CREATE INDEX IF NOT EXISTS idx_cloads_status ON canonical_loads(status)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cloads_slug ON canonical_loads(slug)`);
 
+  // ── Widen canonical_loads.status to include waiting_on_dec_page ──
+  await query(`ALTER TABLE canonical_loads DROP CONSTRAINT IF EXISTS canonical_loads_status_check`).catch(() => {});
+  await query(`ALTER TABLE canonical_loads ADD CONSTRAINT canonical_loads_status_check CHECK (status IN (
+    'posted', 'carriers_qualified', 'ready_to_call', 'assigned',
+    'waiting_on_docs', 'waiting_on_dec_page', 'clear_to_dispatch', 'review', 'do_not_use',
+    'arrival_sent', 'on_site', 'no_response', 'location_alert',
+    'covered', 'cancelled'
+  ))`).catch(() => {});
+
   // ── Canonical load applications (SPINE-0001 + SPINE-0002) ────────
   // One per carrier per load. Links to carrier identity.
   await query(`
@@ -717,6 +726,22 @@ export async function migrateVerification() {
   await query(`CREATE INDEX IF NOT EXISTS idx_la_load ON load_assignments(load_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_carrier ON load_assignments(carrier_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_la_broker ON load_assignments(broker_account_id)`);
+
+  // ── Widen load_assignments.status to include needs_dec_page ──
+  await query(`ALTER TABLE load_assignments DROP CONSTRAINT IF EXISTS load_assignments_status_check`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD CONSTRAINT load_assignments_status_check CHECK (status IN (
+    'assigned', 'verification_requested', 'documents_pending',
+    'clear', 'caution', 'do_not_use',
+    'needs_dec_page',
+    'arrival_pending', 'arrival_confirmed', 'arrival_alert',
+    'superseded', 'cancelled'
+  ))`).catch(() => {});
+
+  // ── Dec page tracking columns on load_assignments ──
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_requested_at TIMESTAMPTZ`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_reminder_count INTEGER DEFAULT 0`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_last_reminder_at TIMESTAMPTZ`).catch(() => {});
+  await query(`ALTER TABLE load_assignments ADD COLUMN IF NOT EXISTS dec_page_escalated_at TIMESTAMPTZ`).catch(() => {});
 
   // ── Carrier consents (SPINE-0003 + SPINE-0007) ───────────────────
   // Records carrier consent for network profile reuse.

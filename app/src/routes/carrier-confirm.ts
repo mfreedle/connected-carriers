@@ -337,6 +337,33 @@ router.post("/confirm/:token", upload.fields([
       });
     }
 
+    // ── Resolve contact info (needed before eval for dec page SMS) ──
+
+    let confirmedDriverPhone: string | null = null;
+    let confirmedDriverName = "Driver";
+    let carrierContactPhone: string | null = null;
+    try {
+      const driverResult = await query(
+        "SELECT driver_name, driver_phone FROM carrier_drivers WHERE id = $1 AND carrier_id = $2",
+        [driverId, a.carrier_id]
+      );
+      confirmedDriverPhone = driverResult.rows[0]?.driver_phone || null;
+      confirmedDriverName = driverResult.rows[0]?.driver_name || "Driver";
+    } catch { /* non-fatal */ }
+
+    // Fallback: application contact phone
+    if (!confirmedDriverPhone) {
+      try {
+        const appResult = await query(
+          "SELECT contact_phone FROM canonical_load_applications WHERE load_id = $1 AND carrier_id = $2",
+          [a.load_id, a.carrier_id]
+        );
+        carrierContactPhone = appResult.rows[0]?.contact_phone || null;
+      } catch { /* non-fatal */ }
+    }
+
+    const bestCarrierPhone = confirmedDriverPhone || carrierContactPhone;
+
     // ── Evaluate dispatch package ───────────────────────────────
 
     const evaluation = await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId, equipmentId, brokerAccountId: a.broker_account_id });
@@ -346,7 +373,10 @@ router.post("/confirm/:token", upload.fields([
     let assignmentStatus: string;
     let loadStatus: string;
 
-    if (evaluation.result === "clear") {
+    if (evaluation.needsDecPage && evaluation.result !== "do_not_use") {
+      assignmentStatus = "needs_dec_page";
+      loadStatus = "waiting_on_dec_page";
+    } else if (evaluation.result === "clear") {
       assignmentStatus = "clear";
       loadStatus = "clear_to_dispatch";
     } else if (evaluation.result === "review") {
@@ -361,9 +391,13 @@ router.post("/confirm/:token", upload.fields([
       loadStatus = "waiting_on_docs";
     }
 
+    const decPageFields = assignmentStatus === "needs_dec_page"
+      ? ", dec_page_requested_at = NOW(), dec_page_reminder_count = 0"
+      : "";
+
     await query(
       `UPDATE load_assignments
-       SET driver_id = $1, equipment_id = $2, confirmed_at = NOW(), status = $3, updated_at = NOW()
+       SET driver_id = $1, equipment_id = $2, confirmed_at = NOW(), status = $3, updated_at = NOW()${decPageFields}
        WHERE id = $4`,
       [driverId, equipmentId, assignmentStatus, a.id]
     );
@@ -379,24 +413,33 @@ router.post("/confirm/:token", upload.fields([
     const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
     const userAgent = (req.headers["user-agent"] as string) || null;
 
-    let confirmedDriverPhone: string | null = null;
-    let confirmedDriverName = "Driver";
-    try {
-      const driverResult = await query(
-        "SELECT driver_name, driver_phone FROM carrier_drivers WHERE id = $1 AND carrier_id = $2",
-        [driverId, a.carrier_id]
-      );
-      confirmedDriverPhone = driverResult.rows[0]?.driver_phone || null;
-      confirmedDriverName = driverResult.rows[0]?.driver_name || "Driver";
-    } catch { /* non-fatal */ }
-
     try {
       await query(
         `INSERT INTO carrier_consents (carrier_id, consent_type, granted, source, phone, consent_text, ip_address, user_agent, load_id, granted_at)
          VALUES ($1, 'sms_verification', true, 'confirm', $2, $3, $4, $5, $6, NOW())`,
-        [a.carrier_id, confirmedDriverPhone, consentText, ipAddress, userAgent, a.load_id]
+        [a.carrier_id, bestCarrierPhone, consentText, ipAddress, userAgent, a.load_id]
       );
     } catch { /* non-fatal */ }
+
+    // ── If needs dec page: send carrier SMS with upload link ────
+
+    if (assignmentStatus === "needs_dec_page" && bestCarrierPhone) {
+      try {
+        const decPageUrl = `${process.env.BASE_URL || "https://app.connectedcarriers.org"}/confirm/${token}/dec-page`;
+        const decMsg = [
+          `Connected Carriers: One more document needed to complete your insurance verification for ${a.cl_load_id || "this load"}.`,
+          ``,
+          `Please upload your insurance policy declarations page (the page showing covered vehicles):`,
+          `${decPageUrl}`,
+          ``,
+          `Standard message and data rates may apply. Reply STOP to opt out.`,
+        ].join("\n");
+        await sendSms(bestCarrierPhone, decMsg);
+        console.log(`[confirm] Dec page SMS sent to ${bestCarrierPhone} for assignment ${a.id}`);
+      } catch (err) {
+        console.error("[confirm] Dec page SMS error (non-fatal):", err);
+      }
+    }
 
     // ── If clear: trigger dispatch signal using confirmed driver's phone ──
 
@@ -446,7 +489,9 @@ router.post("/confirm/:token", upload.fields([
       if (broker?.contact_phone) {
         const carrierName = a.fmcsa_legal_name || `MC${a.mc_number}`;
 
-        const statusMsg = evaluation.result === "clear"
+        const statusMsg = assignmentStatus === "needs_dec_page"
+          ? `⚠ ${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id}. Insurance certificate missing vehicle coverage — declarations page requested from carrier.`
+          : evaluation.result === "clear"
           ? `✓ ${carrierName} confirmed: ${confirmedDriverName} for ${a.cl_load_id}. Clear to dispatch — arrival check sent.`
           : evaluation.result === "review"
           ? `⚠ ${carrierName} confirmed ${confirmedDriverName} for ${a.cl_load_id} with flags: ${evaluation.warnings.join(", ")}`
@@ -472,6 +517,235 @@ router.post("/confirm/:token", upload.fields([
 
   } catch (err) {
     console.error("[confirm POST]", err);
+    res.status(500).send(shell("Error", `<div style="text-align:center;padding:40px"><p>Something went wrong. Please try again.</p></div>`));
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// GET /confirm/:token/dec-page
+// ══════════════════════════════════════════════════════════════════
+
+router.get("/confirm/:token/dec-page", async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+
+    const assignResult = await query(
+      `SELECT la.*, cl.load_id, cl.origin, cl.destination, cl.equipment,
+              cl.broker_account_id,
+              c.mc_number, c.fmcsa_legal_name
+       FROM load_assignments la
+       JOIN canonical_loads cl ON cl.id = la.load_id
+       JOIN carriers c ON c.id = la.carrier_id
+       WHERE la.confirmation_token = $1`,
+      [token]
+    );
+
+    if (!assignResult.rows.length) {
+      return res.status(404).send(shell("Not Found", `
+        <div style="text-align:center;padding:40px">
+          <div style="font-size:36px;margin-bottom:16px">?</div>
+          <p>This link is not valid or has expired.</p>
+        </div>`));
+    }
+
+    const a = assignResult.rows[0];
+
+    if (a.status !== "needs_dec_page") {
+      // Already resolved or different state — redirect to main confirmation
+      const eval_ = a.driver_id && a.equipment_id
+        ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
+        : null;
+      return res.send(shell("Confirmed", confirmedPage(a, eval_)));
+    }
+
+    res.send(shell("Insurance Document Needed", decPageForm(token, a)));
+  } catch (err) {
+    console.error("[dec-page GET]", err);
+    res.status(500).send(shell("Error", `<div style="text-align:center;padding:40px"><p>Something went wrong.</p></div>`));
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// POST /confirm/:token/dec-page
+// ══════════════════════════════════════════════════════════════════
+
+router.post("/confirm/:token/dec-page", upload.fields([
+  { name: "declarations_page", maxCount: 1 },
+]), async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+
+    const assignResult = await query(
+      `SELECT la.*, cl.load_id as cl_load_id, cl.origin, cl.destination,
+              cl.broker_account_id,
+              c.mc_number, c.fmcsa_legal_name
+       FROM load_assignments la
+       JOIN canonical_loads cl ON cl.id = la.load_id
+       JOIN carriers c ON c.id = la.carrier_id
+       WHERE la.confirmation_token = $1`,
+      [token]
+    );
+
+    if (!assignResult.rows.length) {
+      return res.status(404).send(shell("Not Found", `<div style="text-align:center;padding:40px"><p>Invalid link.</p></div>`));
+    }
+
+    const a = assignResult.rows[0];
+
+    if (a.status !== "needs_dec_page") {
+      const eval_ = a.driver_id && a.equipment_id
+        ? await evaluateDispatchPackage({ carrierId: a.carrier_id, driverId: a.driver_id, equipmentId: a.equipment_id, brokerAccountId: a.broker_account_id })
+        : null;
+      return res.send(shell("Confirmed", confirmedPage(a, eval_)));
+    }
+
+    // ── Upload and parse dec page ────────────────────────────────
+
+    const files = req.files as Record<string, Express.Multer.File[]>;
+    const decFile = files["declarations_page"]?.[0];
+
+    if (!decFile) {
+      return res.status(400).send(shell("Missing Document", `
+        <div style="text-align:center;padding:40px">
+          <p>Please upload your insurance declarations page.</p>
+          <a href="/confirm/${h(token)}/dec-page" style="color:var(--amber)">← Try again</a>
+        </div>`));
+    }
+
+    if (isR2Configured()) {
+      const mc = a.mc_number || "unknown";
+      const uploaded = await uploadToR2(decFile.buffer, decFile.originalname, decFile.mimetype, `confirm/${mc}`);
+
+      let parsedData: unknown = null;
+      let expirationDate: string | null = null;
+
+      try {
+        const presignedUrl = await getPresignedDownloadUrl(uploaded.objectKey, 120);
+        if (presignedUrl) {
+          const { parseDeclarationsPage } = await import("../doc-parser");
+          const parsed = await parseDeclarationsPage(presignedUrl);
+          if (parsed && Object.keys(parsed).length > 0) {
+            parsedData = parsed;
+            expirationDate = parsed.expiration_date || null;
+            console.log(`[dec-page OCR] Parsed: coverage=${parsed.coverage_type || "?"}, ${(parsed.vins || []).length} VINs`);
+          }
+        }
+      } catch (ocrErr) {
+        console.error("[dec-page OCR] Parse error (non-fatal):", ocrErr);
+      }
+
+      await syncCanonicalCarrierRecords({
+        carrier_id: a.carrier_id,
+        documents: [{
+          doc_type: "declarations_page",
+          r2_key: uploaded.objectKey,
+          file_url: uploaded.fileUrl || null,
+          parsed_data: parsedData,
+          expiration_date: expirationDate,
+        }],
+        source: "dec-page",
+      });
+    }
+
+    // ── Re-evaluate dispatch package ─────────────────────────────
+
+    const evaluation = await evaluateDispatchPackage({
+      carrierId: a.carrier_id,
+      driverId: a.driver_id,
+      equipmentId: a.equipment_id,
+      brokerAccountId: a.broker_account_id,
+    });
+
+    // ── Update assignment + load status ──────────────────────────
+
+    let newAssignmentStatus: string;
+    let newLoadStatus: string;
+
+    if (evaluation.result === "clear") {
+      newAssignmentStatus = "clear";
+      newLoadStatus = "clear_to_dispatch";
+    } else if (evaluation.result === "review") {
+      newAssignmentStatus = "caution";
+      newLoadStatus = "review";
+    } else if (evaluation.result === "do_not_use") {
+      newAssignmentStatus = "do_not_use";
+      newLoadStatus = "do_not_use";
+    } else {
+      newAssignmentStatus = "documents_pending";
+      newLoadStatus = "waiting_on_docs";
+    }
+
+    await query(
+      `UPDATE load_assignments SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [newAssignmentStatus, a.id]
+    );
+    await query(
+      "UPDATE canonical_loads SET status = $1, updated_at = NOW() WHERE id = $2",
+      [newLoadStatus, a.load_id]
+    );
+
+    // ── Notify broker of resolution ─────────────────────────────
+
+    try {
+      const brokerResult = await query(
+        "SELECT contact_phone FROM broker_accounts WHERE id = $1",
+        [a.broker_account_id]
+      );
+      const brokerPhone = brokerResult.rows[0]?.contact_phone;
+      if (brokerPhone) {
+        const carrierName = a.fmcsa_legal_name || `MC${a.mc_number}`;
+        const statusMsg = evaluation.result === "clear"
+          ? `✓ ${carrierName} — declarations page received. Insurance verified. Clear to dispatch.`
+          : `⚠ ${carrierName} — declarations page received but flags remain: ${evaluation.warnings.join(", ")}`;
+        await sendSms(brokerPhone, `Connected Carriers: ${statusMsg}`);
+      }
+    } catch (err) {
+      console.error("[dec-page] Broker notification error:", err);
+    }
+
+    // ── If clear: trigger dispatch signal ────────────────────────
+
+    if (evaluation.result === "clear") {
+      try {
+        let driverPhone: string | null = null;
+        if (a.driver_id) {
+          const dr = await query("SELECT driver_phone FROM carrier_drivers WHERE id = $1", [a.driver_id]);
+          driverPhone = dr.rows[0]?.driver_phone || null;
+        }
+        const brokerResult = await query("SELECT contact_phone FROM broker_accounts WHERE id = $1", [a.broker_account_id]);
+        const brokerPhone = brokerResult.rows[0]?.contact_phone || "";
+
+        if (driverPhone && (a.pickup_address || a.origin)) {
+          const signalResult = await createDispatchSignal({
+            load_id: a.cl_load_id,
+            assignment_id: a.id,
+            carrier_id: a.carrier_id,
+            driver_phone: driverPhone,
+            broker_phone: brokerPhone,
+            mc_number: a.mc_number,
+            carrier_name: a.fmcsa_legal_name,
+            pickup_address: a.pickup_address || "",
+            origin: a.origin,
+          });
+
+          await query(
+            `UPDATE load_assignments SET status = 'arrival_pending', dispatch_signal_id = $1, dispatch_signal_ref = $2, updated_at = NOW() WHERE id = $3`,
+            [signalResult.id, signalResult.dispatch_verification_id, a.id]
+          );
+          await query(
+            "UPDATE canonical_loads SET status = 'arrival_sent', updated_at = NOW() WHERE id = $1",
+            [a.load_id]
+          );
+        }
+      } catch (err) {
+        console.error("[dec-page] Dispatch signal error (non-fatal):", err);
+      }
+    }
+
+    res.send(shell("Updated", confirmedPage(a, evaluation)));
+
+  } catch (err) {
+    console.error("[dec-page POST]", err);
     res.status(500).send(shell("Error", `<div style="text-align:center;padding:40px"><p>Something went wrong. Please try again.</p></div>`));
   }
 });
@@ -710,4 +984,43 @@ function confirmedPage(a: Record<string, unknown>, eval_: { result: string; item
   <div style="text-align:center;margin-top:12px">
     <a href="https://connectedcarriers.org" style="font-size:13px;color:var(--muted);text-decoration:none">← Back to Connected Carriers</a>
   </div>`;
+}
+
+function decPageForm(token: string, a: Record<string, unknown>): string {
+  return `
+  <div class="tag">Insurance Document Needed</div>
+  <div class="route">${h(String(a.origin || ""))} → ${h(String(a.destination || ""))}</div>
+  <div class="detail">${h(String(a.equipment || ""))}${a.pickup_date ? " · Pickup: " + h(String(a.pickup_date)) : ""}</div>
+
+  <div class="divider"></div>
+
+  <div style="padding:12px;background:#FFF8E7;border-left:3px solid #E09F3E;border-radius:4px;margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;color:#7C5E10;margin-bottom:4px">One more document needed</div>
+    <div style="font-size:12px;color:#7C5E10;line-height:1.5">
+      Your insurance certificate lists Scheduled Autos but does not include the covered vehicles.
+      Please upload your <strong>insurance policy declarations page</strong> — the page from your insurer that shows which vehicles are covered under your policy.
+    </div>
+  </div>
+
+  <form action="/confirm/${h(token)}/dec-page" method="POST" enctype="multipart/form-data" id="dec-form">
+    <div class="upload-field">
+      <label>Upload declarations page</label>
+      <input type="file" name="declarations_page" accept="image/*,.pdf" required>
+    </div>
+
+    <div style="margin:16px 0;font-size:11px;color:var(--muted);line-height:1.5">
+      By submitting, I agree to receive SMS messages from Connected Carriers about document verification and dispatch status.
+      <a href="https://connectedcarriers.org/terms.html" target="_blank" style="color:var(--amber)">Terms</a> &
+      <a href="https://connectedcarriers.org/privacy.html" target="_blank" style="color:var(--amber)">Privacy</a>.
+    </div>
+
+    <button type="submit" class="btn" id="dec-btn">Upload declarations page</button>
+  </form>
+
+  <script>
+  document.getElementById('dec-form').addEventListener('submit', function() {
+    var btn = document.getElementById('dec-btn');
+    btn.disabled = true; btn.textContent = 'Uploading...';
+  });
+  </script>`;
 }

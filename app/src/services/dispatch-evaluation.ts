@@ -26,6 +26,7 @@ export interface DispatchEvaluation {
   missing: string[];
   warnings: string[];
   blockers: string[];
+  needsDecPage?: boolean;
 }
 
 export interface EvalInput {
@@ -98,6 +99,7 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
   const missing: string[] = [];
   const warnings: string[] = [];
   const blockers: string[] = [];
+  let needsDecPage = false;
 
   const today = new Date();
   const thirtyDays = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -432,8 +434,59 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
         const insVins: string[] = (parsed.vins || []).filter((v: unknown) => isValidVin(v));
 
         if (insVins.length === 0) {
-          warnings.push("Scheduled Autos policy, no VIN schedule found; declarations page required");
-          items.push({ check: "Vehicle coverage", status: "warning", detail: "Scheduled Autos — no VINs on certificate; declarations page required" });
+          // No VINs on COI — check if a declarations page has been uploaded
+          let decPageResolved = false;
+          try {
+            const decResult = await query(
+              `SELECT parsed_data FROM carrier_documents
+               WHERE carrier_id = $1
+                 AND (doc_type = 'declarations_page' OR document_type = 'declarations_page')
+                 AND COALESCE(status, 'current') NOT IN ('superseded')
+               ORDER BY created_at DESC LIMIT 1`,
+              [carrierId]
+            );
+            if (decResult.rows.length) {
+              const decParsed = typeof decResult.rows[0].parsed_data === "string"
+                ? JSON.parse(decResult.rows[0].parsed_data)
+                : (decResult.rows[0].parsed_data || {});
+
+              if (decParsed.coverage_type === "blanket") {
+                items.push({ check: "Vehicle coverage", status: "ok", detail: "Blanket coverage confirmed via declarations page" });
+                decPageResolved = true;
+              } else if (decParsed.coverage_type === "scheduled_vehicles") {
+                const decVins: string[] = (decParsed.vins || []).filter((v: unknown) => isValidVin(v));
+                if (decVins.length > 0 && equipmentId) {
+                  const equipResult2 = await query(
+                    "SELECT vin_number FROM carrier_equipment WHERE id = $1 AND carrier_id = $2",
+                    [equipmentId, carrierId]
+                  );
+                  const truckVin2 = equipResult2.rows[0]?.vin_number;
+                  if (truckVin2 && isValidVin(truckVin2)) {
+                    const match2 = decVins.some(v => normalizeVin(v) === normalizeVin(truckVin2));
+                    if (match2) {
+                      items.push({ check: "VIN match", status: "ok", detail: "Confirmed truck VIN found on declarations page" });
+                      decPageResolved = true;
+                    } else {
+                      warnings.push(`Truck VIN ${truckVin2} not found on declarations page (dec page VINs: ${decVins.join(", ")})`);
+                      items.push({ check: "VIN match", status: "warning", detail: `Truck VIN ${truckVin2} not on dec page — dec page has: ${decVins.join(", ")}` });
+                      decPageResolved = true; // resolved but with mismatch warning — don't re-request
+                    }
+                  }
+                } else if (decVins.length === 0) {
+                  // Dec page says scheduled but has no VINs — not helpful
+                  warnings.push("Declarations page uploaded but no VINs found on it");
+                  items.push({ check: "Vehicle coverage", status: "warning", detail: "Declarations page has no VINs — verify manually" });
+                }
+              }
+              // If coverage_type is unknown or dec page didn't resolve, fall through
+            }
+          } catch { /* non-fatal */ }
+
+          if (!decPageResolved) {
+            needsDecPage = true;
+            warnings.push("Scheduled Autos policy, no VIN schedule found; declarations page required");
+            items.push({ check: "Vehicle coverage", status: "warning", detail: "Scheduled Autos — no VINs on certificate; declarations page required" });
+          }
         } else if (equipmentId) {
           try {
             const equipResult = await query(
@@ -507,5 +560,5 @@ export async function evaluateDispatchPackage(input: EvalInput): Promise<Dispatc
     result = "clear";
   }
 
-  return { result, items, missing, warnings, blockers };
+  return { result, items, missing, warnings, blockers, needsDecPage: needsDecPage || undefined };
 }
