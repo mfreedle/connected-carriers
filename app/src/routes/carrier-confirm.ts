@@ -577,7 +577,8 @@ router.post("/confirm/:token/dec-page", upload.fields([
 
     const assignResult = await query(
       `SELECT la.*, cl.load_id as cl_load_id, cl.origin, cl.destination,
-              cl.broker_account_id,
+              cl.broker_account_id, cl.pickup_address,
+              cl.pickup_window_start, cl.pickup_window_end,
               c.mc_number, c.fmcsa_legal_name
        FROM load_assignments la
        JOIN canonical_loads cl ON cl.id = la.load_id
@@ -726,6 +727,8 @@ router.post("/confirm/:token/dec-page", upload.fields([
             carrier_name: a.fmcsa_legal_name,
             pickup_address: a.pickup_address || "",
             origin: a.origin,
+            pickup_window_start: a.pickup_window_start || undefined,
+            pickup_window_end: a.pickup_window_end || undefined,
           });
 
           await query(
