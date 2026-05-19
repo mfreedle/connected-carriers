@@ -146,6 +146,7 @@ router.post("/confirm/:token", upload.fields([
   { name: "cdl", maxCount: 1 },
   { name: "insurance", maxCount: 1 },
   { name: "cab_card", maxCount: 1 },
+  { name: "declarations_page", maxCount: 1 },
 ]), async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
@@ -250,13 +251,13 @@ router.post("/confirm/:token", upload.fields([
     // ── Upload docs + OCR ─────────────────────────────────────────
 
     const files = req.files as Record<string, Express.Multer.File[]>;
-    const docInputs: Array<{ doc_type: "cdl" | "insurance" | "cab_card"; r2_key: string; file_url: string | null; parsed_data?: unknown; expiration_date?: string | null }> = [];
+    const docInputs: Array<{ doc_type: "cdl" | "insurance" | "cab_card" | "declarations_page"; r2_key: string; file_url: string | null; parsed_data?: unknown; expiration_date?: string | null }> = [];
 
     if (isR2Configured()) {
       const mc = a.mc_number || "unknown";
-      const { parseCDL, parseInsurance, parseVINPhoto } = await import("../doc-parser");
+      const { parseCDL, parseInsurance, parseVINPhoto, parseDeclarationsPage } = await import("../doc-parser");
 
-      for (const [field, docType] of [["cdl", "cdl"], ["insurance", "insurance"], ["cab_card", "cab_card"]] as const) {
+      for (const [field, docType] of [["cdl", "cdl"], ["insurance", "insurance"], ["cab_card", "cab_card"], ["declarations_page", "declarations_page"]] as const) {
         if (files[field]?.[0]) {
           const f = files[field][0];
           const uploaded = await uploadToR2(f.buffer, f.originalname, f.mimetype, `confirm/${mc}`);
@@ -307,6 +308,13 @@ router.post("/confirm/:token", upload.fields([
                   await query("UPDATE carrier_equipment SET vin_number = COALESCE(vin_number, $1), updated_at = NOW() WHERE id = $2", [parsed.vin, equipmentId]);
                 }
                 console.log(`[confirm OCR] Cab card VIN parsed: ${parsed.vin}`);
+              }
+            } else if (docType === "declarations_page" && presignedUrl) {
+              const parsed = await parseDeclarationsPage(presignedUrl);
+              if (parsed && Object.keys(parsed).length > 0) {
+                docInput.parsed_data = parsed;
+                docInput.expiration_date = parsed.expiration_date || null;
+                console.log(`[confirm OCR] Declarations page parsed: coverage=${parsed.coverage_type || "?"}, ${(parsed.vins || []).length} VINs`);
               }
             }
           } catch (ocrErr) {

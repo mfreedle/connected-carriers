@@ -824,6 +824,18 @@ export async function migrateVerification() {
   await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_equipment ON carrier_documents(equipment_id) WHERE equipment_id IS NOT NULL`);
   await query(`CREATE INDEX IF NOT EXISTS idx_cdoc_type ON carrier_documents(doc_type, status)`);
 
+  // ── Widen document type constraints to include declarations_page ──
+  // Legacy document_type (NOT NULL, original table)
+  await query(`ALTER TABLE carrier_documents DROP CONSTRAINT IF EXISTS carrier_documents_document_type_check`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD CONSTRAINT carrier_documents_document_type_check CHECK (document_type IN (
+    'coi','w9','signed_agreement','cdl','truck_photo','vin_photo','cab_card','rate_confirmation','declarations_page','other'
+  ))`).catch(() => {});
+  // Canonical doc_type (nullable — old rows may have NULL)
+  await query(`ALTER TABLE carrier_documents DROP CONSTRAINT IF EXISTS carrier_documents_doc_type_check`).catch(() => {});
+  await query(`ALTER TABLE carrier_documents ADD CONSTRAINT carrier_documents_doc_type_check CHECK (
+    doc_type IS NULL OR doc_type IN ('cdl', 'insurance', 'cab_card', 'truck_photo', 'w9', 'declarations_page')
+  )`).catch(() => {});
+
   // ── Add FKs from load_assignments to driver/equipment ────────────
   // These reference the new tables. Added as ALTER since load_assignments
   // was created before carrier_drivers/carrier_equipment exist.

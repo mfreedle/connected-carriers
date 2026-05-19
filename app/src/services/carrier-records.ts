@@ -28,7 +28,7 @@ export interface EquipmentInput {
 }
 
 export interface DocumentInput {
-  doc_type: "cdl" | "insurance" | "cab_card" | "truck_photo" | "w9";
+  doc_type: "cdl" | "insurance" | "cab_card" | "truck_photo" | "w9" | "declarations_page";
   r2_key?: string | null;
   file_url?: string | null;
   parsed_data?: unknown | null;
@@ -240,6 +240,13 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
              WHERE carrier_id=$1 AND (doc_type='insurance' OR document_type='coi') AND COALESCE(status,'current')='current'`,
             [carrier_id]
           );
+        } else if (doc.doc_type === "declarations_page") {
+          // Supersede declarations page at the carrier level (does NOT supersede insurance)
+          await query(
+            `UPDATE carrier_documents SET status='superseded', updated_at=NOW()
+             WHERE carrier_id=$1 AND (doc_type='declarations_page' OR document_type='declarations_page') AND COALESCE(status,'current')='current'`,
+            [carrier_id]
+          );
         }
 
         // Insert new document — populate both canonical and legacy columns
@@ -275,6 +282,7 @@ export async function syncCanonicalCarrierRecords(input: SyncInput): Promise<Syn
 function legacyDocumentTypes(docType: DocumentInput["doc_type"]): string[] {
   if (docType === "insurance") return ["coi"];
   if (docType === "cab_card") return ["cab_card", "vin_photo"];
+  if (docType === "declarations_page") return ["declarations_page"];
   return [docType];
 }
 

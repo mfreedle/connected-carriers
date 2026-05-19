@@ -165,6 +165,44 @@ Look carefully for VIN numbers — they are 17-character alphanumeric codes. Che
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
+export interface ParsedDeclarationsPage {
+  coverage_type?: "blanket" | "scheduled_vehicles" | "unknown";
+  vins?: string[];
+  policy_number?: string;
+  named_insured?: string;
+  effective_date?: string; // YYYY-MM-DD
+  expiration_date?: string; // YYYY-MM-DD
+  confidence?: {
+    coverage_type?: ConfidenceLevel;
+    vins?: ConfidenceLevel;
+  };
+}
+
+export async function parseDeclarationsPage(imageUrl: string): Promise<ParsedDeclarationsPage> {
+  const system = `You extract structured data from insurance policy declarations pages. These are insurer-issued documents that list covered vehicles or state blanket fleet coverage. Return ONLY valid JSON with no other text.
+
+IMPORTANT: This is NOT a Certificate of Insurance (ACORD 25). This is the actual policy declarations page from the insurer. Look for vehicle schedules, covered auto lists, or blanket coverage language.`;
+
+  const prompt = `Extract the following fields from this insurance declarations page. Return JSON only, no explanation:
+{
+  "coverage_type": "If the page lists specific vehicles with VINs → 'scheduled_vehicles'. If it states blanket coverage for all owned/leased vehicles or uses language like 'all owned autos', 'fleet coverage', or 'blanket' → 'blanket'. If you cannot determine → 'unknown'.",
+  "vins": ["list of all VIN numbers found on the page — 17-character alphanumeric codes"],
+  "policy_number": "the policy number if visible",
+  "named_insured": "the named insured / policyholder if visible — exactly as printed",
+  "effective_date": "YYYY-MM-DD policy effective date if visible",
+  "expiration_date": "YYYY-MM-DD policy expiration date if visible",
+  "confidence": {
+    "coverage_type": "high if coverage type is clearly stated, medium if inferred from context, low if guessing",
+    "vins": "high if VINs are clearly readable 17-character codes, medium if partially obscured, low if guessing. Use high if no VINs exist and you are returning an empty array for a blanket policy"
+  }
+}
+If a field is not visible or readable, omit it from the JSON.
+Look carefully for VIN numbers in vehicle schedules, covered auto lists, or endorsement pages.`;
+
+  const raw = await callClaude(system, imageUrl, prompt);
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
 export async function parseVINPhoto(imageUrl: string): Promise<ParsedVIN> {
   const system = "You extract Vehicle Identification Numbers (VINs) from photos of truck door plates, registration documents, or VIN stickers. Return ONLY valid JSON with no other text.";
   const prompt = `Extract the VIN number from this photo. Return JSON only, no explanation:
