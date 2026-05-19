@@ -20,7 +20,7 @@
  *    Expected: multiple warnings → REVIEW or DO_NOT_DISPATCH.
  *
  * Usage:
- *   npx ts-node app/test/fixtures/seed-test-carriers.ts
+ *   cd app && npx ts-node test/fixtures/seed-test-carriers.ts
  *
  * Prerequisites:
  *   - Database connection via DATABASE_URL

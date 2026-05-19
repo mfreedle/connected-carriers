@@ -39,11 +39,11 @@ Three dec page sub-fixtures are included:
 
 ```bash
 # Seed test carriers
-npx ts-node app/test/fixtures/seed-test-carriers.ts
-
-# Clean and re-seed
-npx ts-node app/test/fixtures/seed-test-carriers.ts --clean
+cd app
+npx ts-node test/fixtures/seed-test-carriers.ts
 ```
+
+The seed script resets only the reserved test MCs (`999001`-`999003`) before inserting fresh fixture rows, so it is safe to re-run when repeating smoke tests.
 
 After seeding, create a load in Kate's dashboard, have each test carrier apply via the load link, assign them, and confirm. The evaluator should return the expected result for each fixture.
 

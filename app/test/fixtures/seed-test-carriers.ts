@@ -2,10 +2,7 @@
  * Seed test carriers for insurance waterfall smoke tests.
  *
  * Usage:
- *   npx ts-node app/test/fixtures/seed-test-carriers.ts [--clean]
- *
- * Options:
- *   --clean   Remove existing test carriers (MC 999001-999003) before seeding.
+ *   cd app && npx ts-node test/fixtures/seed-test-carriers.ts
  *
  * Prerequisites:
  *   - DATABASE_URL environment variable
@@ -21,10 +18,11 @@
  * test carrier to verify the evaluator branches.
  */
 
-import { query, initDB } from "../../src/db";
+import { query, migrate } from "../../src/db";
 import { CLEAR_CARRIER, NEEDS_DEC_PAGE_CARRIER, REVIEW_CARRIER } from "./insurance-waterfall-fixtures";
 
 const TEST_MCS = ["999001", "999002", "999003"];
+type InsuranceFixture = typeof CLEAR_CARRIER | typeof NEEDS_DEC_PAGE_CARRIER | typeof REVIEW_CARRIER;
 
 async function clean() {
   console.log("[seed] Cleaning test carriers...");
@@ -32,19 +30,24 @@ async function clean() {
     const carrier = await query("SELECT id FROM carriers WHERE mc_number = $1", [mc]);
     if (carrier.rows.length) {
       const cid = carrier.rows[0].id;
+      const apps = await query("SELECT id FROM canonical_load_applications WHERE carrier_id = $1", [cid]);
+      const appIds = apps.rows.map((row) => row.id);
+      if (appIds.length > 0) {
+        await query("UPDATE canonical_loads SET assigned_applicant_id = NULL WHERE assigned_applicant_id = ANY($1::int[])", [appIds]);
+      }
+      // Clean load assignments/applications before driver/equipment because assignments may FK to them.
+      await query("DELETE FROM load_assignments WHERE carrier_id = $1", [cid]).catch(() => {});
+      await query("DELETE FROM canonical_load_applications WHERE carrier_id = $1", [cid]).catch(() => {});
       await query("DELETE FROM carrier_documents WHERE carrier_id = $1", [cid]);
       await query("DELETE FROM carrier_drivers WHERE carrier_id = $1", [cid]);
       await query("DELETE FROM carrier_equipment WHERE carrier_id = $1", [cid]);
-      // Clean load assignments/applications referencing this carrier
-      await query("DELETE FROM load_assignments WHERE carrier_id = $1", [cid]).catch(() => {});
-      await query("DELETE FROM canonical_load_applications WHERE carrier_id = $1", [cid]).catch(() => {});
       await query("DELETE FROM carriers WHERE id = $1", [cid]);
       console.log(`  Removed MC ${mc} (carrier_id ${cid})`);
     }
   }
 }
 
-async function seedCarrier(fixture: typeof CLEAR_CARRIER) {
+async function seedCarrier(fixture: InsuranceFixture) {
   // Upsert carrier
   const carrierResult = await query(
     `INSERT INTO carriers (mc_number, fmcsa_legal_name, fmcsa_status_text, authority_status, created_at)
@@ -101,13 +104,8 @@ async function seedCarrier(fixture: typeof CLEAR_CARRIER) {
 }
 
 async function main() {
-  const doClean = process.argv.includes("--clean");
-
-  await initDB();
-
-  if (doClean) {
-    await clean();
-  }
+  await migrate();
+  await clean();
 
   console.log("\n[seed] Seeding test carriers...\n");
 
@@ -125,7 +123,7 @@ async function main() {
   console.log("  MC 999002 → expected REVIEW + needs_dec_page (scheduled autos, no VINs on cert)");
   console.log("  MC 999003 → expected DO_NOT_DISPATCH (expired CDL, low coverage, low confidence)");
   console.log("\nTo test: create a load, have each carrier apply via /l/:slug, assign, and confirm.");
-  console.log("To clean: npx ts-node app/test/fixtures/seed-test-carriers.ts --clean");
+  console.log("To reset fixtures, run this script again.");
 
   process.exit(0);
 }
